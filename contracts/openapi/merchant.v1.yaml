@@ -1,0 +1,236 @@
+openapi: 3.1.0
+info:
+  title: DOF Merchant API
+  version: 1.0.0
+  description: >
+    Merchant Kernel (Module 1) — contract-first REST per BLUEPRINT-001 §4.
+    Every command endpoint passes the triple gate: RBAC → Entitlement → Trust/Standing.
+    Errors are RFC 9457 application/problem+json with stable `code` values.
+servers:
+  - url: /api/v1
+security:
+  - identitySession: []
+components:
+  securitySchemes:
+    identitySession:
+      type: apiKey
+      in: cookie
+      name: dof_session
+      description: Identity-domain session (dev mode accepts x-dof-user-id header; never in production).
+  parameters:
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, minLength: 8, maxLength: 128 }
+      description: Stored 24h; same key + same body replays the stored response; same key + different body → 409 IDEMPOTENCY_CONFLICT.
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details.
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code:
+          type: string
+          enum: [AUTH_REQUIRED, PERMISSION_DENIED, CAPABILITY_MISSING, STANDING_BLOCKED, TRUST_LEVEL_REQUIRED,
+                 STEP_UP_REQUIRED, MERCHANT_INELIGIBLE, TIER_LIMIT_REACHED, NOT_FOUND, CONFLICT, HANDLE_TAKEN,
+                 INVALID_TRANSITION, STORE_NOT_PUBLISHABLE, ENFORCEMENT_HOLD, VALIDATION_FAILED, RATE_LIMITED,
+                 IDEMPOTENCY_CONFLICT, INTERNAL]
+        details: {}
+      required: [title, status, code]
+    CreateBusinessRequest:
+      type: object
+      additionalProperties: false
+      required: [display_name, business_type]
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 120 }
+        business_type: { type: string, enum: [individual, registered] }
+    BusinessSummary:
+      type: object
+      required: [business_id, membership_id, merchant_id, display_name, business_type, trust_level, scale_tier, standing]
+      properties:
+        business_id: { type: string, format: uuid }
+        membership_id: { type: string, format: uuid }
+        merchant_id: { type: string, format: uuid }
+        display_name: { type: string }
+        business_type: { type: string, enum: [individual, registered] }
+        trust_level: { type: string, enum: [unverified, identity_verified, business_verified, banking_verified] }
+        scale_tier: { type: string, enum: [starter, growth, established, enterprise] }
+        standing: { type: string, enum: [good, flagged, restricted, suspended, banned] }
+    CreateStoreRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        handle: { type: string, pattern: '^[a-z0-9](?:[a-z0-9-]{1,28})[a-z0-9]$' }
+    Store:
+      type: object
+      required: [store_id, business_id, handle, name, status, enforcement_hold]
+      properties:
+        store_id: { type: string, format: uuid }
+        business_id: { type: string, format: uuid }
+        handle: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [draft, live, paused, archived, closed, deleted] }
+        enforcement_hold: { type: string, enum: [none, under_review, suspended] }
+    BrandKitUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        logo_media_id: { type: [string, 'null'], format: uuid }
+        palette:
+          type: object
+          additionalProperties: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+        typography:
+          type: object
+          additionalProperties: { type: string }
+        voice:
+          type: object
+          additionalProperties: false
+          properties:
+            tone: { type: string, maxLength: 200 }
+            keywords: { type: array, maxItems: 10, items: { type: string, maxLength: 40 } }
+    BrandKit:
+      type: object
+      required: [store_id, name, logo_media_id, palette, typography, voice]
+      properties:
+        store_id: { type: string, format: uuid }
+        name: { type: string }
+        logo_media_id: { type: [string, 'null'], format: uuid }
+        palette: { type: object, additionalProperties: { type: string } }
+        typography: { type: object, additionalProperties: { type: string } }
+        voice: { type: object }
+    PublishStoreResponse:
+      type: object
+      required: [store_id, status, published_at, store_url]
+      properties:
+        store_id: { type: string, format: uuid }
+        status: { type: string, enum: [live] }
+        published_at: { type: string, format: date-time }
+        store_url: { type: string }
+    WorkspaceOverview:
+      type: object
+      required: [merchant, businesses]
+      properties:
+        merchant:
+          type: [object, 'null']
+          properties:
+            merchant_id: { type: string, format: uuid }
+            display_name: { type: string }
+        businesses:
+          type: array
+          items:
+            type: object
+            properties:
+              business_id: { type: string, format: uuid }
+              display_name: { type: string }
+              business_type: { type: string }
+              trust_level: { type: string }
+              scale_tier: { type: string }
+              standing: { type: string }
+              membership:
+                type: object
+                properties:
+                  membership_id: { type: string, format: uuid }
+                  roles: { type: array, items: { type: string } }
+                  store_scope: { type: [array, 'null'], items: { type: string, format: uuid } }
+              capabilities: { type: array, items: { type: string } }
+              stores:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    store_id: { type: string, format: uuid }
+                    handle: { type: string }
+                    name: { type: string }
+                    status: { type: string }
+                    enforcement_hold: { type: string }
+                    completion_score: { type: number }
+                    published_at: { type: [string, 'null'] }
+  responses:
+    Problem401: { description: AUTH_REQUIRED, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem403: { description: PERMISSION_DENIED | CAPABILITY_MISSING | STANDING_BLOCKED | TRUST_LEVEL_REQUIRED, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem404: { description: NOT_FOUND (also masks cross-tenant probes), content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem409: { description: CONFLICT | HANDLE_TAKEN | STORE_NOT_PUBLISHABLE | INVALID_TRANSITION | IDEMPOTENCY_CONFLICT, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem422: { description: VALIDATION_FAILED, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem423: { description: ENFORCEMENT_HOLD — store status and enforcement hold are orthogonal (ADR-001 §7.2), content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Problem429: { description: RATE_LIMITED, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+paths:
+  /workspace:
+    get:
+      operationId: getWorkspace
+      summary: Merchant workspace bootstrap (memberships, businesses, stores, effective capabilities)
+      responses:
+        '200': { description: OK (empty workspace when the user is not yet a merchant), content: { application/json: { schema: { $ref: '#/components/schemas/WorkspaceOverview' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+  /businesses:
+    post:
+      operationId: createBusiness
+      summary: Create a business (One Identity — first business makes the user a merchant)
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBusinessRequest' } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/BusinessSummary' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+        '429': { $ref: '#/components/responses/Problem429' }
+  /businesses/{businessId}/stores:
+    post:
+      operationId: createStore
+      summary: Create a store (draft; default BrandKit, policies, and storefront config included)
+      parameters:
+        - { name: businessId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateStoreRequest' } } }
+      responses:
+        '201': { description: Created (status=draft), content: { application/json: { schema: { $ref: '#/components/schemas/Store' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /stores/{storeId}/brand-kit:
+    put:
+      operationId: updateBrandKit
+      summary: Replace the store BrandKit (VO — whole-document PUT, never PATCH)
+      parameters:
+        - { name: storeId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/BrandKitUpdateRequest' } } }
+      responses:
+        '200': { description: Replaced, content: { application/json: { schema: { $ref: '#/components/schemas/BrandKit' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '422': { $ref: '#/components/responses/Problem422' }
+  /stores/{storeId}/publish:
+    post:
+      operationId: publishStore
+      summary: Publish the store (Draft/Paused → Live; emits merchant.store.published)
+      parameters:
+        - { name: storeId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': { description: Live, content: { application/json: { schema: { $ref: '#/components/schemas/PublishStoreResponse' } } } }
+        '401': { $ref: '#/components/responses/Problem401' }
+        '403': { $ref: '#/components/responses/Problem403' }
+        '404': { $ref: '#/components/responses/Problem404' }
+        '409': { $ref: '#/components/responses/Problem409' }
+        '423': { $ref: '#/components/responses/Problem423' }

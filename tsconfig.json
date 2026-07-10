@@ -1,0 +1,40 @@
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@ds": [
+        "./app/design-system"
+      ],
+      "@ds/*": [
+        "./app/design-system/*"
+      ],
+      "@domains/*": [
+        "./domains/*"
+      ],
+      "@shared/*": [
+        "./shared/*"
+      ],
+      "@contracts/*": [
+        "./contracts/*"
+      ],
+      "@platform/*": [
+        "./platform/*"
+      ]
+    }
+  },
+  "include": [
+    ".nuxt/nuxt.d.ts",
+    "app/**/*",
+    "server/**/*",
+    "domains/**/*",
+    "platform/**/*",
+    "shared/**/*",
+    "contracts/**/*",
+    "db/**/*",
+    "tests/**/*"
+  ]
+}

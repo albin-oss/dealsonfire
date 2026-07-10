@@ -1,0 +1,246 @@
+/**
+ * DOF Design Tokens — the deepest contract (DESIGN-SYSTEM-001 §2).
+ *
+ * Three tiers:
+ *   --dof-ref-*  primitive scales (this file)            — never consumed by components
+ *   --dof-sys-*  semantic roles  (scopes/workspace.css,  — the ONLY tier components consume
+ *                                 scopes/storefront.css)
+ *   --dof-cmp-*  component tokens                        — defined per component when a sys
+ *                                                          token needs per-scope variation
+ *
+ * CSS is the source of truth (DS-4): `npm run tokens:generate` derives
+ * tokens.generated.ts from this file; a sync test keeps them identical.
+ * Raw visual values may exist ONLY in tokens/ — check:tokens enforces this.
+ */
+
+@import 'tailwindcss';
+
+@import './scopes/workspace.css';
+@import './scopes/storefront.css';
+@import './scopes/marketplace.css';
+@import './scopes/admin.css';
+
+/* ————————————————————————————————————————— ref tier: primitive scales */
+:root {
+  /* Warm neutral ramp (workspace voice: warm precision) */
+  --dof-ref-neutral-0: oklch(99.2% 0.004 84);
+  --dof-ref-neutral-50: oklch(97.6% 0.005 84);
+  --dof-ref-neutral-100: oklch(95% 0.006 84);
+  --dof-ref-neutral-200: oklch(90.5% 0.007 84);
+  --dof-ref-neutral-300: oklch(84% 0.008 84);
+  --dof-ref-neutral-400: oklch(70% 0.01 84);
+  --dof-ref-neutral-450: oklch(64% 0.011 84);
+  --dof-ref-neutral-500: oklch(42% 0.012 84);
+  --dof-ref-neutral-600: oklch(39.5% 0.012 84);
+  --dof-ref-neutral-700: oklch(37% 0.011 84);
+  --dof-ref-neutral-800: oklch(27% 0.009 84);
+  --dof-ref-neutral-900: oklch(21% 0.008 84);
+  --dof-ref-neutral-950: oklch(15.5% 0.007 84);
+
+  /* The one living accent (calm, decisive) */
+  --dof-ref-accent-300: oklch(76% 0.09 255);
+  --dof-ref-accent-500: oklch(51% 0.13 255);
+  --dof-ref-accent-600: oklch(44% 0.13 255);
+  --dof-ref-accent-700: oklch(38% 0.12 255);
+
+  /* Ember — reserved for heat: deals, launches, moments (UX-BIBLE §11) */
+  --dof-ref-ember-300: oklch(76% 0.13 45);
+  --dof-ref-ember-500: oklch(63% 0.185 40);
+  --dof-ref-ember-600: oklch(51% 0.16 38);
+
+  /* Status hues (low saturation — calm). The -600/-300 steps are the AA-safe text
+     colors for light/dark surfaces respectively (verified by the axe gate G-3). */
+  --dof-ref-positive-300: oklch(74% 0.1 155);
+  --dof-ref-positive-600: oklch(46% 0.105 155);
+  --dof-ref-caution-300: oklch(76% 0.11 80);
+  --dof-ref-caution-700: oklch(48% 0.1 75);
+  --dof-ref-critical-300: oklch(74% 0.12 25);
+  --dof-ref-critical-600: oklch(46% 0.15 25);
+  --dof-ref-info-300: oklch(74% 0.09 230);
+  --dof-ref-info-600: oklch(46% 0.09 235);
+
+  /* Type scale (fluid at the display end only) */
+  --dof-ref-text-caption: 0.8125rem;
+  --dof-ref-text-body: 0.9375rem;
+  --dof-ref-text-emphasis: 1.0625rem;
+  --dof-ref-text-title: 1.375rem;
+  --dof-ref-text-headline: 1.75rem;
+  --dof-ref-text-display: clamp(2.125rem, 1.5rem + 2.5vw, 3.25rem);
+
+  /* Radius voice */
+  --dof-ref-radius-1: 0.375rem;
+  --dof-ref-radius-2: 0.625rem;
+  --dof-ref-radius-3: 1rem;
+
+  /* Motion — the Bible §6.2 tempo bands (the only durations that exist) */
+  --dof-ref-duration-instant: 100ms;
+  --dof-ref-duration-quick: 200ms;
+  --dof-ref-duration-deliberate: 400ms;
+  --dof-ref-duration-celebration: 1100ms;
+  --dof-ref-ease-settle: cubic-bezier(0.2, 0, 0, 1);
+  --dof-ref-ease-enter: cubic-bezier(0, 0, 0.2, 1);
+  --dof-ref-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Elevation recipes (semantic only — flat/raised/overlay/spotlight) */
+  --dof-ref-shadow-raised: 0 1px 2px oklch(20% 0.01 84 / 0.07), 0 2px 8px oklch(20% 0.01 84 / 0.05);
+  --dof-ref-shadow-overlay: 0 4px 12px oklch(20% 0.01 84 / 0.1), 0 12px 32px oklch(20% 0.01 84 / 0.12);
+  --dof-ref-shadow-spotlight: 0 8px 24px oklch(20% 0.01 84 / 0.14), 0 24px 64px oklch(20% 0.01 84 / 0.18);
+
+  /* A11y floors */
+  --dof-ref-target-min: 2.75rem; /* 44px */
+  --dof-ref-focus-ring-width: 2px;
+  --dof-ref-focus-ring-offset: 2px;
+
+  /* Borders */
+  --dof-ref-border-hairline: 1px;
+  --dof-ref-border-strong: 2px;
+
+  /* Opacity roles */
+  --dof-ref-opacity-disabled: 0.45;
+  --dof-ref-opacity-hint: 0.6;
+  --dof-ref-opacity-scrim: 0.4;
+
+  /* Layer order (one interruption layer max — Bible §15) */
+  --dof-ref-z-base: 0;
+  --dof-ref-z-sticky: 10;
+  --dof-ref-z-overlay: 20;
+  --dof-ref-z-toast: 30;
+  --dof-ref-z-ceremony: 40;
+}
+
+/* ——————————————————————————— Tailwind bridge: sys roles become utilities.
+   Components write `bg-surface`, `text-muted-foreground`… — never raw values. */
+@theme inline {
+  --color-*: initial;
+
+  --color-surface: var(--dof-sys-color-surface);
+  --color-surface-raised: var(--dof-sys-color-surface-raised);
+  --color-surface-sunken: var(--dof-sys-color-surface-sunken);
+  --color-foreground: var(--dof-sys-color-text);
+  --color-muted-foreground: var(--dof-sys-color-text-muted);
+  --color-faint-foreground: var(--dof-sys-color-text-faint);
+  --color-line: var(--dof-sys-color-line);
+  --color-accent: var(--dof-sys-color-accent);
+  --color-accent-strong: var(--dof-sys-color-accent-strong);
+  --color-on-accent: var(--dof-sys-color-on-accent);
+  --color-positive: var(--dof-sys-color-positive);
+  --color-caution: var(--dof-sys-color-caution);
+  --color-critical: var(--dof-sys-color-critical);
+  --color-info: var(--dof-sys-color-info);
+  --color-ember: var(--dof-sys-color-ember);
+  --color-on-ember: var(--dof-sys-color-on-ember);
+  --color-focus: var(--dof-sys-color-focus);
+
+  --font-ui: var(--dof-sys-font-ui);
+  --font-reading: var(--dof-sys-font-reading);
+  --font-numeric: var(--dof-sys-font-numeric);
+
+  --text-caption: var(--dof-ref-text-caption);
+  --text-caption--line-height: 1.4;
+  --text-body: var(--dof-ref-text-body);
+  --text-body--line-height: 1.55;
+  --text-emphasis: var(--dof-ref-text-emphasis);
+  --text-emphasis--line-height: 1.5;
+  --text-title: var(--dof-ref-text-title);
+  --text-title--line-height: 1.3;
+  --text-headline: var(--dof-ref-text-headline);
+  --text-headline--line-height: 1.25;
+  --text-display: var(--dof-ref-text-display);
+  --text-display--line-height: 1.12;
+
+  --radius-*: initial;
+  --radius-small: var(--dof-sys-radius-small);
+  --radius-medium: var(--dof-sys-radius-medium);
+  --radius-large: var(--dof-sys-radius-large);
+  --radius-full: 9999px;
+
+  --shadow-*: initial;
+  --shadow-raised: var(--dof-ref-shadow-raised);
+  --shadow-overlay: var(--dof-ref-shadow-overlay);
+  --shadow-spotlight: var(--dof-ref-shadow-spotlight);
+
+  --ease-*: initial;
+  --ease-settle: var(--dof-ref-ease-settle);
+  --ease-enter: var(--dof-ref-ease-enter);
+  --ease-exit: var(--dof-ref-ease-exit);
+
+  /* Postures, not devices (DS-9): compact is the default; these are the doors up. */
+  --breakpoint-*: initial;
+  --breakpoint-regular: 40rem;
+  --breakpoint-wide: 64rem;
+
+  /* Container-query steps (DS-9: components answer to their container) */
+  --container-*: initial;
+  --container-2up: 28rem;
+  --container-3up: 44rem;
+  --container-4up: 60rem;
+}
+
+/* Motion tempo utilities — the only way to state a duration outside tokens/ */
+@utility tempo-instant {
+  transition-duration: var(--dof-ref-duration-instant);
+  animation-duration: var(--dof-ref-duration-instant);
+}
+@utility tempo-quick {
+  transition-duration: var(--dof-ref-duration-quick);
+  animation-duration: var(--dof-ref-duration-quick);
+}
+@utility tempo-deliberate {
+  transition-duration: var(--dof-ref-duration-deliberate);
+  animation-duration: var(--dof-ref-duration-deliberate);
+}
+@utility tempo-celebration {
+  transition-duration: var(--dof-ref-duration-celebration);
+  animation-duration: var(--dof-ref-duration-celebration);
+}
+
+/* Named layers — z-index integers are banned outside tokens/ */
+@utility layer-base { z-index: var(--dof-ref-z-base); }
+@utility layer-sticky { z-index: var(--dof-ref-z-sticky); }
+@utility layer-overlay { z-index: var(--dof-ref-z-overlay); }
+@utility layer-toast { z-index: var(--dof-ref-z-toast); }
+@utility layer-ceremony { z-index: var(--dof-ref-z-ceremony); }
+
+/* A11y utilities */
+@utility focus-ring {
+  outline: var(--dof-ref-focus-ring-width) solid var(--dof-sys-color-focus);
+  outline-offset: var(--dof-ref-focus-ring-offset);
+}
+@utility target-min {
+  min-block-size: var(--dof-ref-target-min);
+  min-inline-size: var(--dof-ref-target-min);
+}
+@utility opacity-disabled { opacity: var(--dof-ref-opacity-disabled); }
+@utility opacity-hint { opacity: var(--dof-ref-opacity-hint); }
+
+/* High contrast (§6): when the user asks for more contrast, the quiet roles firm up —
+   token-level, so every component inherits it with zero per-component work. */
+@media (prefers-contrast: more) {
+  :root, [data-scope] {
+    --dof-sys-color-text-muted: var(--dof-sys-color-text);
+    --dof-sys-color-text-faint: var(--dof-ref-neutral-600);
+    --dof-sys-color-line: var(--dof-ref-neutral-600);
+  }
+  [data-mode='dark'], [data-mode='dark'] [data-scope] {
+    --dof-sys-color-text-faint: var(--dof-ref-neutral-300);
+    --dof-sys-color-line: var(--dof-ref-neutral-400);
+  }
+}
+
+/* Touch floors (§11): every interactive primitive carries .dof-interactive; on coarse
+   pointers it is guaranteed the 44px target even when visually smaller on desktop. */
+@media (pointer: coarse) {
+  .dof-interactive {
+    min-block-size: var(--dof-ref-target-min);
+  }
+}
+
+/* Reduced motion: full parity is implemented per pattern (§7); this is the floor
+   that guarantees nothing keeps moving for users who asked it not to. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

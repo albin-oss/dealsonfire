@@ -1,0 +1,515 @@
+{
+  "_comment": "ADR-004 rules 20/25 \u2014 the table manifest: the single machine-readable stewardship record. Every table has exactly one owner; migrations may only touch owned tables; CI fails on unmanifested tables. Classes: aggregate|ledger|event|read_model|operational|registry. PII tiers: P0 none, P1 pseudonymous ids, P2 personal, P3 sensitive. Delete classes: tombstone|transition|windowed|never.",
+  "tables": [
+    {
+      "table": "merchant_accounts",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "user_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "display_name"
+      ],
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [
+        {
+          "column": "user_id",
+          "target_domain": "identity",
+          "target_concept": "user",
+          "cleanup_event": "identity.user.deactivated (future)",
+          "reconciliation": "orphaned-merchant-account reconciler required when Identity domain lands"
+        }
+      ]
+    },
+    {
+      "table": "businesses",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "display_name"
+      ],
+      "pii_note": "sole-proprietor business names are frequently personal names \u2014 treated as P2 conservatively",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "store_handles",
+      "owner": "merchant",
+      "class": "ledger",
+      "tenancy_key": null,
+      "scope_key": "handle",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "stores",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "brand_kits",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": [
+        {
+          "column": "logo_media_id",
+          "target_domain": "media",
+          "target_concept": "asset",
+          "cleanup_event": "media.asset.deleted (future)",
+          "reconciliation": "dangling-MediaRef reconciler required when Media domain lands"
+        }
+      ]
+    },
+    {
+      "table": "storefront_configs",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "staff_memberships",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_columns": [
+        "principal_id"
+      ],
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": [
+        {
+          "column": "principal_id",
+          "target_domain": "identity",
+          "target_concept": "user (when principal_type = user)",
+          "cleanup_event": "identity.user.deactivated (future) -> membership revocation",
+          "reconciliation": "active-membership-for-deactivated-user reconciler required when Identity lands"
+        }
+      ]
+    },
+    {
+      "table": "capabilities",
+      "owner": "merchant",
+      "class": "registry",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "business_entitlements",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "domain_events",
+      "owner": "merchant",
+      "class": "event",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids; payloads are constitutionally PII-free (ADR-004 rule 19)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard and cannot include a partition key",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "outbox_events",
+      "owner": "merchant",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": "partition_key (owner-defined ordering scope, D-19)",
+      "pii_tier": "P0",
+      "retention": "windowed(7d after dispatch)",
+      "delete_class": "windowed",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "event_deliveries",
+      "owner": "merchant",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "permanent (idempotency ledger follows domain_events retention)",
+      "delete_class": "never",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "audit_logs",
+      "owner": "merchant",
+      "class": "ledger",
+      "tenancy_key": "business_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "context.ip"
+      ],
+      "pii_note": "IP addresses are personal data (GDPR); digests are PII-minimized by design (D-10)",
+      "retention": "regulatory (monthly partitions to cold storage per compliance schedule)",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "request_idempotency_keys",
+      "owner": "platform",
+      "ownership_note": "K2 (BLUEPRINT-002 \u00a70): (key, endpoint, actor) carries no domain data; one table serves every domain",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": "actor_key",
+      "pii_tier": "P1",
+      "retention": "windowed(24h)",
+      "delete_class": "windowed",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "schema_migrations",
+      "owner": "platform",
+      "class": "registry",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "created_by": "migration runner, not a migration file",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "commerce_domain_events",
+      "owner": "commerce",
+      "class": "event",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids; payloads are constitutionally PII-free (ADR-004 rule 19)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "commerce_outbox_events",
+      "owner": "commerce",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": "partition_key (owner-defined ordering scope, D-19: business_id for commerce)",
+      "pii_tier": "P0",
+      "retention": "windowed(7d after dispatch)",
+      "delete_class": "windowed",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "commerce_event_deliveries",
+      "owner": "commerce",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "permanent (follows commerce_domain_events)",
+      "delete_class": "never",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "commerce_audit_logs",
+      "owner": "commerce",
+      "class": "ledger",
+      "tenancy_key": "business_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "context.ip"
+      ],
+      "retention": "regulatory (monthly partitions to cold storage)",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "products",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "partitioning_note": "hash-partition-ready on business_id (BLUEPRINT-002 \u00a72.1); PK gains business_id at partition time",
+      "cross_domain_refs": [
+        {
+          "column": "business_id",
+          "target_domain": "merchant",
+          "target_concept": "business",
+          "cleanup_event": "merchant.business.closed -> archive products (future policy)",
+          "reconciliation": "orphaned-product reconciler required with the standing-consequence commerce limb"
+        }
+      ]
+    },
+    {
+      "table": "product_variants",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "note": "child rows of the products aggregate; replaced whole-aggregate by the repository",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "product_media",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "note": "child rows of the products aggregate",
+      "cross_domain_refs": [
+        {
+          "column": "media_id",
+          "target_domain": "media",
+          "target_concept": "asset",
+          "cleanup_event": "media.asset.deleted (future)",
+          "reconciliation": "dangling-MediaRef reconciler required when Media domain lands"
+        }
+      ]
+    },
+    {
+      "table": "operations_domain_events",
+      "owner": "operations",
+      "class": "event",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids; payloads are constitutionally PII-free (ADR-004 rule 19)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "operations_outbox_events",
+      "owner": "operations",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 7d after dispatch",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "operations_event_deliveries",
+      "owner": "operations",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed with outbox",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "operations_audit_logs",
+      "owner": "operations",
+      "class": "ledger",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids only; digests are PII-free by review",
+      "retention": "permanent (month-partitioned)",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "locations",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "address",
+        "pickup_instructions"
+      ],
+      "pii_note": "merchant business addresses (not buyer PII); redaction-listed in logs",
+      "retention": "permanent",
+      "delete_class": "tombstone (status=closed; L2 forbids closing with stock)",
+      "cross_domain_refs": [
+        {
+          "column": "business_id",
+          "target_domain": "merchant",
+          "target_concept": "business",
+          "cleanup_event": "merchant.business.closed (future reconciler)",
+          "reconciliation": "locations of closed businesses become read-only via the gate; no cascade (ADR-004)"
+        }
+      ]
+    },
+    {
+      "table": "identity_domain_events",
+      "owner": "identity",
+      "class": "event",
+      "tenancy_key": null,
+      "pii_tier": "P1",
+      "pii_note": "actor ids; payloads PII-free (rule 19)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type,aggregate_id,sequence) guard",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "identity_outbox_events",
+      "owner": "identity",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 7d",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "identity_event_deliveries",
+      "owner": "identity",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed with outbox",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "identity_audit_logs",
+      "owner": "identity",
+      "class": "ledger",
+      "tenancy_key": null,
+      "pii_tier": "P1",
+      "pii_note": "actor ids; digests PII-free by review",
+      "retention": "permanent (month-partitioned)",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "users",
+      "owner": "identity",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "email",
+        "display_name"
+      ],
+      "retention": "permanent",
+      "delete_class": "tombstone (status=deactivated)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "user_credentials",
+      "owner": "identity",
+      "class": "child",
+      "tenancy_key": null,
+      "pii_tier": "P3",
+      "pii_columns": [
+        "password_hash"
+      ],
+      "pii_note": "argon2id hash \u2014 irreversible; finance-grade secret handling",
+      "retention": "with user",
+      "delete_class": "cascade-with-user (RESTRICT + app tombstone)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "user_passkeys",
+      "owner": "identity",
+      "class": "child",
+      "tenancy_key": null,
+      "pii_tier": "P3",
+      "pii_columns": [
+        "public_key",
+        "credential_id"
+      ],
+      "retention": "with user",
+      "delete_class": "tombstone",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "user_sessions",
+      "owner": "identity",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P2",
+      "pii_columns": [
+        "token_hash",
+        "user_agent"
+      ],
+      "pii_note": "token stored hashed (sha-256); never reversible",
+      "retention": "until absolute expiry + 30d purge",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "user_recovery_tokens",
+      "owner": "identity",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P2",
+      "pii_columns": [
+        "token_hash"
+      ],
+      "retention": "until expiry + purge",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "guest_tokens",
+      "owner": "identity",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P1",
+      "pii_columns": [
+        "token_hash"
+      ],
+      "retention": "until expiry + purge",
+      "delete_class": "purge",
+      "cross_domain_refs": [
+        {
+          "column": "scope_ref",
+          "target_domain": "orders",
+          "target_concept": "order",
+          "cleanup_event": "n/a (opaque scope)",
+          "reconciliation": "scope-generic; Orders binds order refs in R1-B5"
+        }
+      ]
+    },
+    {
+      "table": "identity_claims",
+      "owner": "identity",
+      "class": "child",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "cross_domain_refs": []
+    }
+  ]
+}

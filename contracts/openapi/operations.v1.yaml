@@ -1,0 +1,69 @@
+openapi: 3.1.0
+info:
+  title: DOF Operations API
+  version: 1.0.0
+  description: >
+    Merchant Operations — OPS-001 Batch 1 (Locations). Kernel laws apply: RFC 9457
+    problem+json with stable codes, Idempotency-Key on commands, existence masking
+    (cross-tenant → 404), step-up on sensitive operations. The Ghost default location
+    is system-authored and appears in lists with `ghost: true`.
+components:
+  parameters:
+    businessId: { name: businessId, in: path, required: true, schema: { type: string, format: uuid } }
+    locationId: { name: locationId, in: path, required: true, schema: { type: string, format: uuid } }
+    idempotencyKey: { name: Idempotency-Key, in: header, schema: { type: string, maxLength: 200 } }
+  schemas:
+    Location:
+      type: object
+      required: [location_id, business_id, kind, name, status, is_default, ghost]
+      properties:
+        location_id: { type: string, format: uuid }
+        business_id: { type: string, format: uuid }
+        kind: { type: string, enum: [home, store, warehouse, fulfillment_center, partner, temporary, popup] }
+        name: { type: string, maxLength: 80 }
+        address: { type: [object, 'null'] }
+        pickup_instructions: { type: [string, 'null'], maxLength: 500 }
+        operating_window: { type: [object, 'null'] }
+        status: { type: string, enum: [active, closed] }
+        is_default: { type: boolean }
+        ghost: { type: boolean, description: system-authored AND merchant-untouched (persisted fact, D-39); the first merchant edit clears it. UIs hide it while it is the only location }
+paths:
+  /businesses/{businessId}/locations:
+    post:
+      operationId: createLocation
+      summary: Create a location (never the default — the Ghost owns that flag, L1)
+      parameters: [{ $ref: '#/components/parameters/businessId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }
+        '401': { description: AUTH_REQUIRED }
+        '403': { description: PERMISSION_DENIED | CAPABILITY_MISSING (ops.locations is Growth-tier; creation only — managing existing locations is permission-based, D-39) | STANDING_BLOCKED }
+        '404': { description: NOT_FOUND (masks cross-tenant businesses) }
+        '422': { description: VALIDATION_FAILED (popup/temporary need an operating window — L4) }
+    get:
+      operationId: listLocations
+      summary: List locations (lazily ensures the Ghost default; ghost flagged in the DTO)
+      parameters: [{ $ref: '#/components/parameters/businessId' }]
+      responses:
+        '200': { description: OK }
+        '401': { description: AUTH_REQUIRED }
+        '404': { description: NOT_FOUND (masking) }
+  /locations/{locationId}:
+    patch:
+      operationId: updateLocation
+      summary: Update name/address/pickup/window — detected changes only (D-29)
+      parameters: [{ $ref: '#/components/parameters/locationId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }
+        '404': { description: NOT_FOUND (masking) }
+        '409': { description: INVALID_TRANSITION (closed locations are read-only) }
+        '422': { description: VALIDATION_FAILED }
+  /locations/{locationId}/close:
+    post:
+      operationId: closeLocation
+      summary: Close a location (step-up required; refuses while stock remains — L2)
+      parameters: [{ $ref: '#/components/parameters/locationId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '200': { description: Closed (idempotent), content: { application/json: { schema: { $ref: '#/components/schemas/Location' } } } }
+        '403': { description: STEP_UP_REQUIRED | PERMISSION_DENIED }
+        '404': { description: NOT_FOUND (masking) }
+        '409': { description: LOCATION_HAS_STOCK | CONFLICT (default location cannot close) }

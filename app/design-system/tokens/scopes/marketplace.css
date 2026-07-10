@@ -1,0 +1,27 @@
+/**
+ * Marketplace scope — the customer-facing platform voice (UI-FOUNDATION-001A §1).
+ * INHERITS the workspace resolution (scopes cascade: any sys token not re-declared
+ * here resolves from the ancestor/:root workspace values) and re-voices only what
+ * makes the marketplace a stage: the brightest surface (product photography is the
+ * hero — UX-BIBLE §11 Merchant-as-Hero applies to buyers too) and a softer sunken
+ * step so chrome recedes further.
+ *
+ * Scope-count note (D-34): DESIGN-SYSTEM-001 DS-2 named two scopes; marketplace and
+ * admin are thin platform-owned resolutions of the SAME semantic layer — the
+ * mechanism (one sys tier, N resolutions) is unchanged.
+ */
+
+[data-scope='marketplace'] {
+  --dof-sys-color-surface: var(--dof-ref-neutral-0);
+  --dof-sys-color-surface-raised: var(--dof-ref-neutral-0);
+  --dof-sys-color-surface-sunken: var(--dof-ref-neutral-50);
+  --dof-sys-color-line: var(--dof-ref-neutral-100);
+}
+
+[data-scope='marketplace'][data-mode='dark'],
+[data-mode='dark'] [data-scope='marketplace'] {
+  --dof-sys-color-surface: var(--dof-ref-neutral-950);
+  --dof-sys-color-surface-raised: var(--dof-ref-neutral-900);
+  --dof-sys-color-surface-sunken: var(--dof-ref-neutral-900);
+  --dof-sys-color-line: var(--dof-ref-neutral-800);
+}

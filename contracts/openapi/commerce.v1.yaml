@@ -1,0 +1,276 @@
+openapi: 3.1.0
+info:
+  title: DOF Commerce API — Products
+  version: 1.0.0
+  description: >
+    Product vertical slice (IMP-COM-001B). Every command passes the merchant triple gate
+    (RBAC -> Entitlement -> Trust/Standing); errors are RFC 9457 application/problem+json
+    with stable codes; mutating requests honor Idempotency-Key; cross-tenant probes answer
+    404 (existence masking).
+servers:
+  - url: /api/v1
+security:
+  - identitySession: []
+components:
+  securitySchemes:
+    identitySession:
+      type: apiKey
+      in: cookie
+      name: dof_session
+  parameters:
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    productId:
+      name: productId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code: { type: string }
+        details: {}
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { type: integer, minimum: 0, description: integer minor units — floats are constitutionally banned }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+    Product:
+      type: object
+      required: [product_id, business_id, title, fulfillment_kind, status, options, variants, media, readiness]
+      properties:
+        product_id: { type: string, format: uuid }
+        business_id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: [object, 'null'] }
+        fulfillment_kind: { type: string, enum: [physical, digital, service] }
+        category_path: { type: [string, 'null'] }
+        status: { type: string, enum: [draft, active, archived] }
+        options: { type: array, items: { type: object } }
+        variants: { type: array, items: { type: object } }
+        media: { type: array, items: { type: object } }
+        ai_provenance: { type: object }
+        readiness:
+          type: object
+          properties:
+            ready: { type: boolean }
+            missing: { type: array, items: { type: string } }
+            recommended: { type: array, items: { type: string } }
+    ProductPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items: { type: array, items: { type: object } }
+        next_cursor: { type: [string, 'null'] }
+paths:
+  /products:
+    post:
+      operationId: createProduct
+      summary: Create a product (born draft; silent default variant when no options declared)
+      parameters: [{ $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '401': { description: AUTH_REQUIRED }
+        '403': { description: PERMISSION_DENIED | CAPABILITY_MISSING | STANDING_BLOCKED | TIER_LIMIT_REACHED }
+        '404': { description: NOT_FOUND (masks cross-tenant businesses) }
+        '409': { description: CONFLICT | SKU_TAKEN }
+        '422': { description: VALIDATION_FAILED }
+    get:
+      operationId: listProducts
+      summary: Merchant-scoped catalog grid (keyset cursor pagination)
+      parameters:
+        - { name: business_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [draft, active, archived] } }
+        - { name: show_archived, in: query, schema: { type: string, enum: ['true', 'false'] }, description: default grid excludes archived; opt in explicitly }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 140 }, description: simple title contains-filter }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 512 } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ProductPage' } } } }
+        '401': { description: AUTH_REQUIRED }
+        '404': { description: NOT_FOUND (masking) }
+        '422': { description: VALIDATION_FAILED (bad cursor) }
+  /products/{productId}:
+    get:
+      operationId: getProduct
+      summary: Full product view including computed readiness
+      parameters: [{ $ref: '#/components/parameters/productId' }]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND (masking) }
+    patch:
+      operationId: updateProduct
+      summary: Update title/description/category — ATOMIC (all requested changes or none)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '409': { description: INVALID_TRANSITION (archived is read-only) }
+        '422': { description: VALIDATION_FAILED }
+  /products/{productId}/archive:
+    post:
+      operationId: archiveProduct
+      summary: Archive (idempotent; archived products are read-only except restore)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '200': { description: Archived, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+  /products/{productId}/restore:
+    post:
+      operationId: restoreProduct
+      summary: Restore an archived product to ACTIVE (the only archived-to-active door)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '200': { description: Restored, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '409': { description: INVALID_TRANSITION }
+  /products/{productId}/variants:
+    post:
+      operationId: addVariant
+      summary: Add a variant (option combination must be valid, unique; SKU generated when absent)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '201': { description: Added, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '409': { description: CONFLICT (duplicate combination, or no-options guidance) | SKU_TAKEN (business-wide SKU already in use) }
+        '422': { description: VALIDATION_FAILED }
+  /products/{productId}/variants/{variantId}:
+    patch:
+      operationId: updateVariant
+      summary: Update a variant — events describe DETECTED change only (D-29); no-ops are silent
+      parameters:
+        - { $ref: '#/components/parameters/productId' }
+        - { name: variantId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '409': { description: CONFLICT | SKU_TAKEN }
+        '422': { description: VALIDATION_FAILED }
+  /products/{productId}/media:
+    post:
+      operationId: addMedia
+      summary: Attach a media asset (MediaRef only; one hero per scope)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '201': { description: Attached, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '409': { description: CONFLICT (duplicate attachment or second hero) }
+  /products/{productId}/media/{productMediaId}:
+    delete:
+      operationId: removeMedia
+      summary: Detach a media item (positions renumber densely)
+      parameters:
+        - { $ref: '#/components/parameters/productId' }
+        - { name: productMediaId, in: path, required: true, schema: { type: string, format: uuid }, description: the attachment id (product_media.id), not the asset's media_id }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '200': { description: Removed, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+  /products/{productId}/media/order:
+    put:
+      operationId: reorderMedia
+      summary: Reorder the gallery (must list every media id exactly once; identical order is a silent no-op)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      responses:
+        '200': { description: Reordered, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '422': { description: VALIDATION_FAILED }
+  /products/{productId}/options:
+    post:
+      operationId: addOption
+      summary: Declare a new option (existing variants get values via existing_variants_value or variant_assignments)
+      parameters: [{ $ref: '#/components/parameters/productId' }, { $ref: '#/components/parameters/idempotencyKey' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, values]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 30 }
+                values: { type: array, items: { type: string, minLength: 1, maxLength: 40 }, minItems: 1, maxItems: 50 }
+                existing_variants_value: { type: string, minLength: 1, maxLength: 40, description: convenience — apply this value to every existing variant }
+                variant_assignments: { type: object, additionalProperties: { type: string, minLength: 1, maxLength: 40 }, description: per-variant value map keyed by variant id }
+      responses:
+        '201': { description: Option added, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND }
+        '409': { description: CONFLICT (duplicate option name, option limit, or resulting duplicate combination) }
+        '422': { description: VALIDATION_FAILED (missing assignments for existing variants) }
+  /products/{productId}/options/{optionName}:
+    patch:
+      operationId: updateOption
+      summary: Extend an option with additional values (options are identified by name)
+      parameters:
+        - { $ref: '#/components/parameters/productId' }
+        - { name: optionName, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 30 } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [add_values]
+              properties:
+                add_values: { type: array, items: { type: string, minLength: 1, maxLength: 40 }, minItems: 1, maxItems: 50 }
+      responses:
+        '200': { description: Values added, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND (product or option) }
+        '409': { description: CONFLICT (duplicate value or value limit) }
+    delete:
+      operationId: removeOption
+      summary: Remove an option no variant depends on
+      parameters:
+        - { $ref: '#/components/parameters/productId' }
+        - { name: optionName, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 30 } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '200': { description: Option removed, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND (product or option) }
+        '409': { description: CONFLICT (variants still reference it) }
+  /products/{productId}/options/{optionName}/values:
+    post:
+      operationId: addOptionValues
+      summary: Declare new values for an existing option
+      parameters:
+        - { $ref: '#/components/parameters/productId' }
+        - { name: optionName, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 30 } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                values: { type: array, items: { type: string, minLength: 1, maxLength: 40 }, minItems: 1, maxItems: 50 }
+      responses:
+        '201': { description: Values added, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND (product or option) }
+        '409': { description: CONFLICT (duplicate value or value limit) }
+  /products/{productId}/options/{optionName}/values/{value}:
+    delete:
+      operationId: removeOptionValue
+      summary: Retire a value no variant uses
+      parameters:
+        - { $ref: '#/components/parameters/productId' }
+        - { name: optionName, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 30 } }
+        - { name: value, in: path, required: true, schema: { type: string, minLength: 1, maxLength: 40 } }
+        - { $ref: '#/components/parameters/idempotencyKey' }
+      responses:
+        '200': { description: Value removed, content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '404': { description: NOT_FOUND (product, option, or value) }
+        '409': { description: CONFLICT (a variant still uses it, or it is the option's last value) }

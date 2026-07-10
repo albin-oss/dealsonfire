@@ -1,0 +1,18 @@
+/**
+ * Admin scope — the platform-operations voice (UI-FOUNDATION-001A §1). Same design
+ * language, denser dress (DESIGN-SYSTEM-001 §4 Admin: "denser recipes, no separate
+ * system"): tighter radius voice and a firmer line so dense tables read as structure.
+ * Everything else inherits the workspace resolution. See D-34 for the scope-count note.
+ */
+
+[data-scope='admin'] {
+  --dof-sys-radius-small: 0.25rem;
+  --dof-sys-radius-medium: 0.375rem;
+  --dof-sys-radius-large: 0.625rem;
+  --dof-sys-color-line: var(--dof-ref-neutral-300);
+}
+
+[data-scope='admin'][data-mode='dark'],
+[data-mode='dark'] [data-scope='admin'] {
+  --dof-sys-color-line: var(--dof-ref-neutral-700);
+}

@@ -1,0 +1,23 @@
+{
+  "_comment": "Event schema compatibility baseline (ADR-004 rule 18 / ADR-003 \u00a74). CI fails if a registered event type disappears or its schema_version decreases. Adding new types is free; breaking an existing one requires a version bump + dual-publish window, recorded by updating this lock in the same PR.",
+  "events": {
+    "merchant.onboarded": 1,
+    "merchant.business.created": 1,
+    "merchant.business.standing_changed": 1,
+    "merchant.business.trust_level_raised": 1,
+    "merchant.store.created": 1,
+    "merchant.store.published": 1,
+    "merchant.store.resumed": 1,
+    "merchant.store.brand_kit_updated": 1,
+    "merchant.store.enforcement_hold_changed": 1,
+    "merchant.staff.joined": 1,
+    "commerce.product.created": 1,
+    "commerce.product.updated": 1,
+    "commerce.product.archived": 1,
+    "commerce.variant.added": 1,
+    "commerce.variant.updated": 1,
+    "commerce.variant.price_changed": 1,
+    "commerce.product.media_added": 1,
+    "commerce.product.media_removed": 1
+  }
+}

@@ -1,0 +1,35 @@
+/**
+ * Storefront scope — the merchant's BrandKit voice (DESIGN-SYSTEM-001 §2.6, DS-2).
+ *
+ * The SAME sys roles re-resolve from --dof-brand-* variables, which the storefront
+ * runtime sets inline from the merchant's BrandKit (the hook is `brandKitStyle()` in
+ * tokens/brand-kit.ts). Every brand variable falls back to the workspace resolution,
+ * so a partial BrandKit still renders a complete, accessible store.
+ *
+ * Contrast is validated at BrandKit SAVE time (merchant domain command path), not at
+ * render time — storefronts are accessible by construction, never by runtime fallback.
+ */
+
+[data-scope='storefront'] {
+  --dof-sys-color-surface: var(--dof-brand-surface, var(--dof-ref-neutral-50));
+  --dof-sys-color-surface-raised: var(--dof-brand-surface-raised, var(--dof-ref-neutral-0));
+  --dof-sys-color-surface-sunken: var(--dof-brand-surface-sunken, var(--dof-ref-neutral-100));
+  --dof-sys-color-text: var(--dof-brand-text, var(--dof-ref-neutral-900));
+  --dof-sys-color-text-muted: var(--dof-brand-text-muted, var(--dof-ref-neutral-600));
+  --dof-sys-color-text-faint: var(--dof-brand-text-faint, var(--dof-ref-neutral-500));
+  --dof-sys-color-line: var(--dof-brand-line, var(--dof-ref-neutral-200));
+  --dof-sys-color-accent: var(--dof-brand-accent, var(--dof-ref-accent-600));
+  --dof-sys-color-accent-strong: var(--dof-brand-accent-strong, var(--dof-ref-accent-700));
+  --dof-sys-color-on-accent: var(--dof-brand-on-accent, var(--dof-ref-neutral-0));
+  --dof-sys-color-focus: var(--dof-brand-accent, var(--dof-ref-accent-500));
+
+  /* Status + ember stay platform-owned in every scope: safety colors and the fire
+     motif are DOF vocabulary, not brand surface (UX-BIBLE §11; trust dress code §3.5). */
+
+  --dof-sys-font-ui: var(--dof-brand-font-ui, ui-sans-serif, system-ui, sans-serif);
+  --dof-sys-font-reading: var(--dof-brand-font-reading, var(--dof-sys-font-ui));
+
+  --dof-sys-radius-small: var(--dof-brand-radius-small, var(--dof-ref-radius-1));
+  --dof-sys-radius-medium: var(--dof-brand-radius-medium, var(--dof-ref-radius-2));
+  --dof-sys-radius-large: var(--dof-brand-radius-large, var(--dof-ref-radius-3));
+}

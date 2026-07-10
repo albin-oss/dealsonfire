@@ -1,0 +1,29 @@
+# Dependencies
+node_modules
+
+# Nuxt / build output
+.nuxt
+.output
+.vercel
+
+# Environment & secrets (never commit real env; .env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Test & tooling artifacts
+.pg-embedded/
+test-results/
+playwright-report/
+coverage/
+storybook-static/
+*.tsbuildinfo
+
+# OS cruft
+.DS_Store
+
+# Claude Code per-user local settings (machine-specific; launch.json is shared)
+.claude/settings.local.json
