@@ -14,6 +14,7 @@ import workspaceProgressGet from '../../server/api/v1/workspace/progress.get'
 import onboardingGet from '../../server/api/v1/onboarding/index.get'
 import onboardingPut from '../../server/api/v1/onboarding/index.put'
 import onboardingComplete from '../../server/api/v1/onboarding/complete.post'
+import handleAvailabilityGet from '../../server/api/v1/handles/[handle]/availability.get'
 import businessesPost from '../../server/api/v1/businesses/index.post'
 import storesPost from '../../server/api/v1/businesses/[businessId]/stores.post'
 import brandKitPut from '../../server/api/v1/stores/[storeId]/brand-kit.put'
@@ -74,6 +75,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/onboarding', onboardingGet)
   router.put('/api/v1/onboarding', onboardingPut)
   router.post('/api/v1/onboarding/complete', onboardingComplete)
+  router.get('/api/v1/handles/:handle/availability', handleAvailabilityGet)
   router.post('/api/v1/businesses', businessesPost)
   router.post('/api/v1/businesses/:businessId/stores', storesPost)
   router.put('/api/v1/stores/:storeId/brand-kit', brandKitPut)

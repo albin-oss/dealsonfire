@@ -1,5 +1,25 @@
 # Changelog
 
+## Ignite — Vertical Slice 001 (PROMPT-008)
+Ignite's create→store→publish vertical already existed (tasks #19–22, ADR-005): journey UI, `LaunchService` over the Merchant Kernel, `IgniteIntelligence` AI extension port + rule-based stub, live `StorefrontPreview`. This slice closed the one backend gap and documented the architecture.
+
+### Added
+- Real-time handle availability: `GET /api/v1/handles/:handle/availability`, `handleAvailabilityQuery`, `PgHandleLedger.lookup()` (advisory read; the atomic `ON CONFLICT` claim remains authoritative). Contract `handleAvailabilityResponse`.
+- `IGNITE_ARCHITECTURE.md` — flow, AI extension seams, DoD status, and the public-storefront plan.
+- +4 handle-availability integration tests; handle-service race unit tests updated for the new port method.
+
+### Deferred
+- Public storefront route (DoD step 5) — the R1-B5 buyer surface per DPS-001; plan captured in IGNITE_ARCHITECTURE.md (no schema change needed).
+
+## Shared Kernel (PROMPT-006)
+### Added
+- `Result` combinators (`map`, `mapErr`, `andThen`/`flatMap`, `mapAsync`, `andThenAsync`, `combine`, `unwrapOr`, `fromPromise`, guards) — purely additive over the existing union; +10 tests.
+- `SHARED_KERNEL.md` — inventory, boundaries, dependency rules, and consolidation recommendations (R1–R4).
+
+## Platform Specification (PROMPT-007)
+### Added
+- `architecture/DPS-001-platform-specification.md` — master platform spec (IA, screen inventory, journeys, navigation, component inventory, state machines, cross-domain matrix, experience principles, expansion strategy).
+
 ## Module 1 Hardening Pass (PROMPT-005)
 
 ### Added

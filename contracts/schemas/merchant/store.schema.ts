@@ -11,6 +11,15 @@ export const createStoreRequest = z.object({
 }).strict()
 export type CreateStoreRequest = z.infer<typeof createStoreRequest>
 
+/** GET /handles/:handle/availability — real-time Ignite handle selection. */
+export const handleAvailabilityResponse = z.object({
+  handle: z.string(),
+  available: z.boolean(),
+  reason: z.enum(['ok', 'invalid_format', 'taken']),
+  suggestions: z.array(z.string()),
+})
+export type HandleAvailabilityResponse = z.infer<typeof handleAvailabilityResponse>
+
 export const storeResponse = z.object({
   store_id: z.string().uuid(),
   business_id: z.string().uuid(),

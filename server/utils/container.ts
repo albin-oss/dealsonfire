@@ -15,6 +15,7 @@ import { createStoreCommand } from '@domains/merchant/core/application/commands/
 import { updateBrandKitCommand } from '@domains/merchant/core/application/commands/update-brand-kit'
 import { publishStoreCommand } from '@domains/merchant/core/application/commands/publish-store'
 import { workspaceOverviewQuery } from '@domains/merchant/core/application/queries/workspace-overview'
+import { handleAvailabilityQuery } from '@domains/merchant/core/application/queries/handle-availability'
 import { createPool, PgUnitOfWork } from '@platform/db'
 import { PgEventStore } from '@platform/event-store'
 import { PgAuditLog } from '@platform/audit-log'
@@ -151,6 +152,7 @@ export interface Container {
   }
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
+    handleAvailability: ReturnType<typeof handleAvailabilityQuery>
   }
   onboarding: OnboardingService
   shutdown(): Promise<void>
@@ -401,6 +403,7 @@ export function buildContainer(databaseUrl: string): Container {
     },
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
+      handleAvailability: handleAvailabilityQuery(deps),
     },
     onboarding: new OnboardingService(deps.uow, new PgOnboardingProfileRepository(), audit),
     shutdown: () => pool.end(),
