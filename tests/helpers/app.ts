@@ -10,6 +10,10 @@ import { getContainer } from '../../server/utils/container'
 import { defineEventHandler, getCookie } from 'h3'
 import { SESSION_COOKIE } from '@domains/identity/application/session-service'
 import workspaceGet from '../../server/api/v1/workspace.get'
+import workspaceProgressGet from '../../server/api/v1/workspace/progress.get'
+import onboardingGet from '../../server/api/v1/onboarding/index.get'
+import onboardingPut from '../../server/api/v1/onboarding/index.put'
+import onboardingComplete from '../../server/api/v1/onboarding/complete.post'
 import businessesPost from '../../server/api/v1/businesses/index.post'
 import storesPost from '../../server/api/v1/businesses/[businessId]/stores.post'
 import brandKitPut from '../../server/api/v1/stores/[storeId]/brand-kit.put'
@@ -42,6 +46,7 @@ import authStepUp from '../../server/api/v1/auth/step-up.post'
 import authRecoveryRequest from '../../server/api/v1/auth/recovery/request.post'
 import authRecoveryReset from '../../server/api/v1/auth/recovery/reset.post'
 import authVerifyEmail from '../../server/api/v1/auth/verify-email.post'
+import authResendVerification from '../../server/api/v1/auth/resend-verification.post'
 import mediaOrderPut from '../../server/api/v1/products/[productId]/media/order.put'
 
 export interface TestHttp {
@@ -65,6 +70,10 @@ export async function startTestApp(): Promise<TestHttp> {
   }))
   const router = createRouter()
   router.get('/api/v1/workspace', workspaceGet)
+  router.get('/api/v1/workspace/progress', workspaceProgressGet)
+  router.get('/api/v1/onboarding', onboardingGet)
+  router.put('/api/v1/onboarding', onboardingPut)
+  router.post('/api/v1/onboarding/complete', onboardingComplete)
   router.post('/api/v1/businesses', businessesPost)
   router.post('/api/v1/businesses/:businessId/stores', storesPost)
   router.put('/api/v1/stores/:storeId/brand-kit', brandKitPut)
@@ -98,6 +107,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/auth/recovery/request', authRecoveryRequest)
   router.post('/api/v1/auth/recovery/reset', authRecoveryReset)
   router.post('/api/v1/auth/verify-email', authVerifyEmail)
+  router.post('/api/v1/auth/resend-verification', authResendVerification)
   app.use(router)
 
   const server: Server = createServer(toNodeListener(app))

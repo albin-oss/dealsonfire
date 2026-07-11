@@ -5,6 +5,7 @@
  * (no fake business data, ever). Quick actions lead with what the merchant could do.
  */
 import { DofText, DofCard, DofEmptyState, DofButton, DofFeedLayout, DofIcon } from '@ds/index'
+import GettingStarted from '../components/workspace/GettingStarted.vue'
 
 // US-9: workspace requires a session (session mode only; dev leaves it open).
 definePageMeta({ middleware: 'auth' })
@@ -28,6 +29,13 @@ useHead({ title: 'Home — DOF' })
       <DofButton variant="soft" tone="neutral" icon="store" @click="router.push('/store')">See your store</DofButton>
       <DofButton variant="soft" tone="neutral" icon="tag" @click="router.push('/deals')">Plan a deal</DofButton>
     </section>
+
+    <!-- the first-login hero: where you are, what's next, how close to a first sale.
+         Client-only: its progress is fetched after mount, so SSR must not render a
+         branch the client will immediately replace (avoids hydration mismatch). -->
+    <ClientOnly>
+      <GettingStarted />
+    </ClientOnly>
 
     <DofCard>
       <template #header>

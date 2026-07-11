@@ -27,25 +27,29 @@ export function definePublicEndpoint<TBody, TOut>(options: PublicEndpointOptions
   return defineEventHandler(async (event) => {
     const requestId = getHeader(event, 'x-request-id')
     const correlationId = requestId && isUuid(requestId) ? requestId : uuidv7()
-    const container = getContainer()
 
-    if (options.rateLimit) {
-      const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
-      const key = `${options.name}:${ip}`
-      if (!container.rateLimiter.allow(key, options.rateLimit.limit, options.rateLimit.windowSeconds)) {
-        return sendProblem(event, domainError('RATE_LIMITED', 'too many attempts — wait a moment and try again'), correlationId)
-      }
-    }
-
-    const raw = await readBody(event).catch(() => undefined)
-    const parsed = options.schema.safeParse(raw ?? {})
-    if (!parsed.success) {
-      return sendProblem(event, domainError('VALIDATION_FAILED', 'request failed validation', {
-        issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-      }), correlationId)
-    }
-
+    // The whole pipeline is guarded: an unexpected throw anywhere — including a
+    // misconfigured container (e.g. NUXT_DATABASE_URL absent) — must render as an
+    // RFC 9457 problem, never leak a stack trace on the public auth surface.
     try {
+      const container = getContainer()
+
+      if (options.rateLimit) {
+        const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
+        const key = `${options.name}:${ip}`
+        if (!container.rateLimiter.allow(key, options.rateLimit.limit, options.rateLimit.windowSeconds)) {
+          return sendProblem(event, domainError('RATE_LIMITED', 'too many attempts — wait a moment and try again'), correlationId)
+        }
+      }
+
+      const raw = await readBody(event).catch(() => undefined)
+      const parsed = options.schema.safeParse(raw ?? {})
+      if (!parsed.success) {
+        return sendProblem(event, domainError('VALIDATION_FAILED', 'request failed validation', {
+          issues: parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
+        }), correlationId)
+      }
+
       const result = await options.handler({ event, body: parsed.data, correlationId })
       if (!result.ok) return sendProblem(event, result.error, correlationId)
       setResponseStatus(event, options.successStatus ?? 200)

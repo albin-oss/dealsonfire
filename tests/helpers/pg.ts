@@ -30,7 +30,7 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
       event_deliveries, outbox_events, domain_events, audit_logs,
       request_idempotency_keys, business_entitlements, brand_kits,
       storefront_configs, staff_memberships, stores, store_handles,
-      businesses, merchant_accounts
+      businesses, merchant_accounts, onboarding_profiles
     CASCADE
   `)
 }

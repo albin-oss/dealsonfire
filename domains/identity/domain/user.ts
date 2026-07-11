@@ -26,7 +26,17 @@ export class User {
   private pending: NewDomainEvent[] = []
   private constructor(private readonly props: UserProps) {}
 
+  /**
+   * Rehydrate a persisted user. Corruption-guard (kernel law): a row the domain cannot
+   * explain is an outage, not a guess — refuse structurally-impossible state explicitly.
+   */
   static rehydrate(props: UserProps): User {
+    const bad = (why: string): never => { throw new Error(`corrupt user row (${props.id}): ${why}`) }
+    if (!props.id) bad('missing id')
+    if (!props.email) bad('missing email')
+    if (props.status !== 'active' && props.status !== 'deactivated') bad(`unknown status "${props.status}"`)
+    if (!Number.isInteger(props.sequence) || props.sequence < 0) bad(`invalid sequence ${props.sequence}`)
+    if (props.displayName !== null && (typeof props.displayName !== 'string' || props.displayName.length > 80)) bad('invalid displayName')
     return new User(props)
   }
 

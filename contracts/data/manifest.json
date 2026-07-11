@@ -24,6 +24,26 @@
       ]
     },
     {
+      "table": "onboarding_profiles",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "user_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [
+        {
+          "column": "user_id",
+          "target_domain": "identity",
+          "target_concept": "user",
+          "cleanup_event": "identity.user.deactivated (future)",
+          "reconciliation": "orphaned-onboarding-profile reconciler when Identity deactivation lands"
+        }
+      ]
+    },
+    {
       "table": "businesses",
       "owner": "merchant",
       "class": "aggregate",

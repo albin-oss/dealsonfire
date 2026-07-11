@@ -4,6 +4,8 @@
  */
 import type pg from 'pg'
 import type { KernelDeps } from '@domains/merchant/core/application/deps'
+import { OnboardingService } from '@domains/merchant/onboarding/application/onboarding-service'
+import { PgOnboardingProfileRepository } from '@domains/merchant/onboarding/infrastructure/onboarding-repository'
 import { EntitlementService } from '@domains/merchant/core/application/entitlement-service'
 import { TrustPolicyService } from '@domains/merchant/core/application/trust-policy-service'
 import { HandleService } from '@domains/merchant/core/application/handle-service'
@@ -150,6 +152,7 @@ export interface Container {
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
   }
+  onboarding: OnboardingService
   shutdown(): Promise<void>
 }
 
@@ -399,6 +402,7 @@ export function buildContainer(databaseUrl: string): Container {
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
     },
+    onboarding: new OnboardingService(deps.uow, new PgOnboardingProfileRepository(), audit),
     shutdown: () => pool.end(),
   }
 }
