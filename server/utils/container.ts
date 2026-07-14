@@ -42,6 +42,14 @@ import { kernelPayloadValidators } from '@contracts/schemas/events/payloads'
 import { commercePayloadValidators } from '@contracts/schemas/events/commerce-payloads'
 import { commerceOrderingScopeOf } from '@domains/commerce/catalog/domain/events'
 import { PgProductRepository } from '@domains/commerce/catalog/infrastructure/product-repository'
+import { PgPublicStorefrontDao } from '@domains/merchant/core/infrastructure/public-storefront-dao'
+import { MediaService, VercelBlobStorage, SandboxMediaStorage } from '@platform/media'
+import { optionalEnv } from '@platform/config'
+import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
+import { asBusinessId } from '@domains/merchant/shared-kernel/ids'
+import { PgAttributeSetRepository, PgBrandRefRepository } from '@domains/commerce/catalog/infrastructure/attribute-repository'
+import { createAttributeSetCommand, archiveAttributeSetCommand, createBrandRefCommand } from '@domains/commerce/catalog/application/commands/attributes'
+import { listAttributeSetsQuery, listBrandRefsQuery } from '@domains/commerce/catalog/application/queries/attributes'
 import { PgProductReadDao } from '@domains/commerce/catalog/infrastructure/product-read-dao'
 import type { CommerceDeps } from '@domains/commerce/catalog/application/ports'
 import { createProductCommand } from '@domains/commerce/catalog/application/commands/create-product'
@@ -112,10 +120,15 @@ export interface Container {
       addOptionValues: ReturnType<typeof addOptionValuesCommand>
       removeOption: ReturnType<typeof removeOptionCommand>
       removeOptionValue: ReturnType<typeof removeOptionValueCommand>
+      createAttributeSet: ReturnType<typeof createAttributeSetCommand>
+      archiveAttributeSet: ReturnType<typeof archiveAttributeSetCommand>
+      createBrandRef: ReturnType<typeof createBrandRefCommand>
     }
     queries: {
       getProduct: ReturnType<typeof getProductQuery>
       listProducts: ReturnType<typeof listProductsQuery>
+      listAttributeSets: ReturnType<typeof listAttributeSetsQuery>
+      listBrandRefs: ReturnType<typeof listBrandRefsQuery>
     }
   }
   identity: {
@@ -153,8 +166,12 @@ export interface Container {
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
     handleAvailability: ReturnType<typeof handleAvailabilityQuery>
+    /** Public storefront read (UX-IGNITE Phase 3): live stores only; null = mask to 404. */
+    publicStorefront: (handle: string) => Promise<PublicStorefrontResponse | null>
   }
   onboarding: OnboardingService
+  /** Media Port (UX-AUTHOR-002 §D): storage adapter swappable; the registry is permanent. */
+  media: MediaService
   shutdown(): Promise<void>
 }
 
@@ -206,6 +223,8 @@ export function buildContainer(databaseUrl: string): Container {
     uow: deps.uow,
     products: new PgProductRepository(),
     productReads: new PgProductReadDao(),
+    attributeSets: new PgAttributeSetRepository(),
+    brandRefs: new PgBrandRefRepository(),
     merchantAccess: merchantAccessAdapter(deps, entitlements),
     eventStore: new PgEventStore({
       eventsTable: 'commerce_domain_events',
@@ -363,10 +382,15 @@ export function buildContainer(databaseUrl: string): Container {
         addOptionValues: addOptionValuesCommand(commerceDeps),
         removeOption: removeOptionCommand(commerceDeps),
         removeOptionValue: removeOptionValueCommand(commerceDeps),
+        createAttributeSet: createAttributeSetCommand(commerceDeps),
+        archiveAttributeSet: archiveAttributeSetCommand(commerceDeps),
+        createBrandRef: createBrandRefCommand(commerceDeps),
       },
       queries: {
         getProduct: getProductQuery(commerceDeps),
         listProducts: listProductsQuery(commerceDeps),
+        listAttributeSets: listAttributeSetsQuery(commerceDeps),
+        listBrandRefs: listBrandRefsQuery(commerceDeps),
       },
     },
     identity: {
@@ -404,8 +428,34 @@ export function buildContainer(databaseUrl: string): Container {
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
       handleAvailability: handleAvailabilityQuery(deps),
+      // Composition-root read: joins the merchant's public face with the commerce shelf.
+      // One transaction, read-only; a null anywhere masks to 404 at the endpoint.
+      publicStorefront: async (handle: string) => {
+        const publicDao = new PgPublicStorefrontDao()
+        return deps.uow.withTransaction(async (tx) => {
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          const products = await commerceDeps.productReads.listPublicShelf(tx, asBusinessId(front.businessId))
+          return {
+            store: { handle: front.handle, name: front.name, published_at: front.publishedAt },
+            brand: front.brand,
+            products: products.map((p) => ({
+              id: p.id, title: p.title, price_minor: p.min_price_amount, currency: p.price_currency,
+            })),
+          }
+        })
+      },
     },
     onboarding: new OnboardingService(deps.uow, new PgOnboardingProfileRepository(), audit),
+    // Media Port: Blob in production (token present); the sandbox twin otherwise (tests,
+    // local dev) — same contract, so consumers never know the difference (test law).
+    media: new MediaService(
+      pool,
+      (() => {
+        const token = optionalEnv('BLOB_READ_WRITE_TOKEN')
+        return token ? new VercelBlobStorage(token) : new SandboxMediaStorage()
+      })(),
+    ),
     shutdown: () => pool.end(),
   }
 }

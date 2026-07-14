@@ -21,7 +21,7 @@ export const ICON_NAMES = [
   'package', 'shopping-bag', 'shopping-cart', 'tag', 'image', 'camera', 'store',
   'truck', 'rotate-ccw', 'box', 'layers', 'users', 'user', 'heart', 'star',
   // status & feedback
-  'circle-alert', 'triangle-alert', 'circle-check', 'info', 'circle-help', 'loader-circle',
+  'circle-alert', 'triangle-alert', 'circle-check', 'circle', 'info', 'circle-help', 'loader-circle',
   'eye', 'eye-off', 'lock', 'shield-check', 'badge-check', 'wifi-off', 'clock',
   // AI & moments
   'sparkles', 'lightbulb', 'flame', 'party-popper', 'trending-up', 'message-circle', 'mic',

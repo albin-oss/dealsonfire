@@ -1,5 +1,15 @@
 # Changelog
 
+## Ignite Phase 3 — the benchmark experience (PROMPT-019)
+### Added
+- **Public storefront** `GET /api/v1/public/stores/:handle` + `app/pages/s/[handle].vue` (SSR, brand-palette cascade, live-only, 404-masked, cacheable) — closes the last Ignite DoD step. `PgPublicStorefrontDao` (redirect-aware live read), `listPublicShelf` interim shelf rule (retires with CS1 Listings), `public-storefront.schema.ts` contract. 4 integration tests.
+- **`DofHandleBadge`** — the one new permanent DS component (live handle availability with pickable suggestions; text + aria-live, never color-only). Wired into the Ignite Mirror (debounced advisory check; `handleOverride` honored by the launch saga; stale-name override reset).
+- **Launch Experience (UX-IGNITE-002 §F "The Becoming")** — narrated kernel steps resolving to ✓ (retry resumes, never restarts), one celebration-tempo reveal (session-gated: resumed drafts don't re-animate; reduced-motion → fades), "You're open." + real store URL + **Visit your store** → `/s/:handle`, and a single contextual **Next Opportunity** (share the store / put something on the shelf) — a guide, not a checklist.
+### Changed
+- `IgniteState` + `handleOverride` (persisted); launch saga honors explicit handle picks.
+### Verification
+typecheck ✅ lint ✅ · unit 273 · ui 112 · integration 148 · Playwright app e2e 21 · all structural gates ✅ · launch screen + storefront 404 browser-verified.
+
 ## Ignite — Vertical Slice 001 (PROMPT-008)
 Ignite's create→store→publish vertical already existed (tasks #19–22, ADR-005): journey UI, `LaunchService` over the Merchant Kernel, `IgniteIntelligence` AI extension port + rule-based stub, live `StorefrontPreview`. This slice closed the one backend gap and documented the architecture.
 

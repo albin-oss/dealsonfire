@@ -74,4 +74,28 @@ export class PgProductReadDao extends PgRepositoryBase {
     )
     return ok(buildPage(rows, opts.limit, (row) => [row.updated_at, row.id]))
   }
+
+  /**
+   * Public storefront shelf (UX-IGNITE Phase 3): what the world may see. INTERIM RULE
+   * until CS1 Listings lands (CER-001 — "publicly buyable" is a Listing fact, not a
+   * product status): non-archived products with a real price — the same bar the store
+   * publish gate counts as shelf-worthy. Hard-capped, newest first, no pagination.
+   * When Listings ship, this switches to published listings and the rule retires.
+   */
+  async listPublicShelf(tx: Tx, businessId: BusinessId, limit = 12): Promise<Array<{
+    id: string; title: string; min_price_amount: number | null; price_currency: string | null
+  }>> {
+    return this.many(
+      tx,
+      `SELECT p.id, p.title,
+              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
+              (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency
+       FROM products p
+       WHERE p.business_id = $1 AND p.status <> 'archived' AND p.deleted_at IS NULL
+         AND EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.price_amount > 0)
+       ORDER BY p.created_at DESC, p.id DESC
+       LIMIT $2`,
+      [businessId, Math.min(limit, 48)],
+    )
+  }
 }

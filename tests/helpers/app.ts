@@ -15,6 +15,12 @@ import onboardingGet from '../../server/api/v1/onboarding/index.get'
 import onboardingPut from '../../server/api/v1/onboarding/index.put'
 import onboardingComplete from '../../server/api/v1/onboarding/complete.post'
 import handleAvailabilityGet from '../../server/api/v1/handles/[handle]/availability.get'
+import publicStorefrontGet from '../../server/api/v1/public/stores/[handle].get'
+import mediaUploadPost from '../../server/api/v1/media/index.post'
+import attributeSetsPost from '../../server/api/v1/attribute-sets/index.post'
+import attributeSetsGet from '../../server/api/v1/attribute-sets/index.get'
+import brandsPost from '../../server/api/v1/brands/index.post'
+import brandsGet from '../../server/api/v1/brands/index.get'
 import businessesPost from '../../server/api/v1/businesses/index.post'
 import storesPost from '../../server/api/v1/businesses/[businessId]/stores.post'
 import brandKitPut from '../../server/api/v1/stores/[storeId]/brand-kit.put'
@@ -76,6 +82,12 @@ export async function startTestApp(): Promise<TestHttp> {
   router.put('/api/v1/onboarding', onboardingPut)
   router.post('/api/v1/onboarding/complete', onboardingComplete)
   router.get('/api/v1/handles/:handle/availability', handleAvailabilityGet)
+  router.get('/api/v1/public/stores/:handle', publicStorefrontGet)
+  router.post('/api/v1/media', mediaUploadPost)
+  router.post('/api/v1/attribute-sets', attributeSetsPost)
+  router.get('/api/v1/attribute-sets', attributeSetsGet)
+  router.post('/api/v1/brands', brandsPost)
+  router.get('/api/v1/brands', brandsGet)
   router.post('/api/v1/businesses', businessesPost)
   router.post('/api/v1/businesses/:businessId/stores', storesPost)
   router.put('/api/v1/stores/:storeId/brand-kit', brandKitPut)
@@ -119,13 +131,15 @@ export async function startTestApp(): Promise<TestHttp> {
 
   return {
     async request(method, path, opts = {}) {
+      // FormData passes through untouched (fetch sets the multipart boundary itself)
+      const isForm = typeof FormData !== 'undefined' && opts.body instanceof FormData
       const response = await fetch(base + path, {
         method,
         headers: {
-          'content-type': 'application/json',
+          ...(isForm ? {} : { 'content-type': 'application/json' }),
           ...(opts.headers ?? {}),
         },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
       })
       const text = await response.text()
       let body: any

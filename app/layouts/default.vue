@@ -11,6 +11,8 @@ import {
   registerCommands, useShortcuts, useDsMessages, type Crumb,
 } from '@ds/index'
 import { WORKSPACE_MODULES, modulesForSurface, moduleByPath, useSurfaceLevel, type SurfaceLevel } from '../composables/workspace-nav'
+import { contextualFifthId } from '../composables/workspace-companion'
+import type { OnboardingProgressResponse } from '@contracts/schemas/merchant/onboarding.schema'
 import WorkspaceTopBar from '../components/workspace/WorkspaceTopBar.vue'
 import WorkspaceSwitcher from '../components/workspace/WorkspaceSwitcher.vue'
 import NotificationCenter from '../components/workspace/NotificationCenter.vue'
@@ -22,6 +24,14 @@ const { level } = useSurfaceLevel()
 
 const navItems = computed(() => modulesForSurface(level.value).map(({ id, label, icon }) => ({ id, label, icon })))
 const activeId = computed(() => moduleByPath(route.path)?.id ?? 'home')
+
+// Contextual mobile fifth slot (UX-WORKSPACE-001 §7). Nuxt dedupes this read with the
+// Home's by key — one request feeds the hero, the journey, and the tab bar.
+const { data: progress } = useFetch<OnboardingProgressResponse>('/api/v1/workspace/progress', {
+  lazy: true,
+  server: false,
+})
+const contextualId = computed(() => contextualFifthId(progress.value ?? null))
 
 function navigate(id: string) {
   const target = WORKSPACE_MODULES.find((m) => m.id === id)
@@ -72,6 +82,7 @@ function recordSearch(term: string) {
   <DofWorkspaceLayout
     :items="navItems"
     :active-id="activeId"
+    :contextual-id="contextualId"
     label="DOF workspace"
     @navigate="navigate"
   >

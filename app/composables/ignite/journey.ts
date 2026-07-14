@@ -16,6 +16,8 @@ export interface IgniteState {
   identities: IdentityDraft[]
   identityIndex: number | null
   customName: string
+  /** Explicit handle pick (e.g. an availability suggestion); empty = derive from the name. */
+  handleOverride: string
   productTitle: string
   priceMinor: number | null
   revealItems: RevealItem[]
@@ -42,6 +44,7 @@ export function initialIgniteState(): IgniteState {
     identities: [],
     identityIndex: null,
     customName: '',
+    handleOverride: '',
     productTitle: '',
     priceMinor: null,
     revealItems: [],

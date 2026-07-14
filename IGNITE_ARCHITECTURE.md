@@ -52,18 +52,17 @@ The one backend gap for "handle selection with real-time availability" is now cl
 | 2 | Create a business | ✅ LaunchService → kernel |
 | 3 | Create a store | ✅ (handle fallback) |
 | 4 | Publish the store | ✅ `store.published` + outbox + audit |
-| 5 | **Visit the public storefront** | ⏳ **remaining** — see below |
+| 5 | **Visit the public storefront** | ✅ `/s/:handle` (UX-IGNITE Phase 3) — public live-only read + SSR page, 404-masked |
 | 6 | Pass all tests | ✅ 265 unit / 135+ integration / E2E green |
 | 7 | Under five minutes | ✅ derived defaults, minimal typing, autosave/resume |
 
-## Remaining DoD item: public storefront (step 5)
-Today the success screen shows `dof.dev/:handle` and an in-Ignite `StorefrontPreview`, but there is **no public route** that renders a published store — this is the R1-B5 buyer surface in DPS-001. Plan (deliberately not built here to avoid a half-done public surface):
-1. **Public read endpoint** `GET /api/v1/public/stores/:handle` — returns only `status='live'` stores (published brand kit + name); tenant-safe, cache-friendly (`Cache-Control`), no auth.
-2. **Public page** `app/pages/s/[handle].vue` — SSR render of the published storefront config; 404 for non-live handles (no enumeration).
-3. Wire Ignite's success CTA and the live-preview handle to the real public URL.
-4. Tests: public read returns live only; draft/paused/handle-miss → 404; SSR snapshot.
-
-This is a new public surface (§1 of DPS-001) and belongs in R1-B5; it reuses the same store data with no schema change.
+## Public storefront (built in UX-IGNITE Phase 3)
+The plan above shipped as designed:
+1. `GET /api/v1/public/stores/:handle` — unauthenticated, LIVE-only (`status='live' ∧ enforcement_hold='none'`), redirect-handle aware, `Cache-Control` public, 404-masks draft/held/unknown/malformed identically (no enumeration). Composed at the container: merchant public face + commerce shelf, one read transaction.
+2. `app/pages/s/[handle].vue` — SSR; the merchant's palette dresses the page via the same brand-kit cascade the Ignite preview uses (the preview and the real thing share the rendering idea); honest empty state while the shelf fills; 404 educating page otherwise.
+3. Ignite's success CTA ("Visit your store") now links to `/s/:handle`; the share Opportunity copies the real URL.
+4. Interim shelf rule (documented in `product-read-dao.ts`): non-archived products with a real price — the same bar the publish gate counts; switches to published Listings when CS1 lands (CER-001).
+5. Tests: 4 integration (live 200 with brand+products / draft=unknown 404 parity / malformed no-DB-hit / draft products backstage).
 
 ## Performance & UX
 - Progress autosaves (onboarding profile) and the journey resumes; abandoned drafts recover.

@@ -13,6 +13,7 @@ import type { Tx, UnitOfWork, EventStore, AuditLog } from '../../../../platform/
 import type { MembershipView, BusinessView } from '../../../merchant/shared-kernel/command-gate'
 import type { ProductRepository } from '../domain/ports'
 import type { PgProductReadDao } from '../infrastructure/product-read-dao'
+import type { PgAttributeSetRepository, PgBrandRefRepository } from '../infrastructure/attribute-repository'
 
 export interface MerchantAccess {
   membership: MembershipView
@@ -29,6 +30,8 @@ export interface CommerceDeps {
   uow: UnitOfWork
   products: ProductRepository
   productReads: PgProductReadDao
+  attributeSets: PgAttributeSetRepository
+  brandRefs: PgBrandRefRepository
   merchantAccess: MerchantAccessPort
   eventStore: EventStore
   audit: AuditLog

@@ -317,6 +317,45 @@
       ]
     },
     {
+      "table": "attribute_sets",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "note": "business-owned attribute templates (PROMPT-016); taxonomy-agnostic",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "brand_refs",
+      "owner": "commerce",
+      "class": "registry",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "purge",
+      "note": "business convenience pick-list of brand names; ADR-002 keeps brand a product attribute",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "media_assets",
+      "owner": "platform",
+      "ownership_note": "Media Port registry (UX-AUTHOR-002 §D): media is cross-capability; the C9 Media capability inherits this table through the same port",
+      "class": "registry",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
       "table": "operations_domain_events",
       "owner": "operations",
       "class": "event",

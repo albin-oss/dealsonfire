@@ -11,6 +11,8 @@ type Branded<T, B extends string> = T & { readonly [brand]: B }
 export type ProductId = Branded<string, 'ProductId'>
 export type VariantId = Branded<string, 'VariantId'>
 export type ProductMediaId = Branded<string, 'ProductMediaId'>
+export type AttributeSetId = Branded<string, 'AttributeSetId'>
+export type BrandRefId = Branded<string, 'BrandRefId'>
 
 function make<T extends string>(value?: string): T {
   const v = value ?? uuidv7()
@@ -25,3 +27,8 @@ export const newProductMediaId = () => make<ProductMediaId>()
 export const asProductId = (v: string) => make<ProductId>(v)
 export const asVariantId = (v: string) => make<VariantId>(v)
 export const asProductMediaId = (v: string) => make<ProductMediaId>(v)
+
+export const newAttributeSetId = () => make<AttributeSetId>()
+export const asAttributeSetId = (v: string) => make<AttributeSetId>(v)
+export const newBrandRefId = () => make<BrandRefId>()
+export const asBrandRefId = (v: string) => make<BrandRefId>(v)

@@ -95,7 +95,8 @@ export function createLaunchService(fetcher: LaunchFetch, userId: string = '') {
 
     if (!partial.storeId) {
       onProgress({ step: 'store', message: `Opening ${identity.name}…` })
-      const wanted = slugify(identity.name)
+      // An explicit pick (availability suggestion) wins; otherwise derive from the name.
+      const wanted = (state.handleOverride ?? '').trim() || slugify(identity.name)
       try {
         const store = await call(`/api/v1/businesses/${partial.businessId}/stores`, 'POST', {
           name: identity.name,
