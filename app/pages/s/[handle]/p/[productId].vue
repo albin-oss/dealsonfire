@@ -56,7 +56,13 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
     </header>
 
     <main class="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-10 regular:flex-row regular:gap-12">
-      <div class="flex h-72 flex-1 items-center justify-center rounded-large bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
+      <img
+        v-if="product.image_url"
+        :src="product.image_url"
+        :alt="product.image_alt ?? product.title"
+        class="h-72 flex-1 rounded-large object-cover"
+      >
+      <div v-else class="flex h-72 flex-1 items-center justify-center rounded-large bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
         {{ store.name }}
       </div>
 

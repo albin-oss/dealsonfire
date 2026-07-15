@@ -196,3 +196,37 @@ describe('the merchant grid speaks merchant language (on_store)', () => {
     expect(byTitle).toEqual({ 'On it': true, Backstage: false })
   })
 })
+
+describe('photos ride the public chain (PR-F media display join)', () => {
+  it('a product with media shows its image on the shelf, the product page, and the grid', async () => {
+    const m = await merchant()
+    // a stored media fact (the Media Port's registry half)
+    const mediaId = uuidv7()
+    await container.pool.query(
+      `INSERT INTO media_assets (id, business_id, url, content_type, size_bytes, created_by)
+       VALUES ($1, $2, 'https://sandbox.media.local/blanket.webp', 'image/webp', 1024, $3)`,
+      [mediaId, m.businessId, uuidv7()])
+    const res = await http.request('POST', '/api/v1/products', {
+      headers: { cookie: m.cookie },
+      body: {
+        business_id: m.businessId, title: 'Lavender blanket', fulfillment_kind: 'physical',
+        default_price: { amount: 4500, currency: 'EUR' }, publish_to_store_id: m.storeId,
+        media: [{ media_id: mediaId, alt_text: 'A lavender knit blanket' }],
+      },
+    })
+    expect(res.status).toBe(201)
+    await http.request('POST', `/api/v1/stores/${m.storeId}/publish`, { headers: { cookie: m.cookie } })
+
+    const shelf = await http.request('GET', `/api/v1/public/stores/${m.handle}`)
+    expect(shelf.body.products[0]).toMatchObject({
+      image_url: 'https://sandbox.media.local/blanket.webp', image_alt: 'A lavender knit blanket',
+    })
+    const page = await http.request('GET', `/api/v1/public/stores/${m.handle}/products/${res.body.product_id}`)
+    expect(page.body.product.image_url).toBe('https://sandbox.media.local/blanket.webp')
+
+    const grid = await http.request('GET', `/api/v1/products?business_id=${m.businessId}&limit=10&channel_id=${m.storeId}`, {
+      headers: { cookie: m.cookie },
+    })
+    expect(grid.body.items[0].image_url).toBe('https://sandbox.media.local/blanket.webp')
+  })
+})

@@ -31,7 +31,7 @@ const storeId = computed(() => workspace.value?.businesses[0]?.stores[0]?.store_
 const storeHandle = computed(() => workspace.value?.businesses[0]?.stores[0]?.handle ?? null)
 
 // ——— the grid
-interface GridRow { id: string; title: string; status: string; min_price_amount: number | null; price_currency: string | null; on_store: boolean }
+interface GridRow { id: string; title: string; status: string; min_price_amount: number | null; price_currency: string | null; on_store: boolean; image_url: string | null; image_alt: string | null }
 const { data: grid, refresh: refreshGrid, pending: gridPending } = useFetch<{ items: GridRow[] }>(
   () => `/api/v1/products?business_id=${businessId.value}&limit=24${storeId.value ? `&channel_id=${storeId.value}` : ''}`,
   { lazy: true, server: false, headers, immediate: false },
@@ -311,6 +311,7 @@ function resetComposer() {
       </div>
       <ul v-else-if="grid && grid.items.length > 0" class="grid list-none grid-cols-2 gap-3 p-0 regular:grid-cols-3">
         <li v-for="p in grid.items" :key="p.id" class="flex flex-col gap-1.5 rounded-large border border-line p-3">
+          <img v-if="p.image_url" :src="p.image_url" :alt="p.image_alt ?? p.title" class="h-20 w-full rounded-medium object-cover" loading="lazy">
           <DofText role="body" class="truncate font-medium">{{ p.title }}</DofText>
           <DofMoney v-if="p.min_price_amount" :amount="p.min_price_amount" :currency="p.price_currency ?? 'EUR'" class="text-caption text-muted-foreground" />
           <DofText role="caption" :tone="p.on_store ? undefined : 'muted'" :class="p.on_store && 'text-positive'">

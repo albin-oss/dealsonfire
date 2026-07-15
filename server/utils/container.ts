@@ -453,6 +453,7 @@ export function buildContainer(databaseUrl: string): Container {
             brand: front.brand,
             products: products.map((p) => ({
               id: p.id, title: p.title, price_minor: p.min_price_amount, currency: p.price_currency,
+              image_url: p.image_url, image_alt: p.image_alt,
             })),
           }
         })
@@ -471,6 +472,7 @@ export function buildContainer(databaseUrl: string): Container {
               id: product.id, title: product.title,
               description: product.description?.content ?? null,
               price_minor: product.min_price_amount, currency: product.price_currency,
+              image_url: product.image_url, image_alt: product.image_alt,
             },
           }
         })

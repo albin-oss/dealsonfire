@@ -21,6 +21,8 @@ export const publicStorefrontResponse = z.object({
     title: z.string(),
     price_minor: z.number().int().nullable(),
     currency: z.string().nullable(),
+    image_url: z.string().nullable(),
+    image_alt: z.string().nullable(),
   })),
 })
 export type PublicStorefrontResponse = z.infer<typeof publicStorefrontResponse>
@@ -39,6 +41,8 @@ export const publicProductResponse = z.object({
     description: z.string().nullable(),
     price_minor: z.number().int().nullable(),
     currency: z.string().nullable(),
+    image_url: z.string().nullable(),
+    image_alt: z.string().nullable(),
   }),
 })
 export type PublicProductResponse = z.infer<typeof publicProductResponse>
