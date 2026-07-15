@@ -9,6 +9,7 @@
 import { computed } from 'vue'
 import { useBrandKit, DofText, DofMoney, DofEmptyState } from '@ds/index'
 import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
+import { storeMeta } from '../../../composables/public-seo'
 
 definePageMeta({ layout: false })
 
@@ -25,10 +26,19 @@ const store = computed(() => data.value!.store)
 const brand = computed(() => data.value!.brand)
 const products = computed(() => data.value!.products)
 
+const origin = useRequestURL().origin
 useHead({
   title: () => `${store.value.name} — dof.dev/${store.value.handle}`,
   htmlAttrs: { 'data-scope': 'storefront' },
+  link: [{ rel: 'canonical', href: `${origin}/s/${store.value.handle}` }],
 })
+useSeoMeta(storeMeta({
+  origin,
+  handle: store.value.handle,
+  storeName: store.value.name,
+  tagline: brand.value?.tagline ?? null,
+  imageUrl: products.value[0]?.image_url ?? null,
+}))
 
 // The merchant's palette becomes the page's tokens (falls back to system tokens per key).
 const { scopeAttrs } = useBrandKit(computed(() => ({
