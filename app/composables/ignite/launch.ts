@@ -134,6 +134,7 @@ export function createLaunchService(fetcher: LaunchFetch, userId: string = '') {
         title: state.productTitle.trim(),
         fulfillment_kind: fulfillment,
         default_price: { amount: state.priceMinor, currency: 'EUR' },
+        publish_to_store_id: partial.storeId, // VISIBILITY_CONTRACT: the shelf is listing truth now
       }, 'product')
       partial.productId = product.product_id as string
     }

@@ -43,6 +43,7 @@ export function listProductsQuery(deps: CommerceDeps) {
     status?: ProductStatus
     showArchived?: boolean
     q?: string
+    channelId?: string | null
     limit: number
     cursor: string | null
   }): Promise<Result<Page<ProductGridRow>, DomainError>> => {
@@ -54,7 +55,7 @@ export function listProductsQuery(deps: CommerceDeps) {
         READ_SPEC,
       )
       if (!gate.ok) return gate
-      return deps.productReads.list(tx, asBusinessId(input.businessId), {
+      return deps.productReads.list(tx, asBusinessId(input.businessId), { channelId: input.channelId, 
         status: input.status,
         showArchived: input.showArchived,
         q: input.q,

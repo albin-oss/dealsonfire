@@ -40,6 +40,16 @@ export const COMMERCE_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'commerce.product.media_removed': z.object({
     product_id: uuid, business_id: uuid, product_media_id: uuid, media_id: uuid,
   }).passthrough(),
+  // VISIBILITY_CONTRACT §7 — one shape, three transitions
+  'commerce.listing.published': z.object({
+    listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
+  }).passthrough(),
+  'commerce.listing.unpublished': z.object({
+    listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
+  }).passthrough(),
+  'commerce.listing.ended': z.object({
+    listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
+  }).passthrough(),
 }
 
 export function commercePayloadValidators(): Record<string, PayloadValidator> {

@@ -50,6 +50,8 @@ export const createProductRequest = z.object({
   variants: z.array(variantInput).max(100).optional(),
   default_price: money.optional(),
   media: z.array(mediaInput).max(50).optional(),
+  /** Same-transaction publication to a store (VISIBILITY_CONTRACT §6). */
+  publish_to_store_id: uuid.nullable().optional(),
 }).strict()
 export type CreateProductRequest = z.infer<typeof createProductRequest>
 
@@ -89,6 +91,8 @@ export const listProductsQuerySchema = z.object({
   show_archived: z.enum(['true', 'false']).optional(),
   /** Simple title search (ACCEPTANCE-001 N4) — a DB filter, not the Search domain. */
   q: z.string().min(1).max(140).optional(),
+  /** Merchant grid: annotate each row with on_store for this channel (the store). */
+  channel_id: uuid.optional(),
   limit: z.string().optional(),
   cursor: z.string().max(512).optional(),
 })

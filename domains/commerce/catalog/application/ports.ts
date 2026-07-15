@@ -14,6 +14,7 @@ import type { MembershipView, BusinessView } from '../../../merchant/shared-kern
 import type { ProductRepository } from '../domain/ports'
 import type { PgProductReadDao } from '../infrastructure/product-read-dao'
 import type { PgAttributeSetRepository, PgBrandRefRepository } from '../infrastructure/attribute-repository'
+import type { PgListingRepository } from '../infrastructure/listing-repository'
 
 export interface MerchantAccess {
   membership: MembershipView
@@ -24,6 +25,8 @@ export interface MerchantAccess {
 export interface MerchantAccessPort {
   /** Resolve actor context at a business; NOT_FOUND for unknown business AND non-members alike. */
   resolveAccess(tx: Tx, userId: string, businessId: string): Promise<Result<MerchantAccess, DomainError>>
+  /** Is this store a channel of this business? NOT_FOUND-masked (VISIBILITY_CONTRACT §15). */
+  resolveStoreChannel(tx: Tx, businessId: string, storeId: string): Promise<Result<{ channelId: string }, DomainError>>
 }
 
 export interface CommerceDeps {
@@ -32,6 +35,7 @@ export interface CommerceDeps {
   productReads: PgProductReadDao
   attributeSets: PgAttributeSetRepository
   brandRefs: PgBrandRefRepository
+  listings: PgListingRepository
   merchantAccess: MerchantAccessPort
   eventStore: EventStore
   audit: AuditLog

@@ -45,10 +45,13 @@ import { PgProductRepository } from '@domains/commerce/catalog/infrastructure/pr
 import { PgPublicStorefrontDao } from '@domains/merchant/core/infrastructure/public-storefront-dao'
 import { MediaService, VercelBlobStorage, SandboxMediaStorage } from '@platform/media'
 import { optionalEnv } from '@platform/config'
-import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
+import type { PublicStorefrontResponse, PublicProductResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { asBusinessId } from '@domains/merchant/shared-kernel/ids'
 import { PgAttributeSetRepository, PgBrandRefRepository } from '@domains/commerce/catalog/infrastructure/attribute-repository'
 import { createAttributeSetCommand, archiveAttributeSetCommand, createBrandRefCommand } from '@domains/commerce/catalog/application/commands/attributes'
+import { PgListingRepository } from '@domains/commerce/catalog/infrastructure/listing-repository'
+import { publishToStoreCommand, unpublishFromStoreCommand } from '@domains/commerce/catalog/application/commands/listings'
+import { listingAutoEndConsumer } from '@domains/commerce/catalog/application/consumers/listing-auto-end'
 import { listAttributeSetsQuery, listBrandRefsQuery } from '@domains/commerce/catalog/application/queries/attributes'
 import { PgProductReadDao } from '@domains/commerce/catalog/infrastructure/product-read-dao'
 import type { CommerceDeps } from '@domains/commerce/catalog/application/ports'
@@ -123,6 +126,8 @@ export interface Container {
       createAttributeSet: ReturnType<typeof createAttributeSetCommand>
       archiveAttributeSet: ReturnType<typeof archiveAttributeSetCommand>
       createBrandRef: ReturnType<typeof createBrandRefCommand>
+      publishToStore: ReturnType<typeof publishToStoreCommand>
+      unpublishFromStore: ReturnType<typeof unpublishFromStoreCommand>
     }
     queries: {
       getProduct: ReturnType<typeof getProductQuery>
@@ -168,6 +173,8 @@ export interface Container {
     handleAvailability: ReturnType<typeof handleAvailabilityQuery>
     /** Public storefront read (UX-IGNITE Phase 3): live stores only; null = mask to 404. */
     publicStorefront: (handle: string) => Promise<PublicStorefrontResponse | null>
+    /** Public product read (Release 0.2): visible on this channel or null (mask to 404). */
+    publicProduct: (handle: string, productId: string) => Promise<PublicProductResponse | null>
   }
   onboarding: OnboardingService
   /** Media Port (UX-AUTHOR-002 §D): storage adapter swappable; the registry is permanent. */
@@ -225,6 +232,7 @@ export function buildContainer(databaseUrl: string): Container {
     productReads: new PgProductReadDao(),
     attributeSets: new PgAttributeSetRepository(),
     brandRefs: new PgBrandRefRepository(),
+    listings: new PgListingRepository(),
     merchantAccess: merchantAccessAdapter(deps, entitlements),
     eventStore: new PgEventStore({
       eventsTable: 'commerce_domain_events',
@@ -257,6 +265,8 @@ export function buildContainer(databaseUrl: string): Container {
           await ensureGhostLocationInTx(operationsDeps, tx, { businessId: payload.business_id })
         },
       },
+      // VISIBILITY_CONTRACT §8: product archived → its listings end (replay-silent).
+      listingAutoEndConsumer(commerceDeps),
     ],
     commercePayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'commerce-outbox' }) },
@@ -385,6 +395,8 @@ export function buildContainer(databaseUrl: string): Container {
         createAttributeSet: createAttributeSetCommand(commerceDeps),
         archiveAttributeSet: archiveAttributeSetCommand(commerceDeps),
         createBrandRef: createBrandRefCommand(commerceDeps),
+        publishToStore: publishToStoreCommand(commerceDeps),
+        unpublishFromStore: unpublishFromStoreCommand(commerceDeps),
       },
       queries: {
         getProduct: getProductQuery(commerceDeps),
@@ -435,13 +447,31 @@ export function buildContainer(databaseUrl: string): Container {
         return deps.uow.withTransaction(async (tx) => {
           const front = await publicDao.findLiveByHandle(tx, handle)
           if (!front) return null
-          const products = await commerceDeps.productReads.listPublicShelf(tx, asBusinessId(front.businessId))
+          const products = await commerceDeps.productReads.listPublicShelf(tx, asBusinessId(front.businessId), front.storeId)
           return {
             store: { handle: front.handle, name: front.name, published_at: front.publishedAt },
             brand: front.brand,
             products: products.map((p) => ({
               id: p.id, title: p.title, price_minor: p.min_price_amount, currency: p.price_currency,
             })),
+          }
+        })
+      },
+      publicProduct: async (handle: string, productId: string) => {
+        const publicDao = new PgPublicStorefrontDao()
+        return deps.uow.withTransaction(async (tx) => {
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          const product = await commerceDeps.productReads.findPublicProduct(tx, asBusinessId(front.businessId), front.storeId, productId)
+          if (!product) return null
+          return {
+            store: { handle: front.handle, name: front.name },
+            brand: front.brand,
+            product: {
+              id: product.id, title: product.title,
+              description: product.description?.content ?? null,
+              price_minor: product.min_price_amount, currency: product.price_currency,
+            },
           }
         })
       },

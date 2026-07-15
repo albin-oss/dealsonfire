@@ -9,6 +9,7 @@ import type { Actor } from '../../../../merchant/shared-kernel/actor'
 import { asBusinessId } from '../../../../merchant/shared-kernel/ids'
 import { createProduct as productFactory, type CreateProductInput as FactoryInput } from '../../domain/factories/product-factory'
 import { withAuthorizedBusiness } from '../access'
+import { upsertPublishedListing } from './listings'
 import { productToDTO, type ProductDTO } from '../dto'
 import { type CommerceDeps, PRODUCT_TIER_LIMITS } from '../ports'
 
@@ -24,6 +25,8 @@ export interface CreateProductCommand {
   variants?: FactoryInput['variants']
   defaultPrice?: { amount: number; currency: string }
   media?: FactoryInput['media']
+  /** Publish to this store in the same transaction (Ignite launch, Composer shelf). */
+  publishToStoreId?: string | null
   requestContext?: Record<string, unknown>
 }
 
@@ -70,6 +73,20 @@ export function createProductCommand(deps: CommerceDeps) {
         afterDigest: { title: input.title, variant_count: made.value.product.variants.length },
         context: input.requestContext,
       })
+
+      // Optional same-transaction publication (VISIBILITY_CONTRACT §6): Ignite's launch and
+      // the Composer's "Put it on the shelf" pass the store — one tap keeps meaning one tap,
+      // and the interim implicit-publication behavior is preserved as an EXPLICIT intent act.
+      if (input.publishToStoreId) {
+        const channel = await deps.merchantAccess.resolveStoreChannel(tx, input.businessId, input.publishToStoreId)
+        if (!channel.ok) return channel
+        if (made.value.product.variants.some((v) => v.price.amount > 0)) {
+          await upsertPublishedListing(deps, tx, {
+            product: made.value.product, channelId: channel.value.channelId,
+            actor: input.actor, requestContext: input.requestContext,
+          })
+        }
+      }
       return ok(productToDTO(made.value.product))
     })
   }

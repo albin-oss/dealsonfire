@@ -23,15 +23,17 @@ useHead({ title: 'Products — DOF' })
 
 // ——— workspace context: the business this composer authors into
 const headers = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
-const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string }> }>('/api/v1/workspace', {
+const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })
 const businessId = computed(() => workspace.value?.businesses[0]?.business_id ?? null)
+const storeId = computed(() => workspace.value?.businesses[0]?.stores[0]?.store_id ?? null)
+const storeHandle = computed(() => workspace.value?.businesses[0]?.stores[0]?.handle ?? null)
 
 // ——— the grid
-interface GridRow { id: string; title: string; status: string; min_price_amount: number | null; price_currency: string | null }
+interface GridRow { id: string; title: string; status: string; min_price_amount: number | null; price_currency: string | null; on_store: boolean }
 const { data: grid, refresh: refreshGrid, pending: gridPending } = useFetch<{ items: GridRow[] }>(
-  () => `/api/v1/products?business_id=${businessId.value}&limit=24`,
+  () => `/api/v1/products?business_id=${businessId.value}&limit=24${storeId.value ? `&channel_id=${storeId.value}` : ''}`,
   { lazy: true, server: false, headers, immediate: false },
 )
 watch(businessId, (id) => { if (id) void refreshGrid() }, { immediate: true })
@@ -121,11 +123,13 @@ async function publish() {
   publishing.value = true
   publishProblem.value = ''
   try {
-    await $fetch('/api/v1/products', {
+    const created = await $fetch<{ product_id: string }>('/api/v1/products', {
       method: 'POST',
       headers: { ...headers, 'idempotency-key': crypto.randomUUID() },
       body: {
         business_id: businessId.value,
+        // "Put it on the shelf" means it: same-transaction publication (VISIBILITY_CONTRACT §6)
+        ...(storeId.value ? { publish_to_store_id: storeId.value } : {}),
         title: parsed.value.title,
         fulfillment_kind: kind.value,
         default_price: { amount: effectivePrice.value, currency: 'EUR' },
@@ -147,13 +151,47 @@ async function publish() {
         ...(media.value ? { media: [{ media_id: media.value.mediaId, alt_text: media.value.alt || parsed.value.title }] } : {}),
       },
     })
-    announce(`“${parsed.value.title}” is on the shelf.`)
+    justPublished.value = storeId.value && storeHandle.value
+      ? { title: parsed.value.title, productId: created.product_id }
+      : null
+    announce(`“${parsed.value.title}” is on your store.`)
     resetComposer()
     await refreshGrid()
   } catch (error) {
     publishProblem.value = (error as { data?: { detail?: string } }).data?.detail ?? 'We couldn’t save that just now — everything you typed is safe; try again.'
   } finally {
     publishing.value = false
+  }
+}
+
+// ——— the View-live flow (Release 0.2): publish → see it → copy it → share it. No modal.
+const justPublished = ref<{ title: string; productId: string } | null>(null)
+const productUrl = (id: string) => `/s/${storeHandle.value}/p/${id}`
+async function copyProductLink(id: string) {
+  try {
+    await navigator.clipboard.writeText(`${window.location.origin}${productUrl(id)}`)
+    announce('Link copied — send it to someone.')
+  } catch { announce(`${window.location.origin}${productUrl(id)}`) }
+}
+
+// ——— on/off the store: instantly reversible intent, never a confirmation dialog
+const toggling = ref<string | null>(null)
+async function toggleOnStore(row: GridRow) {
+  if (!storeId.value || toggling.value) return
+  toggling.value = row.id
+  try {
+    const action = row.on_store ? 'unpublish-from-store' : 'publish-to-store'
+    await $fetch(`/api/v1/products/${row.id}/${action}`, {
+      method: 'POST',
+      headers: { ...headers, 'idempotency-key': crypto.randomUUID() },
+      body: { store_id: storeId.value },
+    })
+    announce(row.on_store ? `“${row.title}” is off your store — tap again to bring it back.` : `“${row.title}” is on your store.`)
+    await refreshGrid()
+  } catch (error) {
+    announce((error as { data?: { detail?: string } }).data?.detail ?? 'That didn’t take — try again.')
+  } finally {
+    toggling.value = null
   }
 }
 
@@ -247,6 +285,24 @@ function resetComposer() {
       </div>
     </section>
 
+    <!-- ——— just published: View Live → Copy Link → Share (Release 0.2, no modal) -->
+    <section
+      v-if="justPublished && storeHandle"
+      class="flex flex-wrap items-center gap-3 rounded-large border border-positive/40 bg-positive/5 p-4"
+      aria-live="polite"
+    >
+      <DofText role="body" class="flex-1">
+        <strong>“{{ justPublished.title }}”</strong> is on your store.
+      </DofText>
+      <NuxtLink :to="`${productUrl(justPublished.productId)}?v=${Date.now()}`" target="_blank" class="contents">
+        <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
+      </NuxtLink>
+      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyProductLink(justPublished.productId)">
+        Copy link
+      </DofButton>
+      <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
+    </section>
+
     <!-- ——— the shelf -->
     <section aria-label="your products" class="flex flex-col gap-3">
       <DofText role="emphasis" as="h2">On the shelf</DofText>
@@ -254,10 +310,24 @@ function resetComposer() {
         <DofSkeleton v-for="n in 3" :key="n" class="h-24 rounded-large" />
       </div>
       <ul v-else-if="grid && grid.items.length > 0" class="grid list-none grid-cols-2 gap-3 p-0 regular:grid-cols-3">
-        <li v-for="p in grid.items" :key="p.id" class="flex flex-col gap-1 rounded-large border border-line p-3">
+        <li v-for="p in grid.items" :key="p.id" class="flex flex-col gap-1.5 rounded-large border border-line p-3">
           <DofText role="body" class="truncate font-medium">{{ p.title }}</DofText>
           <DofMoney v-if="p.min_price_amount" :amount="p.min_price_amount" :currency="p.price_currency ?? 'EUR'" class="text-caption text-muted-foreground" />
-          <DofText role="caption" tone="faint">{{ p.status }}</DofText>
+          <DofText role="caption" :tone="p.on_store ? undefined : 'muted'" :class="p.on_store && 'text-positive'">
+            {{ p.on_store ? '● On your store' : '○ Not on your store' }}
+          </DofText>
+          <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <DofButton size="sm" :variant="p.on_store ? 'ghost' : 'soft'" :tone="p.on_store ? 'neutral' : 'accent'"
+                       :loading="toggling === p.id" @click="toggleOnStore(p)">
+              {{ p.on_store ? 'Hide from my store' : 'Put on my store' }}
+            </DofButton>
+            <template v-if="p.on_store && storeHandle">
+              <NuxtLink :to="`${productUrl(p.id)}?v=${Date.now()}`" target="_blank" class="contents">
+                <DofButton size="sm" variant="ghost" tone="neutral" icon="external-link">View live</DofButton>
+              </NuxtLink>
+              <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copyProductLink(p.id)">Copy link</DofButton>
+            </template>
+          </div>
         </li>
       </ul>
       <DofEmptyState

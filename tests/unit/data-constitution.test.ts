@@ -84,7 +84,7 @@ describe('manifest completeness', () => {
       expect(entry.retention, entry.table).toBeTruthy()
       expect(entry.delete_class, entry.table).toBeTruthy()
     }
-    expect(manifestTableNames().size).toBe(42) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR)
+    expect(manifestTableNames().size).toBe(43) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1)
   })
 })
 

@@ -62,13 +62,17 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       <section id="shelf" aria-label="products" class="flex flex-col gap-4">
         <template v-if="products.length > 0">
           <ul class="grid list-none grid-cols-2 gap-4 p-0 regular:grid-cols-3">
-            <li v-for="product in products" :key="product.id"
-                class="flex flex-col gap-2 rounded-large border border-foreground/10 bg-foreground/[0.03] p-3">
-              <div class="flex h-28 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
-                {{ store.name }}
-              </div>
-              <DofText role="body" as="h2" class="truncate font-medium">{{ product.title }}</DofText>
-              <DofMoney v-if="product.price_minor !== null" :amount="product.price_minor" :currency="product.currency ?? 'EUR'" class="text-body" />
+            <li v-for="product in products" :key="product.id">
+              <NuxtLink
+                :to="`/s/${store.handle}/p/${product.id}`"
+                class="dof-interactive flex flex-col gap-2 rounded-large border border-foreground/10 bg-foreground/[0.03] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
+              >
+                <div class="flex h-28 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
+                  {{ store.name }}
+                </div>
+                <DofText role="body" as="h2" class="truncate font-medium">{{ product.title }}</DofText>
+                <DofMoney v-if="product.price_minor !== null" :amount="product.price_minor" :currency="product.currency ?? 'EUR'" class="text-body" />
+              </NuxtLink>
             </li>
           </ul>
         </template>

@@ -16,6 +16,9 @@ import onboardingPut from '../../server/api/v1/onboarding/index.put'
 import onboardingComplete from '../../server/api/v1/onboarding/complete.post'
 import handleAvailabilityGet from '../../server/api/v1/handles/[handle]/availability.get'
 import publicStorefrontGet from '../../server/api/v1/public/stores/[handle].get'
+import publicProductGet from '../../server/api/v1/public/stores/[handle]/products/[productId].get'
+import publishToStorePost from '../../server/api/v1/products/[productId]/publish-to-store.post'
+import unpublishFromStorePost from '../../server/api/v1/products/[productId]/unpublish-from-store.post'
 import mediaUploadPost from '../../server/api/v1/media/index.post'
 import attributeSetsPost from '../../server/api/v1/attribute-sets/index.post'
 import attributeSetsGet from '../../server/api/v1/attribute-sets/index.get'
@@ -83,6 +86,9 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/onboarding/complete', onboardingComplete)
   router.get('/api/v1/handles/:handle/availability', handleAvailabilityGet)
   router.get('/api/v1/public/stores/:handle', publicStorefrontGet)
+  router.get('/api/v1/public/stores/:handle/products/:productId', publicProductGet)
+  router.post('/api/v1/products/:productId/publish-to-store', publishToStorePost)
+  router.post('/api/v1/products/:productId/unpublish-from-store', unpublishFromStorePost)
   router.post('/api/v1/media', mediaUploadPost)
   router.post('/api/v1/attribute-sets', attributeSetsPost)
   router.get('/api/v1/attribute-sets', attributeSetsGet)

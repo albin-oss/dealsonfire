@@ -18,6 +18,9 @@
     "commerce.variant.updated": 1,
     "commerce.variant.price_changed": 1,
     "commerce.product.media_added": 1,
-    "commerce.product.media_removed": 1
+    "commerce.product.media_removed": 1,
+    "commerce.listing.published": 1,
+    "commerce.listing.unpublished": 1,
+    "commerce.listing.ended": 1
   }
 }

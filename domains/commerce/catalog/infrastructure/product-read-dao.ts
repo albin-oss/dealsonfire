@@ -23,13 +23,15 @@ export interface ProductGridRow {
   min_price_amount: number | null
   price_currency: string | null
   updated_at: string
+  /** Merchant language: is it on the store? (published listing on the queried channel) */
+  on_store: boolean
 }
 
 export class PgProductReadDao extends PgRepositoryBase {
   async list(
     tx: Tx,
     businessId: BusinessId,
-    opts: { status?: ProductStatus; showArchived?: boolean; q?: string; limit: number; cursor: string | null },
+    opts: { status?: ProductStatus; showArchived?: boolean; q?: string; limit: number; cursor: string | null; channelId?: string | null },
   ): Promise<Result<Page<ProductGridRow>, DomainError>> {
     let cursorClause = ''
     const params: unknown[] = [businessId]
@@ -54,6 +56,12 @@ export class PgProductReadDao extends PgRepositoryBase {
       params.push(updatedAt, id)
       cursorClause = `AND (p.updated_at, p.id) < ($${params.length - 1}::timestamptz, $${params.length}::uuid)`
     }
+    // merchant language: "on your store" = a published listing on the queried channel
+    let onStoreClause = 'false'
+    if (opts.channelId) {
+      params.push(opts.channelId)
+      onStoreClause = `EXISTS (SELECT 1 FROM listings l WHERE l.product_id = p.id AND l.channel_id = $${params.length} AND l.status = 'published')`
+    }
     params.push(opts.limit + 1) // limit+1: the extra row IS the has-next signal
 
     // Cursor key uses PG's ::text representation (microsecond precision) — Date.toISOString()
@@ -62,6 +70,7 @@ export class PgProductReadDao extends PgRepositoryBase {
       tx,
       `SELECT p.id, p.title, p.status, p.fulfillment_kind, p.category_path,
               p.updated_at::text AS updated_at,
+              ${onStoreClause} AS on_store,
               (SELECT count(*)::int FROM product_variants v WHERE v.product_id = p.id) AS variant_count,
               (SELECT count(*)::int FROM product_media m WHERE m.product_id = p.id) AS media_count,
               (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.product_id = p.id) AS min_price_amount,
@@ -76,13 +85,14 @@ export class PgProductReadDao extends PgRepositoryBase {
   }
 
   /**
-   * Public storefront shelf (UX-IGNITE Phase 3): what the world may see. INTERIM RULE
-   * until CS1 Listings lands (CER-001 — "publicly buyable" is a Listing fact, not a
-   * product status): non-archived products with a real price — the same bar the store
-   * publish gate counts as shelf-worthy. Hard-capped, newest first, no pagination.
-   * When Listings ship, this switches to published listings and the rule retires.
+   * Public storefront shelf = LISTING TRUTH (VISIBILITY_CONTRACT §9). The interim
+   * priced-⇒-public rule is retired (its reality was backfilled as explicit listings in
+   * migration 0012). A product appears iff its listing on THIS channel is published and
+   * the product itself is not archived/deleted — the read-side terms of the visibility
+   * conjunction that live in commerce (store liveness/hold are checked by the caller,
+   * which resolved a LIVE store to reach this shelf). Hard-capped, newest first.
    */
-  async listPublicShelf(tx: Tx, businessId: BusinessId, limit = 12): Promise<Array<{
+  async listPublicShelf(tx: Tx, businessId: BusinessId, channelId: string, limit = 12): Promise<Array<{
     id: string; title: string; min_price_amount: number | null; price_currency: string | null
   }>> {
     return this.many(
@@ -90,12 +100,39 @@ export class PgProductReadDao extends PgRepositoryBase {
       `SELECT p.id, p.title,
               (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency
-       FROM products p
-       WHERE p.business_id = $1 AND p.status <> 'archived' AND p.deleted_at IS NULL
-         AND EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.price_amount > 0)
-       ORDER BY p.created_at DESC, p.id DESC
-       LIMIT $2`,
-      [businessId, Math.min(limit, 48)],
+       FROM listings l
+       JOIN products p ON p.id = l.product_id
+       WHERE l.channel_id = $2 AND l.status = 'published'
+         AND p.business_id = $1 AND p.status <> 'archived' AND p.deleted_at IS NULL
+       ORDER BY l.published_at DESC, p.id DESC
+       LIMIT $3`,
+      [businessId, channelId, Math.min(limit, 48)],
     )
+  }
+
+  /**
+   * Public product page read (Release 0.2): ONE product, iff visible on this channel —
+   * the same conjunction terms as the shelf (published listing ∧ product not archived).
+   * Null = the caller masks to 404 (V6: hidden is indistinguishable from nonexistent).
+   */
+  async findPublicProduct(tx: Tx, businessId: BusinessId, channelId: string, productId: string): Promise<{
+    id: string; title: string; description: { format?: string; content?: string } | null
+    fulfillment_kind: string; min_price_amount: number | null; price_currency: string | null
+  } | null> {
+    const rows = await this.many<{
+      id: string; title: string; description: { format?: string; content?: string } | null
+      fulfillment_kind: string; min_price_amount: number | null; price_currency: string | null
+    }>(
+      tx,
+      `SELECT p.id, p.title, p.description, p.fulfillment_kind,
+              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
+              (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency
+       FROM listings l
+       JOIN products p ON p.id = l.product_id
+       WHERE l.channel_id = $2 AND l.status = 'published' AND l.product_id = $3
+         AND p.business_id = $1 AND p.status <> 'archived' AND p.deleted_at IS NULL`,
+      [businessId, channelId, productId],
+    )
+    return rows[0] ?? null
   }
 }

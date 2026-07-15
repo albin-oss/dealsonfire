@@ -28,7 +28,7 @@ async function merchantWithStore(opts: { publish: boolean }): Promise<{ cookie: 
     // publishability needs a product on the shelf
     await http.request('POST', '/api/v1/products', {
       headers: { cookie },
-      body: { business_id: biz.body.business_id, title: 'Lavender blanket', fulfillment_kind: 'physical', default_price: { amount: 4500, currency: 'EUR' } },
+      body: { business_id: biz.body.business_id, title: 'Lavender blanket', fulfillment_kind: 'physical', default_price: { amount: 4500, currency: 'EUR' }, publish_to_store_id: store.body.store_id },
     })
     const pub = await http.request('POST', `/api/v1/stores/${store.body.store_id}/publish`, { headers: { cookie } })
     expect(pub.status).toBe(200)

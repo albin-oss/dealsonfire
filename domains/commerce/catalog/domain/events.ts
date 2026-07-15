@@ -23,6 +23,10 @@ export const COMMERCE_EVENT = {
   VARIANT_PRICE_CHANGED: 'commerce.variant.price_changed',
   PRODUCT_MEDIA_ADDED: 'commerce.product.media_added',
   PRODUCT_MEDIA_REMOVED: 'commerce.product.media_removed',
+  // VISIBILITY_CONTRACT §7 — the only publication vocabulary any consumer may use
+  LISTING_PUBLISHED: 'commerce.listing.published',
+  LISTING_UNPUBLISHED: 'commerce.listing.unpublished',
+  LISTING_ENDED: 'commerce.listing.ended',
 } as const
 
 export interface ProductCreatedPayload {
@@ -77,6 +81,30 @@ export interface ProductMediaRemovedPayload {
   business_id: string
   product_media_id: string
   media_id: string
+}
+
+/** VISIBILITY_CONTRACT §7: all three listing events share one payload shape. */
+export type ListingEventPayload = {
+  listing_id: string
+  product_id: string
+  business_id: string
+  channel_id: string
+}
+
+/** Listing events sequence on the LISTING aggregate (its own machine — ADR-002 §0.3). */
+export function makeListingEvent(
+  eventType: string,
+  payload: ListingEventPayload,
+  actor: Actor,
+): NewDomainEvent<ListingEventPayload> {
+  return Object.freeze({
+    eventType,
+    schemaVersion: 1,
+    businessId: payload.business_id,
+    aggregate: { type: 'listing', id: payload.listing_id },
+    actor,
+    payload: Object.freeze(payload),
+  })
 }
 
 export function makeCommerceEvent<P>(
