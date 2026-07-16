@@ -26,6 +26,13 @@ export const publicStorefrontResponse = z.object({
     image_url: z.string().nullable(),
     image_alt: z.string().nullable(),
   })),
+  /** Latest sparks (Release 0.6) — the store's voice, newest first. */
+  sparks: z.array(z.object({
+    id: z.string().uuid(),
+    body: z.string(),
+    published_at: z.string(),
+    image_url: z.string().nullable(),
+  })),
 })
 export type PublicStorefrontResponse = z.infer<typeof publicStorefrontResponse>
 
@@ -78,3 +85,31 @@ export const publicDealResponse = z.object({
   }),
 })
 export type PublicDealResponse = z.infer<typeof publicDealResponse>
+
+/** GET /api/v1/public/stores/:handle/sparks/:sparkId — one visible spark (Release 0.6). */
+export const publicSparkResponse = z.object({
+  store: z.object({ handle: z.string(), name: z.string() }),
+  brand: z.object({
+    name: z.string(),
+    palette: z.record(z.string(), z.string()),
+    tagline: z.string().nullable(),
+    story: z.string().nullable(),
+    promise: z.string().nullable(),
+  }).nullable(),
+  spark: z.object({
+    id: z.string().uuid(),
+    body: z.string(),
+    published_at: z.string(),
+    image_url: z.string().nullable(),
+  }),
+  /** The product card rides only while the product is visible; null otherwise. */
+  product: z.object({
+    id: z.string().uuid(),
+    title: z.string(),
+    price_minor: z.number().int().nullable(),
+    currency: z.string().nullable(),
+    image_url: z.string().nullable(),
+    image_alt: z.string().nullable(),
+  }).nullable(),
+})
+export type PublicSparkResponse = z.infer<typeof publicSparkResponse>

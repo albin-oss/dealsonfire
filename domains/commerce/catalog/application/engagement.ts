@@ -31,10 +31,7 @@ export async function resolveEngageableDeal(tx: Tx, dealId: string): Promise<Eng
 }
 
 type EngagementKind = 'reaction' | 'save'
-const TABLE: Record<EngagementKind, string> = { reaction: 'deal_reactions', save: 'deal_saves' }
-const ON_EVENT: Record<EngagementKind, string> = { reaction: COMMERCE_EVENT.DEAL_REACTED, save: COMMERCE_EVENT.DEAL_SAVED }
-const OFF_EVENT: Record<EngagementKind, string> = { reaction: COMMERCE_EVENT.DEAL_UNREACTED, save: COMMERCE_EVENT.DEAL_UNSAVED }
-const COMMAND: Record<EngagementKind, string> = { reaction: 'commerce.deal.react', save: 'commerce.deal.save' }
+
 
 export interface ToggleInput {
   dealId: string
@@ -43,51 +40,96 @@ export interface ToggleInput {
   requestContext?: Record<string, unknown>
 }
 
+/** Subject-agnostic toggle config: deals and sparks share one engagement discipline. */
+export interface EngagementSubject {
+  table: string
+  subjectColumn: string
+  targetType: string
+  command: string
+  /** Builds the domain event; `active` is the toggle's outcome (on = true). */
+  makeEvent: (
+    payload: { subjectId: string; businessId: string; visitorId: string },
+    actor: Actor,
+    active: boolean,
+  ) => ReturnType<typeof makeDealEngagementEvent>
+}
+
 /**
- * One toggle for both kinds: present → remove, absent → add. Concurrency-safe by the
- * unique key (ON CONFLICT DO NOTHING → a lost race is a silent no-change, no event).
- * Runs in the CALLER's transaction — the composition root resolves engageability
- * (commerce terms + store liveness) and toggles atomically in one tx.
+ * One toggle for every engagement subject: present → remove, absent → add.
+ * Concurrency-safe by the unique key (ON CONFLICT DO NOTHING → a lost race is a
+ * silent no-change, no event). Runs in the CALLER's transaction — the composition
+ * root resolves engageability and toggles atomically in one tx.
  */
-export function toggleEngagementInTx(deps: CommerceDeps, kind: EngagementKind, tx: Tx) {
-  return async (input: ToggleInput): Promise<Result<{ active: boolean; count: number }, DomainError>> => {
-    const table = TABLE[kind]
+export function toggleSubjectEngagementInTx(deps: CommerceDeps, subject: EngagementSubject, tx: Tx) {
+  return async (input: { subjectId: string; businessId: string; visitorId: string; requestContext?: Record<string, unknown> }): Promise<Result<{ active: boolean; count: number }, DomainError>> => {
     const actor: Actor = { type: 'guest', id: input.visitorId }
-    {
-      const client = asClient(tx)
-      const { rows: removed } = await client.query(
-        `DELETE FROM ${table} WHERE deal_id = $1 AND visitor_id = $2 RETURNING id`,
-        [input.dealId, input.visitorId])
+    const client = asClient(tx)
+    const { rows: removed } = await client.query(
+      `DELETE FROM ${subject.table} WHERE ${subject.subjectColumn} = $1 AND visitor_id = $2 RETURNING id`,
+      [input.subjectId, input.visitorId])
 
-      let active: boolean
-      let changed = true
-      if (removed.length > 0) {
-        active = false
-      } else {
-        const { rows: inserted } = await client.query(
-          `INSERT INTO ${table} (id, deal_id, business_id, visitor_id) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (deal_id, visitor_id) DO NOTHING RETURNING id`,
-          [uuidv7(), input.dealId, input.deal.businessId, input.visitorId])
-        active = true
-        changed = inserted.length > 0 // a lost race means the state was already there
-      }
-
-      if (changed) {
-        await deps.eventStore.append(tx, [makeDealEngagementEvent(
-          active ? ON_EVENT[kind] : OFF_EVENT[kind],
-          { deal_id: input.dealId, business_id: input.deal.businessId, visitor_id: input.visitorId },
-          actor,
-        )])
-        await deps.audit.record(tx, {
-          businessId: input.deal.businessId, actor, command: COMMAND[kind],
-          sensitivity: 'normal', target: { type: 'deal', id: input.dealId },
-          afterDigest: { active }, context: input.requestContext,
-        })
-      }
-
-      const { rows: counted } = await client.query<{ n: string }>(
-        `SELECT count(*)::int AS n FROM ${table} WHERE deal_id = $1`, [input.dealId])
-      return ok({ active, count: Number(counted[0]!.n) })
+    let active: boolean
+    let changed = true
+    if (removed.length > 0) {
+      active = false
+    } else {
+      const { rows: inserted } = await client.query(
+        `INSERT INTO ${subject.table} (id, ${subject.subjectColumn}, business_id, visitor_id) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (${subject.subjectColumn}, visitor_id) DO NOTHING RETURNING id`,
+        [uuidv7(), input.subjectId, input.businessId, input.visitorId])
+      active = true
+      changed = inserted.length > 0 // a lost race means the state was already there
     }
+
+    if (changed) {
+      await deps.eventStore.append(tx, [subject.makeEvent(
+        { subjectId: input.subjectId, businessId: input.businessId, visitorId: input.visitorId },
+        actor,
+        active,
+      )])
+      await deps.audit.record(tx, {
+        businessId: input.businessId, actor, command: subject.command,
+        sensitivity: 'normal', target: { type: subject.targetType, id: input.subjectId },
+        afterDigest: { active }, context: input.requestContext,
+      })
+    }
+
+    const { rows: counted } = await client.query<{ n: string }>(
+      `SELECT count(*)::int AS n FROM ${subject.table} WHERE ${subject.subjectColumn} = $1`, [input.subjectId])
+    return ok({ active, count: Number(counted[0]!.n) })
   }
+}
+
+const DEAL_SUBJECT: Record<EngagementKind, EngagementSubject> = {
+  reaction: {
+    table: 'deal_reactions', subjectColumn: 'deal_id', targetType: 'deal',
+    command: 'commerce.deal.react',
+    makeEvent: ({ subjectId, businessId, visitorId }, actor, active) =>
+      makeDealEngagementEvent(
+        active ? COMMERCE_EVENT.DEAL_REACTED : COMMERCE_EVENT.DEAL_UNREACTED,
+        { deal_id: subjectId, business_id: businessId, visitor_id: visitorId },
+        actor,
+      ),
+  },
+  save: {
+    table: 'deal_saves', subjectColumn: 'deal_id', targetType: 'deal',
+    command: 'commerce.deal.save',
+    makeEvent: ({ subjectId, businessId, visitorId }, actor, active) =>
+      makeDealEngagementEvent(
+        active ? COMMERCE_EVENT.DEAL_SAVED : COMMERCE_EVENT.DEAL_UNSAVED,
+        { deal_id: subjectId, business_id: businessId, visitor_id: visitorId },
+        actor,
+      ),
+  },
+}
+
+/** The deal-flavored toggle (Release 0.4 API, unchanged for callers). */
+export function toggleEngagementInTx(deps: CommerceDeps, kind: EngagementKind, tx: Tx) {
+  return async (input: ToggleInput): Promise<Result<{ active: boolean; count: number }, DomainError>> =>
+    toggleSubjectEngagementInTx(deps, DEAL_SUBJECT[kind], tx)({
+      subjectId: input.dealId,
+      businessId: input.deal.businessId,
+      visitorId: input.visitorId,
+      requestContext: input.requestContext,
+    })
 }

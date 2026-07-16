@@ -421,6 +421,45 @@
       "cross_domain_refs": []
     },
     {
+      "table": "sparks",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "transition",
+      "note": "the content layer (Release 0.6): short public updates in the store's voice",
+      "cross_domain_refs": [
+        {
+          "column": "channel_id",
+          "target_domain": "merchant",
+          "target_concept": "store",
+          "cleanup_event": "merchant.store.deleted (future)",
+          "reconciliation": "sparks of deleted stores are inert (public reads resolve live stores only)"
+        },
+        {
+          "column": "media_id",
+          "target_domain": "media",
+          "target_concept": "asset",
+          "cleanup_event": "media.asset.deleted (future)",
+          "reconciliation": "dangling-MediaRef renders as no-photo (LEFT JOIN)"
+        }
+      ]
+    },
+    {
+      "table": "spark_reactions",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_columns": ["visitor_id"],
+      "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
       "table": "media_assets",
       "owner": "platform",
       "ownership_note": "Media Port registry (UX-AUTHOR-002 §D): media is cross-capability; the C9 Media capability inherits this table through the same port",

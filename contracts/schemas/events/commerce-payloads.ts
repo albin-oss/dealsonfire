@@ -60,6 +60,10 @@ export const COMMERCE_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'commerce.deal.unreacted': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
   'commerce.deal.saved': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
   'commerce.deal.unsaved': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.spark.published': z.object({ spark_id: uuid, business_id: uuid, channel_id: uuid }).passthrough(),
+  'commerce.spark.deleted': z.object({ spark_id: uuid, business_id: uuid, channel_id: uuid }).passthrough(),
+  'commerce.spark.reacted': z.object({ spark_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.spark.unreacted': z.object({ spark_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
 }
 
 export function commercePayloadValidators(): Record<string, PayloadValidator> {

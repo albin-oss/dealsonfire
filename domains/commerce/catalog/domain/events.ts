@@ -34,6 +34,11 @@ export const COMMERCE_EVENT = {
   DEAL_UNREACTED: 'commerce.deal.unreacted',
   DEAL_SAVED: 'commerce.deal.saved',
   DEAL_UNSAVED: 'commerce.deal.unsaved',
+  // Release 0.6 — the content layer
+  SPARK_PUBLISHED: 'commerce.spark.published',
+  SPARK_DELETED: 'commerce.spark.deleted',
+  SPARK_REACTED: 'commerce.spark.reacted',
+  SPARK_UNREACTED: 'commerce.spark.unreacted',
 } as const
 
 export interface ProductCreatedPayload {
@@ -104,6 +109,41 @@ export type DealEventPayload = {
   business_id: string
   channel_id: string
   headline: string
+}
+
+export type SparkEventPayload = {
+  spark_id: string
+  business_id: string
+  channel_id: string
+}
+
+export type SparkEngagementPayload = {
+  spark_id: string
+  business_id: string
+  visitor_id: string
+}
+
+export function makeSparkEngagementEvent(eventType: string, payload: SparkEngagementPayload, actor: Actor): NewDomainEvent<SparkEngagementPayload> {
+  return Object.freeze({
+    eventType,
+    schemaVersion: 1,
+    businessId: payload.business_id,
+    aggregate: { type: 'spark', id: payload.spark_id },
+    actor,
+    payload: Object.freeze(payload),
+  })
+}
+
+/** Spark events sequence on the SPARK aggregate (Release 0.6 — the content layer). */
+export function makeSparkEvent(eventType: string, payload: SparkEventPayload & Record<string, unknown>, actor: Actor): NewDomainEvent<SparkEventPayload> {
+  return Object.freeze({
+    eventType,
+    schemaVersion: 1,
+    businessId: payload.business_id,
+    aggregate: { type: 'spark', id: payload.spark_id },
+    actor,
+    payload: Object.freeze(payload),
+  })
 }
 
 /** All four engagement toggles share one payload shape (Release 0.4). */

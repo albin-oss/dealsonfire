@@ -26,6 +26,12 @@ import dealSavePost from '../../server/api/v1/public/deals/[dealId]/save.post'
 import storeFollowPost from '../../server/api/v1/public/stores/[handle]/follow.post'
 import dealsFeedGet from '../../server/api/v1/public/deals/index.get'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
+import sparksPost from '../../server/api/v1/sparks/index.post'
+import sparksGet from '../../server/api/v1/sparks/index.get'
+import sparkDeletePost from '../../server/api/v1/sparks/[sparkId]/delete.post'
+import publicSparkGet from '../../server/api/v1/public/stores/[handle]/sparks/[sparkId].get'
+import sparkReactPost from '../../server/api/v1/public/sparks/[sparkId]/react.post'
+import sparkEngagementGet from '../../server/api/v1/public/sparks/[sparkId]/engagement.get'
 import publishToStorePost from '../../server/api/v1/products/[productId]/publish-to-store.post'
 import unpublishFromStorePost from '../../server/api/v1/products/[productId]/unpublish-from-store.post'
 import mediaUploadPost from '../../server/api/v1/media/index.post'
@@ -106,6 +112,12 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/public/stores/:handle/follow', storeFollowPost)
   router.get('/api/v1/public/deals', dealsFeedGet)
   router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
+  router.post('/api/v1/sparks', sparksPost)
+  router.get('/api/v1/sparks', sparksGet)
+  router.post('/api/v1/sparks/:sparkId/delete', sparkDeletePost)
+  router.get('/api/v1/public/stores/:handle/sparks/:sparkId', publicSparkGet)
+  router.post('/api/v1/public/sparks/:sparkId/react', sparkReactPost)
+  router.get('/api/v1/public/sparks/:sparkId/engagement', sparkEngagementGet)
   router.post('/api/v1/products/:productId/publish-to-store', publishToStorePost)
   router.post('/api/v1/products/:productId/unpublish-from-store', unpublishFromStorePost)
   router.post('/api/v1/media', mediaUploadPost)

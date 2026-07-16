@@ -87,3 +87,19 @@ describe('dealMeta (Release 0.3 — the promotion voice leads)', () => {
     expect(meta.description).toBe('Lavender baby blanket — a deal from Rosa Knits on DOF.')
   })
 })
+
+describe('sparkMeta (Release 0.6 — the update IS the message)', () => {
+  it('excerpts the body and canonicalizes the spark URL', async () => {
+    const { sparkMeta, sparkCanonical } = await import('../../app/composables/public-seo')
+    const sparkFacts = {
+      origin: 'https://dof.dev', handle: 'rosas-knits', sparkId: '0198c5b2-0000-7000-8000-000000000003',
+      body: 'x'.repeat(200), storeName: 'Rosa Knits', imageUrl: null,
+    }
+    const meta = sparkMeta(sparkFacts)
+    expect(meta.description.length).toBe(158) // 157 chars + ellipsis, under the 160 SERP budget
+    expect(meta.description.endsWith('…')).toBe(true)
+    expect(meta.ogTitle).toBe('Rosa Knits on DOF')
+    expect(meta.twitterCard).toBe('summary')
+    expect(sparkCanonical(sparkFacts)).toBe('https://dof.dev/s/rosas-knits/sparks/0198c5b2-0000-7000-8000-000000000003')
+  })
+})

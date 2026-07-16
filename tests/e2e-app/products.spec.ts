@@ -48,3 +48,16 @@ test('the store identity page renders and is axe-clean (WCAG)', async ({ page })
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
 })
+
+test('the sparks page renders and is axe-clean (WCAG)', async ({ page }) => {
+  await page.goto('/sparks')
+  await page.waitForSelector('main#dof-main')
+  await expect(page.getByRole('heading', { name: 'Sparks' })).toBeVisible()
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
+})
+
+test('the public spark page 404s honestly when nothing is visible', async ({ page }) => {
+  const res = await page.goto(`/s/nobody-here/sparks/00000000-0000-7000-8000-000000000000`)
+  expect(res?.status()).toBe(404)
+})

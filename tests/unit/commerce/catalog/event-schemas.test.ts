@@ -24,6 +24,10 @@ const VALID: Record<string, Record<string, unknown>> = {
   'commerce.deal.unreacted': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
   'commerce.deal.saved': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
   'commerce.deal.unsaved': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.spark.published': { spark_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.spark.deleted': { spark_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.spark.reacted': { spark_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.spark.unreacted': { spark_id: uuid, business_id: uuid, visitor_id: uuid },
   [COMMERCE_EVENT.PRODUCT_CREATED]: {
     product_id: uuid, business_id: uuid, title: 'Soap', fulfillment_kind: 'physical',
     category_path: null, status: 'draft', variant_count: 1, source: 'manual',

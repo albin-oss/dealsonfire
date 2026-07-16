@@ -120,3 +120,29 @@ export async function isStoreLive(tx: Tx, storeId: string): Promise<boolean> {
     [storeId])
   return rows.length > 0
 }
+
+/** One spark's engagement snapshot for the public spark page (per-visitor, never cached). */
+export async function sparkEngagementSnapshot(
+  tx: Tx,
+  sparkId: string,
+  storeId: string,
+  visitorId: string | null,
+): Promise<{ fires: number; followers: number; viewer_reacted: boolean; viewer_follows: boolean }> {
+  const params: unknown[] = [sparkId, storeId]
+  let viewerCols = `false AS viewer_reacted, false AS viewer_follows`
+  if (visitorId) {
+    params.push(visitorId)
+    viewerCols = `
+      EXISTS (SELECT 1 FROM spark_reactions r WHERE r.spark_id = $1 AND r.visitor_id = $3) AS viewer_reacted,
+      EXISTS (SELECT 1 FROM store_follows f WHERE f.store_id = $2 AND f.visitor_id = $3) AS viewer_follows`
+  }
+  const { rows } = await asClient(tx).query<{
+    fires: number; followers: number; viewer_reacted: boolean; viewer_follows: boolean
+  }>(
+    `SELECT (SELECT count(*)::int FROM spark_reactions r2 WHERE r2.spark_id = $1) AS fires,
+            (SELECT count(*)::int FROM store_follows f2 WHERE f2.store_id = $2) AS followers,
+            ${viewerCols}`,
+    params,
+  )
+  return rows[0]!
+}

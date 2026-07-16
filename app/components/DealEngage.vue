@@ -10,12 +10,14 @@ import { ref, watch } from 'vue'
 import { DofButton, announce } from '@ds/index'
 
 const props = defineProps<{
+  /** The engagement subject: a deal (fire/save/follow) or a spark (fire/follow). */
+  kind?: 'deal' | 'spark'
   dealId: string
   storeHandle: string
   storeName: string
   fires: number
   reacted: boolean
-  saved: boolean
+  saved?: boolean
   follows: boolean
   /** compact = feed card row; full = deal page (adds the follow label) */
   variant?: 'compact' | 'full'
@@ -23,11 +25,11 @@ const props = defineProps<{
 
 const fires = ref(props.fires)
 const reacted = ref(props.reacted)
-const saved = ref(props.saved)
+const saved = ref(props.saved ?? false)
 const follows = ref(props.follows)
 watch(() => props.fires, (v) => (fires.value = v))
 watch(() => props.reacted, (v) => (reacted.value = v))
-watch(() => props.saved, (v) => (saved.value = v))
+watch(() => props.saved, (v) => (saved.value = v ?? false))
 watch(() => props.follows, (v) => (follows.value = v))
 
 const busy = ref<'react' | 'save' | 'follow' | null>(null)
@@ -38,12 +40,12 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
   try {
     const path = kind === 'follow'
       ? `/api/v1/public/stores/${encodeURIComponent(props.storeHandle)}/follow`
-      : `/api/v1/public/deals/${props.dealId}/${kind}`
+      : `/api/v1/public/${props.kind === 'spark' ? 'sparks' : 'deals'}/${props.dealId}/${kind}`
     const res = await $fetch<{ active: boolean; count: number }>(path, { method: 'POST' })
     if (kind === 'react') {
       reacted.value = res.active
       fires.value = res.count
-      announce(res.active ? 'You fired this deal.' : 'Fire removed.')
+      announce(res.active ? `You fired this ${props.kind ?? 'deal'}.` : 'Fire removed.')
     } else if (kind === 'save') {
       saved.value = res.active
       announce(res.active ? 'Saved — find it under Saved on the deals page.' : 'Removed from your saved deals.')
@@ -73,6 +75,7 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
       {{ fires > 0 ? fires : 'Fire' }}
     </DofButton>
     <DofButton
+      v-if="kind !== 'spark'"
       size="sm"
       :variant="saved ? 'soft' : 'ghost'"
       :tone="saved ? 'accent' : 'neutral'"

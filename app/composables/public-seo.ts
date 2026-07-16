@@ -123,3 +123,34 @@ export function dealMeta(facts: DealSeoFacts) {
     ...(image ? { twitterImage: image } : {}),
   }
 }
+
+export interface SparkSeoFacts {
+  origin: string
+  handle: string
+  sparkId: string
+  body: string
+  storeName: string
+  imageUrl: string | null
+}
+
+export function sparkCanonical(facts: Pick<SparkSeoFacts, 'origin' | 'handle' | 'sparkId'>): string {
+  return `${facts.origin}/s/${facts.handle}/sparks/${facts.sparkId}`
+}
+
+/** Spark unfurls: the update IS the message — body excerpt as the card. */
+export function sparkMeta(facts: SparkSeoFacts) {
+  const excerpt = facts.body.length > 160 ? `${facts.body.slice(0, 157)}…` : facts.body
+  const image = absolute(facts.origin, facts.imageUrl)
+  return {
+    description: excerpt,
+    ogTitle: `${facts.storeName} on DOF`,
+    ogDescription: excerpt,
+    ogType: 'website' as const,
+    ogUrl: sparkCanonical(facts),
+    ...(image ? { ogImage: image } : {}),
+    twitterCard: (image ? 'summary_large_image' : 'summary') as 'summary_large_image' | 'summary',
+    twitterTitle: `${facts.storeName} on DOF`,
+    twitterDescription: excerpt,
+    ...(image ? { twitterImage: image } : {}),
+  }
+}

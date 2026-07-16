@@ -101,6 +101,22 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         />
       </section>
 
+      <!-- ——— latest from the store (Release 0.6 — the voice) -->
+      <section v-if="data && data.sparks.length > 0" aria-label="latest updates" class="flex flex-col gap-3">
+        <DofText role="emphasis" as="h2">Latest from {{ store.name }}</DofText>
+        <ul class="flex list-none flex-col gap-2 p-0">
+          <li v-for="sp in data.sparks" :key="sp.id">
+            <NuxtLink
+              :to="`/s/${store.handle}/sparks/${sp.id}`"
+              class="dof-interactive flex items-start gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
+            >
+              <img v-if="sp.image_url" :src="sp.image_url" alt="" class="size-14 shrink-0 rounded-medium object-cover" loading="lazy">
+              <DofText role="body" class="line-clamp-2 text-foreground/90">{{ sp.body }}</DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
+
       <!-- ——— who we are (Release 0.5 — the identity block) -->
       <section
         v-if="brand?.story || brand?.promise"

@@ -29,6 +29,10 @@
     "commerce.deal.saved": 1,
     "commerce.deal.unsaved": 1,
     "merchant.store.followed": 1,
-    "merchant.store.unfollowed": 1
+    "merchant.store.unfollowed": 1,
+    "commerce.spark.published": 1,
+    "commerce.spark.deleted": 1,
+    "commerce.spark.reacted": 1,
+    "commerce.spark.unreacted": 1
   }
 }
