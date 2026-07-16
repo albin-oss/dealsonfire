@@ -40,3 +40,11 @@ test('the discover feed renders publicly and is axe-clean (WCAG)', async ({ page
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
 })
+
+test('the store identity page renders and is axe-clean (WCAG)', async ({ page }) => {
+  await page.goto('/store')
+  await page.waitForSelector('main#dof-main')
+  await expect(page.getByRole('heading', { name: 'Your store' })).toBeVisible()
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
+})

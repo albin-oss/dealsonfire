@@ -14,7 +14,7 @@ export interface PublicStorefront {
   handle: string
   name: string
   publishedAt: string | null
-  brand: { name: string; palette: Record<string, string>; tagline: string | null } | null
+  brand: { name: string; palette: Record<string, string>; tagline: string | null; story: string | null; promise: string | null } | null
 }
 
 export class PgPublicStorefrontDao {
@@ -22,7 +22,7 @@ export class PgPublicStorefrontDao {
     const { rows } = await asClient(tx).query<{
       store_id: string; business_id: string; handle: string; name: string
       published_at: Date | null; brand_name: string | null; palette: Record<string, string> | null
-      voice: { tone?: string } | null
+      voice: { tone?: string; story?: string; promise?: string } | null
     }>(
       `SELECT s.id AS store_id, s.business_id, s.handle, s.name, s.published_at,
               b.name AS brand_name, b.palette, b.voice
@@ -48,6 +48,8 @@ export class PgPublicStorefrontDao {
         name: r.brand_name,
         palette: r.palette ?? {},
         tagline: r.voice?.tone ?? null,
+        story: r.voice?.story ?? null,
+        promise: r.voice?.promise ?? null,
       },
     }
   }

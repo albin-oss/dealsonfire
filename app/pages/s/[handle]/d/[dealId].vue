@@ -111,6 +111,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         <DofText v-if="deal.story" role="body" class="mx-auto max-w-prose text-foreground/90" reading>
           {{ deal.story }}
         </DofText>
+        <DofText v-if="brand?.promise" role="caption" class="text-foreground/70">✓ {{ brand.promise }}</DofText>
       </section>
 
       <!-- the product it points at -->

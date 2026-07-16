@@ -36,7 +36,7 @@ useSeoMeta(storeMeta({
   origin,
   handle: store.value.handle,
   storeName: store.value.name,
-  tagline: brand.value?.tagline ?? null,
+  tagline: brand.value?.story ?? brand.value?.tagline ?? null,
   imageUrl: products.value[0]?.image_url ?? null,
 }))
 
@@ -99,6 +99,19 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
           title="The shelves are being stocked"
           :why="`${store.name} just opened — check back soon.`"
         />
+      </section>
+
+      <!-- ——— who we are (Release 0.5 — the identity block) -->
+      <section
+        v-if="brand?.story || brand?.promise"
+        aria-label="about this store"
+        class="flex flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.03] p-5"
+      >
+        <DofText role="emphasis" as="h2">About {{ store.name }}</DofText>
+        <DofText v-if="brand?.story" role="body" class="max-w-prose text-foreground/90" reading>
+          {{ brand.story }}
+        </DofText>
+        <DofText v-if="brand?.promise" role="caption" class="text-positive">✓ {{ brand.promise }}</DofText>
       </section>
     </main>
 

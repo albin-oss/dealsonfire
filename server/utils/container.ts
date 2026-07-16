@@ -16,6 +16,7 @@ import { updateBrandKitCommand } from '@domains/merchant/core/application/comman
 import { publishStoreCommand } from '@domains/merchant/core/application/commands/publish-store'
 import { workspaceOverviewQuery } from '@domains/merchant/core/application/queries/workspace-overview'
 import { handleAvailabilityQuery } from '@domains/merchant/core/application/queries/handle-availability'
+import { getBrandKitQuery } from '@domains/merchant/core/application/queries/brand-kit'
 import { createPool, PgUnitOfWork } from '@platform/db'
 import { PgEventStore } from '@platform/event-store'
 import { PgAuditLog } from '@platform/audit-log'
@@ -180,6 +181,7 @@ export interface Container {
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
     handleAvailability: ReturnType<typeof handleAvailabilityQuery>
+    getBrandKit: ReturnType<typeof getBrandKitQuery>
     /** Public storefront read (UX-IGNITE Phase 3): live stores only; null = mask to 404. */
     publicStorefront: (handle: string) => Promise<PublicStorefrontResponse | null>
     /** Public product read (Release 0.2): visible on this channel or null (mask to 404). */
@@ -463,6 +465,7 @@ export function buildContainer(databaseUrl: string): Container {
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
       handleAvailability: handleAvailabilityQuery(deps),
+      getBrandKit: getBrandKitQuery(deps, entitlements),
       // Composition-root read: joins the merchant's public face with the commerce shelf.
       // One transaction, read-only; a null anywhere masks to 404 at the endpoint.
       publicStorefront: async (handle: string) => {

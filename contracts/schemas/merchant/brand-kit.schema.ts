@@ -14,6 +14,9 @@ export const brandKitUpdateRequest = z.object({
   voice: z.object({
     tone: z.string().max(200).optional(),
     keywords: z.array(z.string().max(40)).max(10).optional(),
+    /** Release 0.5 — the identity loop: who they are, in their own words. */
+    story: z.string().max(500).optional(),
+    promise: z.string().max(120).optional(),
   }).strict().optional(),
 }).strict()
 export type BrandKitUpdateRequest = z.infer<typeof brandKitUpdateRequest>
@@ -24,6 +27,6 @@ export const brandKitResponse = z.object({
   logo_media_id: z.string().uuid().nullable(),
   palette: z.record(z.string(), z.string()),
   typography: z.record(z.string(), z.string()),
-  voice: z.object({ tone: z.string().optional(), keywords: z.array(z.string()).optional() }),
+  voice: z.object({ tone: z.string().optional(), keywords: z.array(z.string()).optional(), story: z.string().optional(), promise: z.string().optional() }),
 })
 export type BrandKitResponse = z.infer<typeof brandKitResponse>

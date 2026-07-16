@@ -16,7 +16,7 @@ export interface BrandKit {
   readonly logoMediaId: MediaId | null
   readonly palette: Readonly<Record<string, string>> // role → hex, e.g. { primary: '#ff4500' }
   readonly typography: Readonly<Record<string, string>> // role → font family key
-  readonly voice: Readonly<{ tone?: string; keywords?: readonly string[] }>
+  readonly voice: Readonly<{ tone?: string; keywords?: readonly string[]; story?: string; promise?: string }>
   readonly aiProvenance: AIProvenance
 }
 
@@ -25,7 +25,7 @@ export interface BrandKitInput {
   logoMediaId?: string | null
   palette?: Record<string, string>
   typography?: Record<string, string>
-  voice?: { tone?: string; keywords?: string[] }
+  voice?: { tone?: string; keywords?: string[]; story?: string; promise?: string }
   aiProvenance?: AIProvenance
 }
 

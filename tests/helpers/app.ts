@@ -36,6 +36,7 @@ import brandsGet from '../../server/api/v1/brands/index.get'
 import businessesPost from '../../server/api/v1/businesses/index.post'
 import storesPost from '../../server/api/v1/businesses/[businessId]/stores.post'
 import brandKitPut from '../../server/api/v1/stores/[storeId]/brand-kit.put'
+import brandKitGet from '../../server/api/v1/stores/[storeId]/brand-kit.get'
 import publishPost from '../../server/api/v1/stores/[storeId]/publish.post'
 import productsPost from '../../server/api/v1/products/index.post'
 import productsGet from '../../server/api/v1/products/index.get'
@@ -115,6 +116,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/businesses', businessesPost)
   router.post('/api/v1/businesses/:businessId/stores', storesPost)
   router.put('/api/v1/stores/:storeId/brand-kit', brandKitPut)
+  router.get('/api/v1/stores/:storeId/brand-kit', brandKitGet)
   router.post('/api/v1/stores/:storeId/publish', publishPost)
   router.post('/api/v1/products', productsPost)
   router.get('/api/v1/products', productsGet)

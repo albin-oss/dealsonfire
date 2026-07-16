@@ -119,6 +119,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         <DofText v-else-if="brand?.tagline" role="body" tone="muted">{{ brand.tagline }}</DofText>
 
         <DofText role="caption" class="text-positive">Available now</DofText>
+        <DofText v-if="brand?.promise" role="caption" class="text-foreground/80">✓ {{ brand.promise }}</DofText>
 
         <!-- Orders arrive in the next journey; until then the honest action is the store itself -->
         <div class="flex flex-col gap-2 pt-2">

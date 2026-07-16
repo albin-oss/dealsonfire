@@ -15,6 +15,8 @@ export const publicStorefrontResponse = z.object({
     name: z.string(),
     palette: z.record(z.string(), z.string()),
     tagline: z.string().nullable(),
+    story: z.string().nullable(),
+    promise: z.string().nullable(),
   }).nullable(),
   products: z.array(z.object({
     id: z.string().uuid(),
@@ -34,6 +36,8 @@ export const publicProductResponse = z.object({
     name: z.string(),
     palette: z.record(z.string(), z.string()),
     tagline: z.string().nullable(),
+    story: z.string().nullable(),
+    promise: z.string().nullable(),
   }).nullable(),
   product: z.object({
     id: z.string().uuid(),
@@ -54,6 +58,8 @@ export const publicDealResponse = z.object({
     name: z.string(),
     palette: z.record(z.string(), z.string()),
     tagline: z.string().nullable(),
+    story: z.string().nullable(),
+    promise: z.string().nullable(),
   }).nullable(),
   deal: z.object({
     id: z.string().uuid(),
