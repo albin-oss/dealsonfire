@@ -18,6 +18,8 @@ const VALID: Record<string, Record<string, unknown>> = {
   'commerce.listing.published': { listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid },
   'commerce.listing.unpublished': { listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid },
   'commerce.listing.ended': { listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.deal.published': { deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: 'Weekend special' },
+  'commerce.deal.ended': { deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: 'Weekend special' },
   [COMMERCE_EVENT.PRODUCT_CREATED]: {
     product_id: uuid, business_id: uuid, title: 'Soap', fulfillment_kind: 'physical',
     category_path: null, status: 'draft', variant_count: 1, source: 'manual',

@@ -50,6 +50,12 @@ export const COMMERCE_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'commerce.listing.ended': z.object({
     listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
   }).passthrough(),
+  'commerce.deal.published': z.object({
+    deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: z.string().min(1),
+  }).passthrough(),
+  'commerce.deal.ended': z.object({
+    deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: z.string().min(1),
+  }).passthrough(),
 }
 
 export function commercePayloadValidators(): Record<string, PayloadValidator> {

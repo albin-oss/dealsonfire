@@ -17,6 +17,10 @@ import onboardingComplete from '../../server/api/v1/onboarding/complete.post'
 import handleAvailabilityGet from '../../server/api/v1/handles/[handle]/availability.get'
 import publicStorefrontGet from '../../server/api/v1/public/stores/[handle].get'
 import publicProductGet from '../../server/api/v1/public/stores/[handle]/products/[productId].get'
+import dealsPost from '../../server/api/v1/deals/index.post'
+import dealsGet from '../../server/api/v1/deals/index.get'
+import dealEndPost from '../../server/api/v1/deals/[dealId]/end.post'
+import publicDealGet from '../../server/api/v1/public/stores/[handle]/deals/[dealId].get'
 import publishToStorePost from '../../server/api/v1/products/[productId]/publish-to-store.post'
 import unpublishFromStorePost from '../../server/api/v1/products/[productId]/unpublish-from-store.post'
 import mediaUploadPost from '../../server/api/v1/media/index.post'
@@ -87,6 +91,10 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/handles/:handle/availability', handleAvailabilityGet)
   router.get('/api/v1/public/stores/:handle', publicStorefrontGet)
   router.get('/api/v1/public/stores/:handle/products/:productId', publicProductGet)
+  router.post('/api/v1/deals', dealsPost)
+  router.get('/api/v1/deals', dealsGet)
+  router.post('/api/v1/deals/:dealId/end', dealEndPost)
+  router.get('/api/v1/public/stores/:handle/deals/:dealId', publicDealGet)
   router.post('/api/v1/products/:productId/publish-to-store', publishToStorePost)
   router.post('/api/v1/products/:productId/unpublish-from-store', unpublishFromStorePost)
   router.post('/api/v1/media', mediaUploadPost)

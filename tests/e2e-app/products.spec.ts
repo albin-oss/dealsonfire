@@ -19,3 +19,16 @@ test('the public product page 404s honestly when nothing is visible', async ({ p
   const res = await page.goto(`/s/nobody-here/p/00000000-0000-7000-8000-000000000000`)
   expect(res?.status()).toBe(404)
 })
+
+test('the deals page renders and is axe-clean (WCAG)', async ({ page }) => {
+  await page.goto('/deals')
+  await page.waitForSelector('main#dof-main')
+  await expect(page.getByRole('heading', { name: 'Deals', exact: true })).toBeVisible()
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
+})
+
+test('the public deal page 404s honestly when nothing is visible', async ({ page }) => {
+  const res = await page.goto(`/s/nobody-here/d/00000000-0000-7000-8000-000000000000`)
+  expect(res?.status()).toBe(404)
+})

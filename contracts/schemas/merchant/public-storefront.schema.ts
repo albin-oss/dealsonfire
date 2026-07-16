@@ -46,3 +46,29 @@ export const publicProductResponse = z.object({
   }),
 })
 export type PublicProductResponse = z.infer<typeof publicProductResponse>
+
+/** GET /api/v1/public/stores/:handle/deals/:dealId — one visible deal (Release 0.3). */
+export const publicDealResponse = z.object({
+  store: z.object({ handle: z.string(), name: z.string() }),
+  brand: z.object({
+    name: z.string(),
+    palette: z.record(z.string(), z.string()),
+    tagline: z.string().nullable(),
+  }).nullable(),
+  deal: z.object({
+    id: z.string().uuid(),
+    headline: z.string(),
+    story: z.string().nullable(),
+    published_at: z.string(),
+  }),
+  product: z.object({
+    id: z.string().uuid(),
+    title: z.string(),
+    description: z.string().nullable(),
+    price_minor: z.number().int().nullable(),
+    currency: z.string().nullable(),
+    image_url: z.string().nullable(),
+    image_alt: z.string().nullable(),
+  }),
+})
+export type PublicDealResponse = z.infer<typeof publicDealResponse>

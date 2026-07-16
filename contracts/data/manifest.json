@@ -364,6 +364,27 @@
       ]
     },
     {
+      "table": "deals",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "transition",
+      "note": "the SOCIAL half of ADR-002 deals; the price half (offer_id) joins with CS4 Offers",
+      "cross_domain_refs": [
+        {
+          "column": "channel_id",
+          "target_domain": "merchant",
+          "target_concept": "store",
+          "cleanup_event": "merchant.store.deleted (future)",
+          "reconciliation": "deals of deleted stores are inert (public read resolves live stores only)"
+        }
+      ]
+    },
+    {
       "table": "media_assets",
       "owner": "platform",
       "ownership_note": "Media Port registry (UX-AUTHOR-002 §D): media is cross-capability; the C9 Media capability inherits this table through the same port",

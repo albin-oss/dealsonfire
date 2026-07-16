@@ -27,6 +27,8 @@ export const COMMERCE_EVENT = {
   LISTING_PUBLISHED: 'commerce.listing.published',
   LISTING_UNPUBLISHED: 'commerce.listing.unpublished',
   LISTING_ENDED: 'commerce.listing.ended',
+  DEAL_PUBLISHED: 'commerce.deal.published',
+  DEAL_ENDED: 'commerce.deal.ended',
 } as const
 
 export interface ProductCreatedPayload {
@@ -89,6 +91,26 @@ export type ListingEventPayload = {
   product_id: string
   business_id: string
   channel_id: string
+}
+
+export type DealEventPayload = {
+  deal_id: string
+  product_id: string
+  business_id: string
+  channel_id: string
+  headline: string
+}
+
+/** Deal events sequence on the DEAL aggregate (Release 0.3 — the social half). */
+export function makeDealEvent(eventType: string, payload: DealEventPayload, actor: Actor): NewDomainEvent<DealEventPayload> {
+  return Object.freeze({
+    eventType,
+    schemaVersion: 1,
+    businessId: payload.business_id,
+    aggregate: { type: 'deal', id: payload.deal_id },
+    actor,
+    payload: Object.freeze(payload),
+  })
 }
 
 /** Listing events sequence on the LISTING aggregate (its own machine — ADR-002 §0.3). */

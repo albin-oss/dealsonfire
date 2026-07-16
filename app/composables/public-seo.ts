@@ -90,3 +90,36 @@ export function storeMeta(facts: StoreSeoFacts) {
     twitterCard: (image ? 'summary_large_image' : 'summary') as 'summary_large_image' | 'summary',
   }
 }
+
+export interface DealSeoFacts {
+  origin: string
+  handle: string
+  dealId: string
+  headline: string
+  story: string | null
+  storeName: string
+  productTitle: string
+  imageUrl: string | null
+}
+
+export function dealCanonical(facts: Pick<DealSeoFacts, 'origin' | 'handle' | 'dealId'>): string {
+  return `${facts.origin}/s/${facts.handle}/d/${facts.dealId}`
+}
+
+/** Deal unfurls lead with the PROMOTION voice — the headline is the hook. */
+export function dealMeta(facts: DealSeoFacts) {
+  const description = facts.story ?? `${facts.productTitle} — a deal from ${facts.storeName} on DOF.`
+  const image = absolute(facts.origin, facts.imageUrl)
+  return {
+    description,
+    ogTitle: `${facts.headline} — ${facts.storeName}`,
+    ogDescription: description,
+    ogType: 'website' as const,
+    ogUrl: dealCanonical(facts),
+    ...(image ? { ogImage: image } : {}),
+    twitterCard: (image ? 'summary_large_image' : 'summary') as 'summary_large_image' | 'summary',
+    twitterTitle: `${facts.headline} — ${facts.storeName}`,
+    twitterDescription: description,
+    ...(image ? { twitterImage: image } : {}),
+  }
+}

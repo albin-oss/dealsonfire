@@ -66,3 +66,24 @@ describe('storeMeta', () => {
     expect(meta.twitterCard).toBe('summary_large_image')
   })
 })
+
+describe('dealMeta (Release 0.3 — the promotion voice leads)', () => {
+  const dealFacts = {
+    origin: 'https://dof.dev', handle: 'rosas-knits', dealId: '0198c5b2-0000-7000-8000-000000000002',
+    headline: 'This weekend: every blanket ships free', story: 'A short story.',
+    storeName: 'Rosa Knits', productTitle: 'Lavender baby blanket', imageUrl: facts.imageUrl,
+  }
+  it('the headline is the hook; canonical is the deal URL', async () => {
+    const { dealMeta, dealCanonical } = await import('../../app/composables/public-seo')
+    const meta = dealMeta(dealFacts)
+    expect(meta.ogTitle).toBe('This weekend: every blanket ships free — Rosa Knits')
+    expect(meta.ogUrl).toBe('https://dof.dev/s/rosas-knits/d/0198c5b2-0000-7000-8000-000000000002')
+    expect(dealCanonical(dealFacts)).toBe(meta.ogUrl)
+    expect(meta.twitterCard).toBe('summary_large_image')
+  })
+  it('without a story, the description attributes the product to the store', async () => {
+    const { dealMeta } = await import('../../app/composables/public-seo')
+    const meta = dealMeta({ ...dealFacts, story: null })
+    expect(meta.description).toBe('Lavender baby blanket — a deal from Rosa Knits on DOF.')
+  })
+})

@@ -21,6 +21,8 @@
     "commerce.product.media_removed": 1,
     "commerce.listing.published": 1,
     "commerce.listing.unpublished": 1,
-    "commerce.listing.ended": 1
+    "commerce.listing.ended": 1,
+    "commerce.deal.published": 1,
+    "commerce.deal.ended": 1
   }
 }
