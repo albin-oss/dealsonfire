@@ -38,7 +38,16 @@ export const EVENT = {
   STORE_BRAND_KIT_UPDATED: 'merchant.store.brand_kit_updated',
   STORE_ENFORCEMENT_HOLD_CHANGED: 'merchant.store.enforcement_hold_changed',
   STAFF_JOINED: 'merchant.staff.joined',
+  // Release 0.4 engagement — visitors follow stores ('guest' actors)
+  STORE_FOLLOWED: 'merchant.store.followed',
+  STORE_UNFOLLOWED: 'merchant.store.unfollowed',
 } as const
+
+export type StoreFollowPayload = {
+  store_id: string
+  business_id: string
+  visitor_id: string
+}
 
 export interface MerchantOnboardedPayload { merchant_id: string; user_id: string; source: 'ignite' | 'direct' }
 export interface BusinessCreatedPayload { business_id: string; business_type: string; scale_tier: ScaleTier; trust_level: TrustLevel }

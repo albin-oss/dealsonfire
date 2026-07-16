@@ -33,7 +33,7 @@ const { data: grid, refresh: refreshGrid, pending: gridPending } = useFetch<{ it
 const onStore = computed(() => (grid.value?.items ?? []).filter((p) => p.on_store))
 
 // ——— the merchant's deals
-interface DealItem { id: string; product_id: string; headline: string; story: string | null; status: 'published' | 'ended'; published_at: string }
+interface DealItem { id: string; product_id: string; headline: string; story: string | null; status: 'published' | 'ended'; published_at: string; fires: number; saves: number }
 const { data: deals, refresh: refreshDeals, pending: dealsPending } = useFetch<{ items: DealItem[] }>(
   () => `/api/v1/deals?business_id=${businessId.value}`,
   { lazy: true, server: false, headers, immediate: false },
@@ -206,6 +206,9 @@ async function endDeal(deal: DealItem) {
             <DofText role="body" class="truncate font-medium">{{ d.headline }}</DofText>
             <DofText role="caption" :tone="d.status === 'published' ? undefined : 'muted'" :class="d.status === 'published' && 'text-positive'">
               {{ d.status === 'published' ? `● Live — ${productTitle(d.product_id)}` : `○ Ended — ${productTitle(d.product_id)}` }}
+            </DofText>
+            <DofText v-if="d.fires + d.saves > 0" role="caption" tone="muted">
+              🔥 {{ d.fires }} · saved {{ d.saves }}
             </DofText>
           </div>
           <template v-if="d.status === 'published' && storeHandle">

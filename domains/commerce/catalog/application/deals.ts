@@ -26,6 +26,8 @@ export interface DealRow {
   story: string | null
   status: 'published' | 'ended'
   published_at: string
+  fires: number
+  saves: number
 }
 
 export class PgDealRepository {
@@ -46,7 +48,9 @@ export class PgDealRepository {
 
   async listByBusiness(tx: Tx, businessId: string): Promise<DealRow[]> {
     const { rows } = await asClient(tx).query<DealRow>(
-      `SELECT d.id, d.product_id, d.headline, d.story, d.status, d.published_at::text AS published_at
+      `SELECT d.id, d.product_id, d.headline, d.story, d.status, d.published_at::text AS published_at,
+              (SELECT count(*)::int FROM deal_reactions r WHERE r.deal_id = d.id) AS fires,
+              (SELECT count(*)::int FROM deal_saves sv WHERE sv.deal_id = d.id) AS saves
        FROM deals d WHERE d.business_id = $1 ORDER BY d.published_at DESC LIMIT 50`, [businessId])
     return rows
   }

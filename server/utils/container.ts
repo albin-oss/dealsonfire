@@ -53,6 +53,11 @@ import { PgListingRepository } from '@domains/commerce/catalog/infrastructure/li
 import { publishToStoreCommand, unpublishFromStoreCommand } from '@domains/commerce/catalog/application/commands/listings'
 import { listingAutoEndConsumer } from '@domains/commerce/catalog/application/consumers/listing-auto-end'
 import { PgDealRepository, createDealCommand, endDealCommand, listDealsQuery } from '@domains/commerce/catalog/application/deals'
+import { resolveEngageableDeal, toggleEngagementInTx } from '@domains/commerce/catalog/application/engagement'
+import { followStoreCommand } from '@domains/merchant/core/application/commands/follow-store'
+import { listDealsFeed, dealEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter } from './deals-feed'
+import { domainError as engagementError, type DomainError } from '@shared/errors'
+import type { Result } from '@shared/result'
 import { listAttributeSetsQuery, listBrandRefsQuery } from '@domains/commerce/catalog/application/queries/attributes'
 import { PgProductReadDao } from '@domains/commerce/catalog/infrastructure/product-read-dao'
 import type { CommerceDeps } from '@domains/commerce/catalog/application/ports'
@@ -181,6 +186,14 @@ export interface Container {
     publicProduct: (handle: string, productId: string) => Promise<PublicProductResponse | null>
     /** Public deal read (Release 0.3): deal ∧ product visible, or null (mask to 404). */
     publicDeal: (handle: string, dealId: string) => Promise<PublicDealResponse | null>
+  }
+  /** Release 0.4 — anonymous-first engagement (guest actors; idempotent toggles). */
+  engagement: {
+    toggleReaction: (dealId: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    toggleSave: (dealId: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    followStore: (handle: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    dealsFeed: (visitorId: string | null, filter: FeedFilter) => Promise<FeedDeal[]>
+    dealEngagement: (dealId: string, visitorId: string | null) => Promise<Awaited<ReturnType<typeof dealEngagementSnapshot>> | null>
   }
   onboarding: OnboardingService
   /** Media Port (UX-AUTHOR-002 §D): storage adapter swappable; the registry is permanent. */
@@ -507,6 +520,34 @@ export function buildContainer(databaseUrl: string): Container {
           }
         })
       },
+    },
+    engagement: {
+      toggleReaction: (dealId, visitorId, ctx) =>
+        deps.uow.withTransaction(async (tx) => {
+          const deal = await resolveEngageableDeal(tx, dealId)
+          if (!deal || !(await isStoreLive(tx, deal.channelId))) {
+            return { ok: false as const, error: engagementError('NOT_FOUND', 'this deal does not exist') }
+          }
+          return toggleEngagementInTx(commerceDeps, 'reaction', tx)({ dealId, deal, visitorId, requestContext: ctx })
+        }),
+      toggleSave: (dealId, visitorId, ctx) =>
+        deps.uow.withTransaction(async (tx) => {
+          const deal = await resolveEngageableDeal(tx, dealId)
+          if (!deal || !(await isStoreLive(tx, deal.channelId))) {
+            return { ok: false as const, error: engagementError('NOT_FOUND', 'this deal does not exist') }
+          }
+          return toggleEngagementInTx(commerceDeps, 'save', tx)({ dealId, deal, visitorId, requestContext: ctx })
+        }),
+      followStore: (handle, visitorId, ctx) =>
+        followStoreCommand(deps)({ storeHandle: handle, visitorId, requestContext: ctx }),
+      dealsFeed: (visitorId, filter) =>
+        deps.uow.withTransaction((tx) => listDealsFeed(tx, { visitorId, filter })),
+      dealEngagement: (dealId, visitorId) =>
+        deps.uow.withTransaction(async (tx) => {
+          const deal = await resolveEngageableDeal(tx, dealId)
+          if (!deal || !(await isStoreLive(tx, deal.channelId))) return null
+          return dealEngagementSnapshot(tx, dealId, deal.channelId, visitorId)
+        }),
     },
     onboarding: new OnboardingService(deps.uow, new PgOnboardingProfileRepository(), audit),
     // Media Port: Blob in production (token present); the sandbox twin otherwise (tests,

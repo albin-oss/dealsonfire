@@ -19,7 +19,7 @@ export const ICON_NAMES = [
   'menu', 'search', 'settings', 'sliders-horizontal', 'ellipsis',
   // objects
   'package', 'shopping-bag', 'shopping-cart', 'tag', 'image', 'camera', 'store',
-  'truck', 'rotate-ccw', 'box', 'layers', 'users', 'user', 'heart', 'star',
+  'truck', 'rotate-ccw', 'bookmark', 'box', 'layers', 'users', 'user', 'heart', 'star',
   // status & feedback
   'circle-alert', 'triangle-alert', 'circle-check', 'circle', 'info', 'circle-help', 'loader-circle',
   'eye', 'eye-off', 'lock', 'shield-check', 'badge-check', 'wifi-off', 'clock',

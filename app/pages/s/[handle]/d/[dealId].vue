@@ -72,6 +72,13 @@ async function share() {
   } catch { /* user dismissed the sheet — nothing to do */ }
 }
 
+// ——— engagement (Release 0.4): per-visitor snapshot, fetched client-side so the deal
+// read itself stays shared-cacheable
+const { data: engagement } = useFetch<{
+  fires: number; saves: number; followers: number
+  viewer_reacted: boolean; viewer_saved: boolean; viewer_follows: boolean
+}>(() => `/api/v1/public/deals/${deal.value.id}/engagement`, { lazy: true, server: false })
+
 const { scopeAttrs } = useBrandKit(computed(() => ({
   accent: brand.value?.palette.primary,
   accentStrong: brand.value?.palette.primary,
@@ -143,6 +150,23 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
           {{ shared ? 'Link copied' : 'Share this deal' }}
         </DofButton>
       </div>
+
+      <div class="mx-auto">
+        <DealEngage
+          :deal-id="deal.id"
+          :store-handle="store.handle"
+          :store-name="store.name"
+          :fires="engagement?.fires ?? 0"
+          :reacted="engagement?.viewer_reacted ?? false"
+          :saved="engagement?.viewer_saved ?? false"
+          :follows="engagement?.viewer_follows ?? false"
+          variant="full"
+        />
+      </div>
+
+      <NuxtLink to="/discover" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/70 underline-offset-4 hover:underline focus-visible:focus-ring">
+        More deals on DOF →
+      </NuxtLink>
     </main>
 
     <footer class="border-t border-foreground/10">

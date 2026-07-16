@@ -21,6 +21,11 @@ import dealsPost from '../../server/api/v1/deals/index.post'
 import dealsGet from '../../server/api/v1/deals/index.get'
 import dealEndPost from '../../server/api/v1/deals/[dealId]/end.post'
 import publicDealGet from '../../server/api/v1/public/stores/[handle]/deals/[dealId].get'
+import dealReactPost from '../../server/api/v1/public/deals/[dealId]/react.post'
+import dealSavePost from '../../server/api/v1/public/deals/[dealId]/save.post'
+import storeFollowPost from '../../server/api/v1/public/stores/[handle]/follow.post'
+import dealsFeedGet from '../../server/api/v1/public/deals/index.get'
+import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
 import publishToStorePost from '../../server/api/v1/products/[productId]/publish-to-store.post'
 import unpublishFromStorePost from '../../server/api/v1/products/[productId]/unpublish-from-store.post'
 import mediaUploadPost from '../../server/api/v1/media/index.post'
@@ -95,6 +100,11 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/deals', dealsGet)
   router.post('/api/v1/deals/:dealId/end', dealEndPost)
   router.get('/api/v1/public/stores/:handle/deals/:dealId', publicDealGet)
+  router.post('/api/v1/public/deals/:dealId/react', dealReactPost)
+  router.post('/api/v1/public/deals/:dealId/save', dealSavePost)
+  router.post('/api/v1/public/stores/:handle/follow', storeFollowPost)
+  router.get('/api/v1/public/deals', dealsFeedGet)
+  router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
   router.post('/api/v1/products/:productId/publish-to-store', publishToStorePost)
   router.post('/api/v1/products/:productId/unpublish-from-store', unpublishFromStorePost)
   router.post('/api/v1/media', mediaUploadPost)

@@ -29,6 +29,11 @@ export const COMMERCE_EVENT = {
   LISTING_ENDED: 'commerce.listing.ended',
   DEAL_PUBLISHED: 'commerce.deal.published',
   DEAL_ENDED: 'commerce.deal.ended',
+  // Release 0.4 engagement — anonymous visitors are first-class 'guest' actors
+  DEAL_REACTED: 'commerce.deal.reacted',
+  DEAL_UNREACTED: 'commerce.deal.unreacted',
+  DEAL_SAVED: 'commerce.deal.saved',
+  DEAL_UNSAVED: 'commerce.deal.unsaved',
 } as const
 
 export interface ProductCreatedPayload {
@@ -99,6 +104,24 @@ export type DealEventPayload = {
   business_id: string
   channel_id: string
   headline: string
+}
+
+/** All four engagement toggles share one payload shape (Release 0.4). */
+export type DealEngagementPayload = {
+  deal_id: string
+  business_id: string
+  visitor_id: string
+}
+
+export function makeDealEngagementEvent(eventType: string, payload: DealEngagementPayload, actor: Actor): NewDomainEvent<DealEngagementPayload> {
+  return Object.freeze({
+    eventType,
+    schemaVersion: 1,
+    businessId: payload.business_id,
+    aggregate: { type: 'deal', id: payload.deal_id },
+    actor,
+    payload: Object.freeze(payload),
+  })
 }
 
 /** Deal events sequence on the DEAL aggregate (Release 0.3 — the social half). */
