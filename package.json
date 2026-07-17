@@ -22,7 +22,8 @@
     "build:storybook": "storybook build --output-dir storybook-static",
     "test:e2e-ui": "playwright test",
     "check:operations": "node scripts/check-operations.mjs",
-    "check:identity": "node scripts/check-identity.mjs"
+    "check:identity": "node scripts/check-identity.mjs",
+    "dev:demo": "tsx scripts/dev-demo.ts"
   },
   "dependencies": {
     "@iconify/vue": "^5.0.1",

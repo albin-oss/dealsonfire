@@ -1,0 +1,1 @@
+/Users/akj/Desktop/DOF/node_modules/@embedded-postgres/darwin-arm64/native/bin/postgres "-D" "/Users/akj/Desktop/DOF/.data/dev-pg" "-p" "54329"
