@@ -179,6 +179,27 @@ const WORLD: MerchantSpec[] = [
   },
 ]
 
+/**
+ * The dev-header identities get real (verified) identity rows so the workspace ladder
+ * reads honestly — otherwise every demo merchant is stuck at "confirm your email" and
+ * the momentum opportunities (Release 0.8) never surface. Idempotent; runs every boot.
+ */
+async function seedIdentities(): Promise<void> {
+  const db = new pg.Client({ connectionString: DB_URL })
+  await db.connect()
+  try {
+    for (const m of WORLD) {
+      await db.query(
+        `INSERT INTO users (id, email, email_verified, display_name)
+         VALUES ($1, $2, true, $3)
+         ON CONFLICT (id) DO UPDATE SET email_verified = true`,
+        [m.userId, `${m.handle}@demo.dof.dev`, m.displayName])
+    }
+  } finally {
+    await db.end()
+  }
+}
+
 async function seedWorld(): Promise<void> {
   // idempotency probe: Rosa already has a business → the world exists
   const probe = await api(DEMO_MERCHANT_USER, 'GET', '/api/v1/workspace')
@@ -291,6 +312,7 @@ async function main(): Promise<void> {
   console.log('✓ database ready —', DB_URL)
   startNuxt()
   await waitForApp()
+  await seedIdentities()
   await seedWorld()
   console.log(`
 ——————————————————————————————————————————————————————————————

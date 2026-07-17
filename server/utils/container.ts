@@ -58,6 +58,7 @@ import { resolveEngageableDeal, toggleEngagementInTx } from '@domains/commerce/c
 import { toggleSubjectEngagementInTx } from '@domains/commerce/catalog/application/engagement'
 import { PgSparkRepository, publishSparkCommand, deleteSparkCommand, listSparksQuery, SPARK_REACTION_SUBJECT } from '@domains/commerce/catalog/application/sparks'
 import { followStoreCommand } from '@domains/merchant/core/application/commands/follow-store'
+import { merchantMomentum, type MerchantMomentum } from './momentum'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -187,6 +188,8 @@ export interface Container {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
     handleAvailability: ReturnType<typeof handleAvailabilityQuery>
     getBrandKit: ReturnType<typeof getBrandKitQuery>
+    /** Release 0.8 — publishing-momentum facts for one business (root-composed read). */
+    merchantMomentum: (businessId: string) => Promise<MerchantMomentum>
     /** Public storefront read (UX-IGNITE Phase 3): live stores only; null = mask to 404. */
     publicStorefront: (handle: string) => Promise<PublicStorefrontResponse | null>
     /** Public product read (Release 0.2): visible on this channel or null (mask to 404). */
@@ -481,6 +484,7 @@ export function buildContainer(databaseUrl: string): Container {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
       handleAvailability: handleAvailabilityQuery(deps),
       getBrandKit: getBrandKitQuery(deps, entitlements),
+      merchantMomentum: (businessId: string) => deps.uow.withTransaction((tx) => merchantMomentum(tx, businessId)),
       // Composition-root read: joins the merchant's public face with the commerce shelf.
       // One transaction, read-only; a null anywhere masks to 404 at the endpoint.
       publicStorefront: async (handle: string) => {

@@ -14,6 +14,7 @@ import { devUserId } from '../composables/ignite/launch'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Sparks — DOF' })
+const route = useRoute()
 
 // ——— workspace context (the same spine as Products, Deals, Store)
 const headers = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
@@ -31,6 +32,12 @@ const { data: grid, refresh: refreshGrid } = useFetch<{ items: GridRow[] }>(
 )
 const onStore = computed(() => (grid.value?.items ?? []).filter((p) => p.on_store))
 
+// ——— the audience (Release 0.8): who's waiting, from true momentum facts
+const { data: progress } = useFetch<{ momentum: { followers: number } | null }>('/api/v1/workspace/progress', {
+  lazy: true, server: false, headers,
+})
+const followers = computed(() => progress.value?.momentum?.followers ?? 0)
+
 // ——— the timeline
 interface SparkItem { id: string; body: string; published_at: string; product_id: string | null; image_url: string | null; fires: number }
 const { data: timeline, refresh: refreshTimeline, pending: timelinePending } = useFetch<{ items: SparkItem[] }>(
@@ -43,6 +50,12 @@ watch(businessId, (id) => { if (id) { void refreshGrid(); void refreshTimeline()
 const body = ref('')
 const media = ref<SlotMedia | null>(null)
 const productId = ref<string | null>(null)
+
+// the workspace hand-off: /sparks?about=<productId> preselects the chip
+watch(onStore, (items) => {
+  const about = String(route.query.about ?? '')
+  if (about && !productId.value && items.some((p) => p.id === about)) productId.value = about
+}, { immediate: true })
 const canPublish = computed(() => body.value.trim().length > 0 && body.value.trim().length <= 500)
 
 async function uploadMedia(file: File): Promise<{ mediaId: string; url: string }> {
@@ -118,6 +131,9 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
     <section class="flex flex-col gap-1">
       <DofText role="headline" as="h1">Sparks</DofText>
       <DofText role="body" tone="muted">What’s happening in the shop today? Short, honest, worth reading.</DofText>
+      <DofText v-if="followers > 0" role="caption" class="text-accent">
+        {{ followers === 1 ? '1 person follows' : `${followers} people follow` }} your store — every spark lands on their Home.
+      </DofText>
     </section>
 
     <!-- ——— just published: View live → Copy link (the Release 0.2 idiom) -->

@@ -46,6 +46,32 @@ export function derivePosture(progress: OnboardingProgressResponse | null): Work
   return 'operator'
 }
 
+/**
+ * Momentum guidance (Release 0.8): once a store stands, the true publishing facts
+ * outrank the ladder's guesses (the ladder cannot see products or sparks — momentum
+ * proves them). Null when nothing warrants a nudge.
+ */
+function momentumOpportunity(progress: OnboardingProgressResponse | null): Opportunity | null {
+  const momentum = progress?.momentum
+  if (!momentum) return null
+  if (momentum.followers > 0 && (momentum.hours_quiet === null || momentum.hours_quiet >= 48)) {
+    const people = momentum.followers === 1 ? '1 person follows' : `${momentum.followers} people follow`
+    return {
+      id: 'morning-spark', title: 'Say good morning',
+      reasoning: `${people} your store and it's been quiet a while — one honest line lands on their Home today.`,
+      actionLabel: 'Write a spark', to: '/sparks', icon: 'flame',
+    }
+  }
+  if (momentum.unsparked_product) {
+    return {
+      id: 'spark-product', title: `Give “${momentum.unsparked_product.title}” its moment`,
+      reasoning: 'It’s on your shelf but you’ve never told anyone — a spark travels further than a listing.',
+      actionLabel: 'Spark it', to: `/sparks?about=${momentum.unsparked_product.id}`, icon: 'sparkles',
+    }
+  }
+  return null
+}
+
 /** THE Next Opportunity. A null/failed progress read degrades to the launch invitation. */
 export function selectOpportunity(progress: OnboardingProgressResponse | null): Opportunity {
   const next = progress?.next_milestone_id ?? null
@@ -69,7 +95,7 @@ export function selectOpportunity(progress: OnboardingProgressResponse | null): 
         actionLabel: 'Open your store', to: '/ignite', icon: 'store',
       }
     case 'first_product':
-      return {
+      return momentumOpportunity(progress) ?? {
         id: 'first-product', title: 'Put something on the shelf',
         reasoning: 'Your store is live but the shelves are bare — one product turns visitors into customers.',
         actionLabel: 'Add a product', to: '/products', icon: 'package',
@@ -77,7 +103,7 @@ export function selectOpportunity(progress: OnboardingProgressResponse | null): 
     case 'inventory_configured':
     case 'shipping_configured':
     case 'first_sale':
-      return {
+      return momentumOpportunity(progress) ?? {
         id: 'share-store', title: 'Share your store',
         reasoning: 'The shelf is stocked — your first sale is one shared link away.',
         actionLabel: 'See your store', to: '/store', icon: 'send',

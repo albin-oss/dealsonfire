@@ -23,7 +23,12 @@ export default defineQueryEndpoint({
       hasStore: overview.businesses.some((b) => b.stores.length > 0),
     })
 
+    // Release 0.8: publishing momentum — only meaningful once there's a store to speak from
+    const withStore = overview.businesses.find((b) => b.stores.length > 0)
+    const momentum = withStore ? await c.queries.merchantMomentum(withStore.businessId) : null
+
     return {
+      momentum,
       milestones: progress.milestones,
       completed_count: progress.completedCount,
       total_count: progress.totalCount,
