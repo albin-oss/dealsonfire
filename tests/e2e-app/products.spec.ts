@@ -33,8 +33,9 @@ test('the public deal page 404s honestly when nothing is visible', async ({ page
   expect(res?.status()).toBe(404)
 })
 
-test('the living Home renders publicly and is axe-clean (WCAG)', async ({ page }) => {
-  await page.goto('/discover')
+test('the living Home renders publicly and is axe-clean (WCAG); /discover 301s home', async ({ page }) => {
+  const res = await page.goto('/discover')
+  expect(res?.url()).toContain('/home')
   await expect(page.getByRole('heading', { name: 'Today on DOF' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'filter the stream' })).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()

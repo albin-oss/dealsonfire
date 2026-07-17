@@ -11,7 +11,11 @@ export default defineNuxtConfig({
   css: ['~/design-system/tokens/theme.css'],
   // The Ignite ceremony is client-rendered: resume() reads the local draft in setup,
   // so re-entry FIRST-PAINTS at the resumed step (no welcome flash, no swap needed).
-  routeRules: { '/ignite': { ssr: false } },
+  routeRules: {
+    '/ignite': { ssr: false },
+    // 'Discover' grew into the living front page — permanent move (Release 0.7)
+    '/discover': { redirect: { to: '/home', statusCode: 301 } },
+  },
   // Dev only: the app-manifest poll 404s under `nuxt dev` (upstream quirk) and spams the
   // console; nothing in dev needs outdated-build detection. Production keeps the manifest.
   $development: { experimental: { appManifest: false } },

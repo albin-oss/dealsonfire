@@ -10,8 +10,8 @@ import { ref, watch } from 'vue'
 import { DofButton, announce } from '@ds/index'
 
 const props = defineProps<{
-  /** The engagement subject: a deal (fire/save/follow) or a spark (fire/follow). */
-  kind?: 'deal' | 'spark'
+  /** The subject: deal (fire/save/follow), spark (fire/follow), store (follow only). */
+  kind?: 'deal' | 'spark' | 'store'
   dealId: string
   storeHandle: string
   storeName: string
@@ -64,6 +64,7 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
 <template>
   <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="deal actions">
     <DofButton
+      v-if="kind !== 'store'"
       size="sm"
       :variant="reacted ? 'soft' : 'ghost'"
       :tone="reacted ? 'accent' : 'neutral'"
@@ -75,7 +76,7 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
       {{ fires > 0 ? fires : 'Fire' }}
     </DofButton>
     <DofButton
-      v-if="kind !== 'spark'"
+      v-if="kind !== 'spark' && kind !== 'store'"
       size="sm"
       :variant="saved ? 'soft' : 'ghost'"
       :tone="saved ? 'accent' : 'neutral'"

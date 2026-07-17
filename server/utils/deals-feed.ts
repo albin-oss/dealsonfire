@@ -147,9 +147,12 @@ export async function sparkEngagementSnapshot(
   return rows[0]!
 }
 
-/** One item of the living Home stream (Release 0.7): a deal or a spark, blended. */
+/**
+ * One item of the living Home stream (Release 0.7): a deal, a spark, a store debut,
+ * or a noteworthy new product — all existing domain facts, no new content types.
+ */
 export interface HomeFeedItem {
-  type: 'deal' | 'spark'
+  type: 'deal' | 'spark' | 'store' | 'product'
   id: string
   /** deal headline / spark body */
   text: string
@@ -247,8 +250,56 @@ export async function listHomeFeed(
        LEFT JOIN media_assets ma ON ma.id = sp.media_id
        WHERE sp.status = 'published' ${sparkFilter}`
 
-  // 'saved' is deal-scoped by design (sparks have no save) -> the spark branch drops out
-  const union = opts.filter === 'saved' ? dealBranch : `${dealBranch}\n       UNION ALL\n${sparkBranch}`
+  const followViewer = visitor
+    ? `false, false, EXISTS (SELECT 1 FROM store_follows f WHERE f.store_id = s.id AND f.visitor_id = ${v})`
+    : `false, false, false`
+  const followFilter = (alias: string) =>
+    opts.filter === 'following'
+      ? `AND EXISTS (SELECT 1 FROM store_follows f2 WHERE f2.store_id = ${alias}.id AND f2.visitor_id = ${v})`
+      : ''
+
+  // a store opening its doors IS store activity — the debut card (existing fact: published_at)
+  const storeBranch = `
+       SELECT 'store'::text, s.id, s.name, b.voice->>'tone',
+              s.published_at::text, s.handle, s.name,
+              NULL, NULL, NULL, NULL,
+              NULL, NULL,
+              0,
+              ${followViewer},
+              ($2::timestamptz IS NOT NULL AND s.published_at > $2::timestamptz),
+              s.published_at
+       FROM stores s
+       LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
+       WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+         AND s.published_at IS NOT NULL ${followFilter('s')}`
+
+  // a NEW product on a shelf — noteworthy bar: it has a photo (full conjunction otherwise)
+  const productBranch = `
+       SELECT 'product'::text, p.id, p.title, NULL,
+              l.published_at::text, s.handle, s.name,
+              p.id, p.title,
+              (SELECT min(vr.price_amount)::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
+              (SELECT min(vr.price_currency) FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
+              img.url, img.alt_text,
+              0,
+              ${followViewer},
+              ($2::timestamptz IS NOT NULL AND l.published_at > $2::timestamptz),
+              l.published_at
+       FROM listings l
+       JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+       JOIN stores s ON s.id = l.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+       JOIN LATERAL (
+         SELECT ma.url, pm.alt_text FROM product_media pm
+         JOIN media_assets ma ON ma.id = pm.media_id
+         WHERE pm.product_id = p.id
+         ORDER BY (pm.role = 'hero') DESC, pm.position ASC LIMIT 1
+       ) img ON true
+       WHERE l.status = 'published' AND l.published_at IS NOT NULL ${followFilter('s')}`
+
+  // 'saved' is deal-scoped by design (only deals are saveable) -> the other voices drop out
+  const union = opts.filter === 'saved'
+    ? dealBranch
+    : [dealBranch, sparkBranch, storeBranch, productBranch].join('\n       UNION ALL\n')
 
   const { rows } = await asClient(tx).query<HomeFeedItem & { sort_key: string }>(
     `SELECT * FROM (${union}) stream
@@ -274,6 +325,13 @@ export async function countNewForFollowing(tx: Tx, visitorId: string, lastVisit:
        (SELECT count(*) FROM sparks sp
         JOIN stores s ON s.id = sp.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
         WHERE sp.status = 'published' AND sp.published_at > $2::timestamptz
+          AND EXISTS (SELECT 1 FROM store_follows f WHERE f.store_id = s.id AND f.visitor_id = $1))
+       +
+       (SELECT count(*) FROM listings l
+        JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+        JOIN stores s ON s.id = l.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+        WHERE l.status = 'published' AND l.published_at > $2::timestamptz
+          AND EXISTS (SELECT 1 FROM product_media pm WHERE pm.product_id = p.id)
           AND EXISTS (SELECT 1 FROM store_follows f WHERE f.store_id = s.id AND f.visitor_id = $1))
      )::int AS n`,
     [visitorId, lastVisit])

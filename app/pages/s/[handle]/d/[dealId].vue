@@ -165,15 +165,15 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         />
       </div>
 
-      <NuxtLink to="/discover" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/70 underline-offset-4 hover:underline focus-visible:focus-ring">
-        More deals on DOF →
+      <NuxtLink to="/home" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/70 underline-offset-4 hover:underline focus-visible:focus-ring">
+        More on DOF today →
       </NuxtLink>
     </main>
 
     <footer class="border-t border-foreground/10">
       <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 text-caption text-foreground/60">
         <NuxtLink :to="`/s/${store.handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">{{ store.name }}</NuxtLink>
-        <span>powered by DOF</span>
+        <NuxtLink to="/home" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">powered by DOF</NuxtLink>
       </div>
     </footer>
   </div>

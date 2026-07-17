@@ -145,7 +145,7 @@ const publishedNice = computed(() => new Date(spark.value.published_at).toLocale
     <footer class="border-t border-foreground/10">
       <div class="mx-auto flex max-w-2xl items-center justify-between px-4 py-4 text-caption text-foreground/60">
         <NuxtLink :to="`/s/${store.handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">{{ store.name }}</NuxtLink>
-        <span>powered by DOF</span>
+        <NuxtLink to="/home" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">powered by DOF</NuxtLink>
       </div>
     </footer>
   </div>

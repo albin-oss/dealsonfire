@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
- * /discover — the living Home (Release 0.7). One chronological stream of commerce:
- * sparks (a store speaking) and deals (a store offering) blended by recency — no
- * ranking, no personalization; recency IS the product. Following answers "what have
- * the stores I care about done since I was here?" — new-since-last-visit markers,
- * a first-unread divider, and a badge on the Following filter. SSR, public.
+ * /home — the living front page (Release 0.7). One chronological stream of commerce:
+ * sparks (a store speaking), deals (a store offering), store debuts, and noteworthy
+ * new products — blended by recency. No ranking, no personalization; recency IS the
+ * product. Following answers "what have the stores I care about done since I was
+ * here?" — new-since-last-visit markers, a first-unread divider with jump-to, and a
+ * badge on the Following filter. SSR, public. /discover 301s here.
  */
 import { computed, ref } from 'vue'
 import { DofText, DofMoney, DofChip, DofEmptyState, DofSkeleton } from '@ds/index'
@@ -16,14 +17,14 @@ const origin = useRequestURL().origin
 useHead({
   title: 'Today on DOF',
   htmlAttrs: { 'data-scope': 'storefront' },
-  link: [{ rel: 'canonical', href: `${origin}/discover` }],
+  link: [{ rel: 'canonical', href: `${origin}/home` }],
 })
 useSeoMeta({
   description: 'One living stream from independent stores — deals worth firing and updates worth reading.',
   ogTitle: 'Today on DOF',
   ogDescription: 'One living stream from independent stores — deals worth firing and updates worth reading.',
   ogType: 'website',
-  ogUrl: `${origin}/discover`,
+  ogUrl: `${origin}/home`,
   twitterCard: 'summary',
 })
 
@@ -58,7 +59,18 @@ const emptyCopy = computed(() =>
       : { title: 'Quiet right now', why: 'Stores publish deals and updates as they happen — check back soon.' })
 
 const itemLink = (item: HomeFeedItem) =>
-  item.type === 'deal' ? `/s/${item.store_handle}/d/${item.id}` : `/s/${item.store_handle}/sparks/${item.id}`
+  item.type === 'deal'
+    ? `/s/${item.store_handle}/d/${item.id}`
+    : item.type === 'spark'
+      ? `/s/${item.store_handle}/sparks/${item.id}`
+      : item.type === 'product'
+        ? `/s/${item.store_handle}/p/${item.product_id}`
+        : `/s/${item.store_handle}`
+
+/** Jump to where you left off — the caught-up divider. */
+function jumpToUnread() {
+  document.getElementById('caught-up')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 </script>
 
 <template>
@@ -80,6 +92,15 @@ const itemLink = (item: HomeFeedItem) =>
         />
       </div>
 
+      <button
+        v-if="dividerIndex > 0"
+        type="button"
+        class="dof-interactive flex items-center justify-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-2 text-caption text-accent focus-visible:focus-ring"
+        @click="jumpToUnread"
+      >
+        {{ dividerIndex }} new since your last visit — jump to where you left off ↓
+      </button>
+
       <div v-if="pending" class="flex flex-col gap-4" aria-hidden="true">
         <DofSkeleton v-for="n in 3" :key="n" class="h-40 rounded-large" />
       </div>
@@ -87,7 +108,7 @@ const itemLink = (item: HomeFeedItem) =>
       <ul v-else-if="items.length > 0" class="flex list-none flex-col gap-4 p-0">
         <template v-for="(item, index) in items" :key="`${item.type}-${item.id}`">
           <!-- the first-unread divider: everything below, you've already seen -->
-          <li v-if="index === dividerIndex" aria-hidden="true" class="flex items-center gap-3 py-1">
+          <li v-if="index === dividerIndex" id="caught-up" aria-hidden="true" class="flex items-center gap-3 py-1">
             <span class="h-px flex-1 bg-foreground/15" />
             <DofText role="caption" class="text-foreground/50">You’re caught up</DofText>
             <span class="h-px flex-1 bg-foreground/15" />
@@ -117,6 +138,29 @@ const itemLink = (item: HomeFeedItem) =>
               </div>
             </NuxtLink>
 
+            <!-- a store debut: a new door on the street -->
+            <NuxtLink v-else-if="item.type === 'store'" :to="itemLink(item)" class="dof-interactive flex flex-col gap-1 rounded-medium focus-visible:focus-ring">
+              <DofText role="caption" class="uppercase tracking-widest text-accent">New on DOF</DofText>
+              <DofText role="title" as="h2">{{ item.text }} just opened its doors</DofText>
+              <DofText v-if="item.story" role="body" class="text-foreground/80">{{ item.story }}</DofText>
+            </NuxtLink>
+
+            <!-- a noteworthy new product: something new on a shelf -->
+            <NuxtLink v-else-if="item.type === 'product'" :to="itemLink(item)" class="dof-interactive flex flex-col gap-2 rounded-medium focus-visible:focus-ring">
+              <DofText role="caption" class="uppercase tracking-widest text-accent">New in {{ item.store_name }}</DofText>
+              <DofText role="title" as="h2">{{ item.text }}</DofText>
+              <img
+                v-if="item.image_url"
+                :src="item.image_url"
+                :alt="item.image_alt ?? item.text"
+                class="h-48 w-full rounded-medium object-cover"
+                loading="lazy"
+              >
+              <div class="flex items-baseline justify-end">
+                <DofMoney v-if="item.price_minor !== null" :amount="item.price_minor" :currency="item.currency ?? 'EUR'" class="shrink-0 font-medium" />
+              </div>
+            </NuxtLink>
+
             <!-- a spark: the words lead -->
             <NuxtLink v-else :to="itemLink(item)" class="dof-interactive flex flex-col gap-2 rounded-medium focus-visible:focus-ring">
               <DofText role="body" class="line-clamp-4 whitespace-pre-line text-foreground/95" reading>{{ item.text }}</DofText>
@@ -130,7 +174,7 @@ const itemLink = (item: HomeFeedItem) =>
             </NuxtLink>
 
             <DealEngage
-              :kind="item.type"
+              :kind="item.type === 'deal' || item.type === 'spark' ? item.type : 'store'"
               :deal-id="item.id"
               :store-handle="item.store_handle"
               :store-name="item.store_name"

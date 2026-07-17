@@ -134,7 +134,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
     <footer class="border-t border-foreground/10">
       <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 text-caption text-foreground/60">
         <span>{{ store.name }}</span>
-        <span>powered by DOF</span>
+        <NuxtLink to="/home" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">powered by DOF</NuxtLink>
       </div>
     </footer>
   </div>

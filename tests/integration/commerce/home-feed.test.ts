@@ -54,17 +54,32 @@ describe('the living Home (Release 0.7)', () => {
     const home = await http.request('GET', '/api/v1/public/home')
     expect(home.status).toBe(200)
     expect(home.headers.get('cache-control')).toContain('private')
-    // newest first: the spark landed after the deal
-    expect(home.body.items.map((i: { type: string }) => i.type)).toEqual(['spark', 'deal'])
+    // newest first: spark, then deal, then the store's debut card (no product card —
+    // a product without a photo isn't noteworthy)
+    expect(home.body.items.map((i: { type: string }) => i.type)).toEqual(['spark', 'deal', 'store'])
     expect(home.body.items[0]).toMatchObject({ text: 'Fresh off the needles.', store_name: 'Rosa Knits' })
     expect(home.body.items[1]).toMatchObject({ text: 'Weekend special', product_title: 'Lavender blanket', price_minor: 4500 })
+    expect(home.body.items[2]).toMatchObject({ type: 'store', text: 'Rosa Knits' })
 
-    // conjunction: unpublish the product → the deal drops, the spark stays
+    // a photo crosses the noteworthy bar → the product joins the stream
+    const mediaId = uuidv7()
+    await container.pool.query(
+      `INSERT INTO media_assets (id, business_id, url, content_type, size_bytes, created_by)
+       VALUES ($1, $2, 'https://sandbox.media.local/blanket.webp', 'image/webp', 1024, $3)`,
+      [mediaId, m.businessId, uuidv7()])
+    await http.request('POST', `/api/v1/products/${m.productId}/media`, {
+      headers: { cookie: m.cookie }, body: { media_id: mediaId, role: 'hero', alt_text: 'Lavender blanket' },
+    })
+    const withProduct = await http.request('GET', '/api/v1/public/home')
+    const productCard = withProduct.body.items.find((i: { type: string }) => i.type === 'product')
+    expect(productCard).toMatchObject({ text: 'Lavender blanket', price_minor: 4500, image_url: 'https://sandbox.media.local/blanket.webp' })
+
+    // conjunction: unpublish the product → the deal AND product card drop, spark + debut stay
     await http.request('POST', `/api/v1/products/${m.productId}/unpublish-from-store`, {
       headers: { cookie: m.cookie }, body: { store_id: m.storeId },
     })
     const after = await http.request('GET', '/api/v1/public/home')
-    expect(after.body.items.map((i: { type: string }) => i.type)).toEqual(['spark'])
+    expect(after.body.items.map((i: { type: string }) => i.type)).toEqual(['spark', 'store'])
     void deal
   })
 
@@ -78,7 +93,7 @@ describe('the living Home (Release 0.7)', () => {
     // first visit: no watermark, nothing marked new, seen cookie minted
     const first = await http.request('GET', '/api/v1/public/home')
     expect(first.body.last_visit).toBeNull()
-    expect(first.body.items[0].is_new).toBe(false)
+    expect(first.body.items.every((i: { is_new: boolean }) => !i.is_new)).toBe(true)
     const seenAt = cookieValue(first.headers, 'dof_seen_at')
     expect(seenAt).not.toBeNull()
 
@@ -100,7 +115,8 @@ describe('the living Home (Release 0.7)', () => {
       headers: { cookie: `dof_seen_at=${encodeURIComponent(staleSeen)}` },
     })
     expect(newSession.body.last_visit).toBe(staleSeen)
-    const flags = Object.fromEntries(newSession.body.items.map((i: { text: string; is_new: boolean }) => [i.text, i.is_new]))
+    const sparks = newSession.body.items.filter((i: { type: string }) => i.type === 'spark')
+    const flags = Object.fromEntries(sparks.map((i: { text: string; is_new: boolean }) => [i.text, i.is_new]))
     expect(flags).toEqual({ 'Hot off the press.': true, 'Old news.': false })
     expect(cookieValue(newSession.headers, 'dof_last_visit')).toBe(staleSeen)
   })
@@ -133,7 +149,7 @@ describe('the living Home (Release 0.7)', () => {
       headers: { cookie: `${visitor}; dof_seen_at=${encodeURIComponent(staleSeen)}` },
     })
     expect(home.body.new_following_count).toBe(2)
-    expect(home.body.items.map((i: { text: string }) => i.text)).toEqual(['Your deal', 'From your store.'])
+    expect(home.body.items.map((i: { text: string }) => i.text)).toEqual(['Your deal', 'From your store.', 'Rosa Knits'])
     expect(home.body.items.every((i: { viewer_follows: boolean; is_new: boolean }) => i.viewer_follows && i.is_new)).toBe(true)
 
     // saved stays deal-scoped and empty-world without saves
