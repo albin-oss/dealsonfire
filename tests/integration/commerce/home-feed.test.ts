@@ -121,6 +121,43 @@ describe('the living Home (Release 0.7)', () => {
     expect(cookieValue(newSession.headers, 'dof_last_visit')).toBe(staleSeen)
   })
 
+  it('a written story becomes a Meet-the-Maker card; silence stays silent (Release 0.9)', async () => {
+    const m = await merchant()
+
+    // no story → no maker card
+    const before = await http.request('GET', '/api/v1/public/home')
+    expect(before.body.items.some((i: { type: string }) => i.type === 'maker')).toBe(false)
+
+    // writing the story IS publishing — the card appears at the identity's timestamp
+    await http.request('PUT', `/api/v1/stores/${m.storeId}/brand-kit`, {
+      headers: { cookie: m.cookie },
+      body: {
+        name: 'Rosa Knits',
+        voice: {
+          tone: 'Soft things, made slowly.',
+          story: 'Rosa Knits started at a kitchen table — one person who cared too much about wool.',
+          promise: 'If something isn’t right, we make it right.',
+        },
+      },
+    })
+    const after = await http.request('GET', '/api/v1/public/home')
+    const maker = after.body.items.find((i: { type: string }) => i.type === 'maker')
+    expect(maker).toMatchObject({
+      text: 'Rosa Knits',
+      story: 'Rosa Knits started at a kitchen table — one person who cared too much about wool.',
+      promise: 'If something isn’t right, we make it right.',
+      store_handle: m.handle,
+    })
+    // newest first: the identity was written after everything else
+    expect(after.body.items[0].type).toBe('maker')
+
+    // the Following stream carries the maker of a followed store
+    const follow = await http.request('POST', `/api/v1/public/stores/${m.handle}/follow`)
+    const visitor = `dof_visitor=${/dof_visitor=([^;]+)/.exec(follow.headers.get('set-cookie') ?? '')![1]}`
+    const following = await http.request('GET', '/api/v1/public/home?filter=following', { headers: { cookie: visitor } })
+    expect(following.body.items.some((i: { type: string }) => i.type === 'maker')).toBe(true)
+  })
+
   it('the Following filter and badge answer "what did my stores do since I was here?"', async () => {
     const followed = await merchant()
     const stranger = await merchant()

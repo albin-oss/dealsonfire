@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * /home — the living front page (Release 0.7). One chronological stream of commerce:
- * sparks (a store speaking), deals (a store offering), store debuts, and noteworthy
+ * sparks (a store speaking), deals (a store offering), store debuts, maker stories, and noteworthy
  * new products — blended by recency. No ranking, no personalization; recency IS the
  * product. Following answers "what have the stores I care about done since I was
  * here?" — new-since-last-visit markers, a first-unread divider with jump-to, and a
@@ -143,6 +143,15 @@ function jumpToUnread() {
               <DofText role="caption" class="uppercase tracking-widest text-accent">New on DOF</DofText>
               <DofText role="title" as="h2">{{ item.text }} just opened its doors</DofText>
               <DofText v-if="item.story" role="body" class="text-foreground/80">{{ item.story }}</DofText>
+            </NuxtLink>
+
+            <!-- meet the maker: the person behind the store (Release 0.9) -->
+            <NuxtLink v-else-if="item.type === 'maker'" :to="itemLink(item)" class="dof-interactive flex flex-col gap-2 rounded-medium focus-visible:focus-ring">
+              <DofText role="caption" class="uppercase tracking-widest text-accent">Meet the maker</DofText>
+              <DofText role="title" as="h2">{{ item.text }}</DofText>
+              <DofText v-if="item.story" role="body" class="line-clamp-4 text-foreground/90" reading>{{ item.story }}</DofText>
+              <DofText v-if="item.promise" role="caption" class="text-positive">✓ {{ item.promise }}</DofText>
+              <DofText role="caption" class="text-foreground/60">Read their story →</DofText>
             </NuxtLink>
 
             <!-- a noteworthy new product: something new on a shelf -->

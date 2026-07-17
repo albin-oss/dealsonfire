@@ -152,7 +152,7 @@ export async function sparkEngagementSnapshot(
  * or a noteworthy new product — all existing domain facts, no new content types.
  */
 export interface HomeFeedItem {
-  type: 'deal' | 'spark' | 'store' | 'product'
+  type: 'deal' | 'spark' | 'store' | 'product' | 'maker'
   id: string
   /** deal headline / spark body */
   text: string
@@ -166,6 +166,8 @@ export interface HomeFeedItem {
   currency: string | null
   image_url: string | null
   image_alt: string | null
+  /** Maker cards only: the merchant's promise (Release 0.9). */
+  promise: string | null
   fires: number
   viewer_reacted: boolean
   viewer_saved: boolean
@@ -220,6 +222,7 @@ export async function listHomeFeed(
               (SELECT min(vr.price_amount)::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id) AS price_minor,
               (SELECT min(vr.price_currency) FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id) AS currency,
               img.url AS image_url, img.alt_text AS image_alt,
+              NULL AS promise,
               (SELECT count(*)::int FROM deal_reactions r2 WHERE r2.deal_id = d.id) AS fires,
               ${dealViewer},
               ($2::timestamptz IS NOT NULL AND d.published_at > $2::timestamptz) AS is_new,
@@ -241,6 +244,7 @@ export async function listHomeFeed(
               sp.published_at::text, s.handle, s.name,
               NULL, NULL, NULL, NULL,
               ma.url, NULL,
+              NULL,
               (SELECT count(*)::int FROM spark_reactions r2 WHERE r2.spark_id = sp.id),
               ${sparkViewer},
               ($2::timestamptz IS NOT NULL AND sp.published_at > $2::timestamptz),
@@ -264,6 +268,7 @@ export async function listHomeFeed(
               s.published_at::text, s.handle, s.name,
               NULL, NULL, NULL, NULL,
               NULL, NULL,
+              NULL,
               0,
               ${followViewer},
               ($2::timestamptz IS NOT NULL AND s.published_at > $2::timestamptz),
@@ -273,6 +278,24 @@ export async function listHomeFeed(
        WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
          AND s.published_at IS NOT NULL ${followFilter('s')}`
 
+  // Meet the maker (Release 0.9): a written story IS a publication — it surfaces at the
+  // identity's own timestamp. Honest recency, no selection algorithm; telling your
+  // story earns a place on Home.
+  const makerBranch = `
+       SELECT 'maker'::text, b.id, s.name, b.voice->>'story',
+              b.updated_at::text, s.handle, s.name,
+              NULL, NULL, NULL, NULL,
+              NULL, NULL,
+              b.voice->>'promise',
+              0,
+              ${followViewer},
+              ($2::timestamptz IS NOT NULL AND b.updated_at > $2::timestamptz),
+              b.updated_at
+       FROM brand_kits b
+       JOIN stores s ON s.id = b.owner_id AND b.owner_type = 'store'
+       WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+         AND coalesce(b.voice->>'story', '') <> '' ${followFilter('s')}`
+
   // a NEW product on a shelf — noteworthy bar: it has a photo (full conjunction otherwise)
   const productBranch = `
        SELECT 'product'::text, p.id, p.title, NULL,
@@ -281,6 +304,7 @@ export async function listHomeFeed(
               (SELECT min(vr.price_amount)::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
               (SELECT min(vr.price_currency) FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
               img.url, img.alt_text,
+              NULL,
               0,
               ${followViewer},
               ($2::timestamptz IS NOT NULL AND l.published_at > $2::timestamptz),
@@ -299,7 +323,7 @@ export async function listHomeFeed(
   // 'saved' is deal-scoped by design (only deals are saveable) -> the other voices drop out
   const union = opts.filter === 'saved'
     ? dealBranch
-    : [dealBranch, sparkBranch, storeBranch, productBranch].join('\n       UNION ALL\n')
+    : [dealBranch, sparkBranch, storeBranch, productBranch, makerBranch].join('\n       UNION ALL\n')
 
   const { rows } = await asClient(tx).query<HomeFeedItem & { sort_key: string }>(
     `SELECT * FROM (${union}) stream
