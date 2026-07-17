@@ -8,7 +8,7 @@
  * honest digital-delivery note, variant price transparency. Publish reuses the frozen
  * Catalog API — zero business logic here.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   DofText, DofButton, DofInput, DofTextarea, DofMoneyInput, DofChip,
   DofMediaSlot, DofReadinessSummary, DofEmptyState, DofSkeleton, DofMoney, DofProblem,
@@ -53,7 +53,9 @@ const showVariants = ref(false)
 const optionName = ref('')
 const optionValues = ref('')
 
-if (import.meta.client) {
+// Draft restore happens AFTER hydration — restoring during client setup would make
+// the first client render diverge from the server HTML (hydration mismatch).
+onMounted(() => {
   try {
     const saved = JSON.parse(window.localStorage.getItem(DRAFT_KEY) ?? 'null')
     if (saved) { line.value = saved.line ?? ''; priceMinor.value = saved.priceMinor ?? null }
@@ -61,7 +63,7 @@ if (import.meta.client) {
   watch([line, priceMinor], () => {
     window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ line: line.value, priceMinor: priceMinor.value }))
   })
-}
+})
 
 // ——— inference (advisory; every proposal is a tap away from accepted — or ignored)
 const parsed = computed(() => parseLine(line.value))

@@ -12,6 +12,9 @@ export default defineNuxtConfig({
   // The Ignite ceremony is client-rendered: resume() reads the local draft in setup,
   // so re-entry FIRST-PAINTS at the resumed step (no welcome flash, no swap needed).
   routeRules: { '/ignite': { ssr: false } },
+  // Dev only: the app-manifest poll 404s under `nuxt dev` (upstream quirk) and spams the
+  // console; nothing in dev needs outdated-build detection. Production keeps the manifest.
+  $development: { experimental: { appManifest: false } },
   vite: { plugins: [tailwindcss()] },
   // Public: only the identity MODE (not a secret) — the auth route guard enforces sessions
   // only when the server actually requires them (dev mode leaves the browser open, R1-B1).
