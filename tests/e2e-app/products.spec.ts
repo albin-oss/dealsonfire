@@ -33,10 +33,10 @@ test('the public deal page 404s honestly when nothing is visible', async ({ page
   expect(res?.status()).toBe(404)
 })
 
-test('the discover feed renders publicly and is axe-clean (WCAG)', async ({ page }) => {
+test('the living Home renders publicly and is axe-clean (WCAG)', async ({ page }) => {
   await page.goto('/discover')
-  await expect(page.getByRole('heading', { name: 'Today’s deals' })).toBeVisible()
-  await expect(page.getByRole('group', { name: 'filter deals' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Today on DOF' })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'filter the stream' })).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
 })

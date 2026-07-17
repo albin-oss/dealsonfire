@@ -32,3 +32,40 @@ export function getOrCreateVisitorId(event: H3Event): string {
   })
   return id
 }
+
+const SEEN_COOKIE = 'dof_seen_at'
+const LAST_VISIT_COOKIE = 'dof_last_visit'
+const SESSION_GAP_SECONDS = 30 * 60
+
+/**
+ * "New since your last visit" (Release 0.7) — cookie-only last-seen tracking on the
+ * existing visitor identity; no notification infrastructure. Two watermarks: dof_seen_at
+ * rotates on every Home request; dof_last_visit only advances when a NEW session starts
+ * (a 30-minute gap), so the unread marker stays stable while the visitor browses.
+ * Returns the watermark to compare items against (null on a first visit).
+ */
+export function observeHomeVisit(event: H3Event): { lastVisit: string | null } {
+  const now = new Date()
+  const seenRaw = getCookie(event, SEEN_COOKIE)
+  const lastVisitRaw = getCookie(event, LAST_VISIT_COOKIE)
+  const seenAt = seenRaw ? new Date(seenRaw) : null
+  const sessionExpired = !seenAt || Number.isNaN(seenAt.getTime())
+    || now.getTime() - seenAt.getTime() > SESSION_GAP_SECONDS * 1000
+
+  let lastVisit = lastVisitRaw && !Number.isNaN(new Date(lastVisitRaw).getTime()) ? lastVisitRaw : null
+  if (sessionExpired) {
+    // the previous session's last request becomes the new watermark
+    lastVisit = seenAt && !Number.isNaN(seenAt.getTime()) ? seenAt.toISOString() : null
+    if (lastVisit) {
+      setCookie(event, LAST_VISIT_COOKIE, lastVisit, {
+        httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production',
+        maxAge: ONE_YEAR_SECONDS, path: '/',
+      })
+    }
+  }
+  setCookie(event, SEEN_COOKIE, now.toISOString(), {
+    httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production',
+    maxAge: ONE_YEAR_SECONDS, path: '/',
+  })
+  return { lastVisit }
+}
