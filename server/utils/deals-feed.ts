@@ -361,3 +361,32 @@ export async function countNewForFollowing(tx: Tx, visitorId: string, lastVisit:
     [visitorId, lastVisit])
   return Number(rows[0]!.n)
 }
+
+/** The visitor's merchants (Release 1.0) — the follow data AS a possession. */
+export async function listMyMerchants(tx: Tx, visitorId: string): Promise<Array<{
+  handle: string; name: string; tagline: string | null
+}>> {
+  const { rows } = await asClient(tx).query<{ handle: string; name: string; tagline: string | null }>(
+    `SELECT s.handle, s.name, b.voice->>'tone' AS tagline
+     FROM store_follows f
+     JOIN stores s ON s.id = f.store_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+     LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
+     WHERE f.visitor_id = $1
+     ORDER BY f.created_at DESC
+     LIMIT 24`,
+    [visitorId])
+  return rows
+}
+
+/** One store's engagement snapshot for the storefront (per-visitor, never cached). */
+export async function storeEngagementSnapshot(tx: Tx, storeId: string, visitorId: string | null): Promise<{
+  followers: number; viewer_follows: boolean
+}> {
+  const params: unknown[] = [storeId]
+  let viewer = 'false AS viewer_follows'
+  if (visitorId) { params.push(visitorId); viewer = `EXISTS (SELECT 1 FROM store_follows f WHERE f.store_id = $1 AND f.visitor_id = $2) AS viewer_follows` }
+  const { rows } = await asClient(tx).query<{ followers: number; viewer_follows: boolean }>(
+    `SELECT (SELECT count(*)::int FROM store_follows f2 WHERE f2.store_id = $1) AS followers, ${viewer}`,
+    params)
+  return rows[0]!
+}

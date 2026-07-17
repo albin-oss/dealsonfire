@@ -30,13 +30,14 @@ useSeoMeta({
 
 type Filter = 'all' | 'saved' | 'following'
 const filter = ref<Filter>('all')
-interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number }
+interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number; my_merchants: Array<{ handle: string; name: string; tagline: string | null }> }
 const { data, pending } = await useFetch<HomeResponse>(
   () => `/api/v1/public/home?filter=${filter.value}`,
   { watch: [filter] },
 )
 const items = computed(() => data.value?.items ?? [])
 const newCount = computed(() => data.value?.new_following_count ?? 0)
+const myMerchants = computed(() => data.value?.my_merchants ?? [])
 
 /** The first-unread divider sits before the first already-seen item (when new ones exist). */
 const dividerIndex = computed(() => {
@@ -53,9 +54,9 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 ]
 const emptyCopy = computed(() =>
   filter.value === 'saved'
-    ? { title: 'Nothing saved yet', why: 'Tap Save on any deal and it waits for you here.' }
+    ? { title: 'Nothing saved yet', why: 'Tap Save on any deal and it waits for you here — your shelf, on your terms.' }
     : filter.value === 'following'
-      ? { title: 'You’re not following anyone yet', why: 'Follow a store and everything it does gathers here.' }
+      ? { title: 'This is where YOUR DOF starts', why: 'Follow a store and its deals, updates, and stories gather here — marked new whenever you return. No account needed.' }
       : { title: 'Quiet right now', why: 'Stores publish deals and updates as they happen — check back soon.' })
 
 const itemLink = (item: HomeFeedItem) =>
@@ -91,6 +92,22 @@ function jumpToUnread() {
           @click="filter = f.value"
         />
       </div>
+
+      <!-- your merchants: the follow data as a visible possession (Release 1.0) -->
+      <section v-if="filter === 'following' && myMerchants.length > 0" aria-label="your merchants" class="flex flex-col gap-2">
+        <DofText role="caption" tone="muted">Your merchants · {{ myMerchants.length }}</DofText>
+        <ul class="flex list-none flex-wrap gap-2 p-0">
+          <li v-for="m in myMerchants" :key="m.handle">
+            <NuxtLink
+              :to="`/s/${m.handle}`"
+              class="dof-interactive flex flex-col rounded-medium border border-foreground/15 px-3 py-1.5 transition-colors hover:border-accent focus-visible:focus-ring"
+            >
+              <DofText role="body" class="font-medium">{{ m.name }}</DofText>
+              <DofText v-if="m.tagline" role="caption" class="text-foreground/60">{{ m.tagline }}</DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
 
       <button
         v-if="dividerIndex > 0"
@@ -197,7 +214,17 @@ function jumpToUnread() {
         </template>
       </ul>
 
-      <DofEmptyState v-else icon="flame" :title="emptyCopy.title" :why="emptyCopy.why" />
+      <DofEmptyState v-else icon="flame" :title="emptyCopy.title" :why="emptyCopy.why">
+        <template v-if="filter !== 'all'" #action>
+          <button
+            type="button"
+            class="dof-interactive rounded-full border border-accent/40 bg-accent/10 px-4 py-2 text-caption text-accent focus-visible:focus-ring"
+            @click="filter = 'all'"
+          >
+            Browse today’s stream — follow what you like
+          </button>
+        </template>
+      </DofEmptyState>
     </main>
 
     <footer class="border-t border-foreground/10">

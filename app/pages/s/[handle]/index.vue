@@ -41,6 +41,12 @@ useSeoMeta(storeMeta({
 }))
 
 // The merchant's palette becomes the page's tokens (falls back to system tokens per key).
+// ——— follow (Release 1.0): per-visitor snapshot, client-side — the storefront read stays cacheable
+const { data: engagement } = useFetch<{ followers: number; viewer_follows: boolean }>(
+  () => `/api/v1/public/stores/${encodeURIComponent(handle.value)}/engagement`,
+  { lazy: true, server: false },
+)
+
 const { scopeAttrs } = useBrandKit(computed(() => ({
   accent: brand.value?.palette.primary,
   accentStrong: brand.value?.palette.primary,
@@ -66,6 +72,21 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
     <main class="mx-auto flex max-w-4xl flex-col gap-10 px-4 py-10">
       <section class="flex flex-col gap-2">
         <DofText role="headline" as="p">{{ brand?.tagline ?? `Welcome to ${store.name}.` }}</DofText>
+        <div class="mt-3 flex items-center gap-3">
+          <DealEngage
+            kind="store"
+            :deal-id="store.handle"
+            :store-handle="store.handle"
+            :store-name="store.name"
+            :fires="0"
+            :reacted="false"
+            :follows="engagement?.viewer_follows ?? false"
+            variant="full"
+          />
+          <DofText v-if="(engagement?.followers ?? 0) > 0" role="caption" class="text-foreground/70">
+            {{ engagement!.followers === 1 ? '1 person follows' : `${engagement!.followers} people follow` }} this store
+          </DofText>
+        </div>
         <DofText role="caption" class="text-foreground/70">dof.dev/{{ store.handle }}</DofText>
       </section>
 

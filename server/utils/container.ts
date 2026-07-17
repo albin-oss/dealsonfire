@@ -59,6 +59,7 @@ import { toggleSubjectEngagementInTx } from '@domains/commerce/catalog/applicati
 import { PgSparkRepository, publishSparkCommand, deleteSparkCommand, listSparksQuery, SPARK_REACTION_SUBJECT } from '@domains/commerce/catalog/application/sparks'
 import { followStoreCommand } from '@domains/merchant/core/application/commands/follow-store'
 import { merchantMomentum, type MerchantMomentum } from './momentum'
+import { listMyMerchants, storeEngagementSnapshot } from './deals-feed'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -206,7 +207,9 @@ export interface Container {
     followStore: (handle: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
     dealsFeed: (visitorId: string | null, filter: FeedFilter) => Promise<FeedDeal[]>
     /** Release 0.7 — the living Home stream (deals + sparks, chronological). */
-    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number }>
+    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number; myMerchants: Array<{ handle: string; name: string; tagline: string | null }> }>
+    /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
+    storeEngagement: (handle: string, visitorId: string | null) => Promise<{ followers: number; viewer_follows: boolean } | null>
     dealEngagement: (dealId: string, visitorId: string | null) => Promise<Awaited<ReturnType<typeof dealEngagementSnapshot>> | null>
     toggleSparkReaction: (sparkId: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
     sparkEngagement: (sparkId: string, visitorId: string | null) => Promise<Awaited<ReturnType<typeof sparkEngagementSnapshot>> | null>
@@ -589,7 +592,15 @@ export function buildContainer(databaseUrl: string): Container {
         deps.uow.withTransaction(async (tx) => ({
           items: await listHomeFeed(tx, { visitorId, filter, lastVisit }),
           newFollowingCount: visitorId ? await countNewForFollowing(tx, visitorId, lastVisit) : 0,
+          myMerchants: visitorId ? await listMyMerchants(tx, visitorId) : [],
         })),
+      storeEngagement: (handle, visitorId) =>
+        deps.uow.withTransaction(async (tx) => {
+          const publicDao = new PgPublicStorefrontDao()
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          return storeEngagementSnapshot(tx, front.storeId, visitorId)
+        }),
       dealEngagement: (dealId, visitorId) =>
         deps.uow.withTransaction(async (tx) => {
           const deal = await resolveEngageableDeal(tx, dealId)

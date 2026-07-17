@@ -19,6 +19,8 @@ export interface HomeResponse {
   has_identity: boolean
   last_visit: string | null
   new_following_count: number
+  /** Release 1.0 — the visitor's merchants: the follow data as a visible possession. */
+  my_merchants: Array<{ handle: string; name: string; tagline: string | null }>
 }
 
 export default definePublicEndpoint({
@@ -37,6 +39,7 @@ export default definePublicEndpoint({
       has_identity: visitorId !== null,
       last_visit: lastVisit,
       new_following_count: result.newFollowingCount,
+      my_merchants: result.myMerchants,
     })
   },
 })

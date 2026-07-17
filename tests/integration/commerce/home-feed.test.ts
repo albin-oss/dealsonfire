@@ -121,6 +121,37 @@ describe('the living Home (Release 0.7)', () => {
     expect(cookieValue(newSession.headers, 'dof_last_visit')).toBe(staleSeen)
   })
 
+  it('"my merchants" makes the follow data a visible possession (Release 1.0)', async () => {
+    const rosa = await merchant()
+    const jonas = await merchant()
+
+    // anonymous: no possession
+    const anon = await http.request('GET', '/api/v1/public/home')
+    expect(anon.body.my_merchants).toEqual([])
+
+    // follow both → they appear, newest follow first, with the brand tagline when written
+    await http.request('PUT', `/api/v1/stores/${rosa.storeId}/brand-kit`, {
+      headers: { cookie: rosa.cookie },
+      body: { name: 'Rosa Knits', voice: { tone: 'Soft things, made slowly.' } },
+    })
+    const follow1 = await http.request('POST', `/api/v1/public/stores/${rosa.handle}/follow`)
+    const visitor = `dof_visitor=${/dof_visitor=([^;]+)/.exec(follow1.headers.get('set-cookie') ?? '')![1]}`
+    await http.request('POST', `/api/v1/public/stores/${jonas.handle}/follow`, { headers: { cookie: visitor } })
+
+    const mine = await http.request('GET', '/api/v1/public/home', { headers: { cookie: visitor } })
+    expect(mine.body.my_merchants.map((m: { handle: string }) => m.handle)).toEqual([jonas.handle, rosa.handle])
+    expect(mine.body.my_merchants[1]).toMatchObject({ name: 'Rosa Knits', tagline: 'Soft things, made slowly.' })
+
+    // the storefront snapshot answers follower count + viewer state (and unfollow flows back)
+    const snap = await http.request('GET', `/api/v1/public/stores/${rosa.handle}/engagement`, { headers: { cookie: visitor } })
+    expect(snap.body).toEqual({ followers: 1, viewer_follows: true })
+    await http.request('POST', `/api/v1/public/stores/${rosa.handle}/follow`, { headers: { cookie: visitor } })
+    const after = await http.request('GET', '/api/v1/public/home', { headers: { cookie: visitor } })
+    expect(after.body.my_merchants.map((m: { handle: string }) => m.handle)).toEqual([jonas.handle])
+    // draft/unknown stores are masked
+    expect((await http.request('GET', '/api/v1/public/stores/nobody-here/engagement')).status).toBe(404)
+  })
+
   it('a written story becomes a Meet-the-Maker card; silence stays silent (Release 0.9)', async () => {
     const m = await merchant()
 
