@@ -22,14 +22,24 @@ export default defineEventHandler(async (event) => {
   }
 
   const container = getContainer()
-  const merchant = await container.dispatcher.dispatchPending()
-  const commerce = await container.commerce.dispatcher.dispatchPending()
-  await container.dispatcher.housekeeping().catch((error) => {
-    console.error('[outbox] housekeeping failed:', (error as Error).message)
-  })
-  await container.commerce.dispatcher.housekeeping().catch((error) => {
-    console.error('[commerce-outbox] housekeeping failed:', (error as Error).message)
-  })
+  // ALL FOUR domain quartets (First Light audit fix: identity + operations events
+  // previously never left their outboxes in production)
+  const lanes = [
+    ['outbox', container.dispatcher],
+    ['commerce-outbox', container.commerce.dispatcher],
+    ['identity-outbox', container.identity.dispatcher],
+    ['operations-outbox', container.operations.dispatcher],
+  ] as const
+  let dispatched = 0
+  let failed = 0
+  for (const [name, dispatcher] of lanes) {
+    const result = await dispatcher.dispatchPending()
+    dispatched += result.dispatched
+    failed += result.failed
+    await dispatcher.housekeeping().catch((error) => {
+      console.error(`[${name}] housekeeping failed:`, (error as Error).message)
+    })
+  }
   await container.idempotency.purgeExpired().catch(() => {})
-  return { dispatched: merchant.dispatched + commerce.dispatched, failed: merchant.failed + commerce.failed }
+  return { dispatched, failed }
 })

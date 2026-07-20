@@ -76,6 +76,7 @@ import authRecoveryReset from '../../server/api/v1/auth/recovery/reset.post'
 import authVerifyEmail from '../../server/api/v1/auth/verify-email.post'
 import authResendVerification from '../../server/api/v1/auth/resend-verification.post'
 import mediaOrderPut from '../../server/api/v1/products/[productId]/media/order.put'
+import outboxDispatch from '../../server/api/internal/outbox-dispatch'
 
 export interface TestHttp {
   request(method: string, path: string, opts?: { body?: unknown; headers?: Record<string, string> }): Promise<{ status: number; body: any; headers: Headers }>
@@ -164,6 +165,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/auth/recovery/reset', authRecoveryReset)
   router.post('/api/v1/auth/verify-email', authVerifyEmail)
   router.post('/api/v1/auth/resend-verification', authResendVerification)
+  router.get('/api/internal/outbox-dispatch', outboxDispatch)
   app.use(router)
 
   const server: Server = createServer(toNodeListener(app))

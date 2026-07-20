@@ -24,7 +24,8 @@
     "check:operations": "node scripts/check-operations.mjs",
     "check:identity": "node scripts/check-identity.mjs",
     "dev:demo": "tsx scripts/dev-demo.ts",
-    "learning": "tsx scripts/learning.ts"
+    "learning": "tsx scripts/learning.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@iconify/vue": "^5.0.1",
