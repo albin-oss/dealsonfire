@@ -3,6 +3,11 @@
 One merchant, one observer, one first hour. Sit beside them (or screen-share).
 Phone or laptop — **their** device, **their** photos, **their** words.
 
+> **Conduct lives in [OBSERVATION_PROTOCOL.md](OBSERVATION_PROTOCOL.md)** —
+> preparation, the intro script, silence and intervention rules, verbatim
+> technique, the quality checklist, and the same-day write-up order. This file
+> is the WHAT to watch; the protocol is the HOW to be there.
+
 ## Protocol
 
 - Say once, at the start: *"I'm going to be quiet and watch. Talk out loud if
