@@ -22,16 +22,25 @@ with its evidence attached or it does not enter.
 
 | Dimension | Scale | Definition |
 |---|---|---|
-| Customer impact (C) | 0–3 | change in a real customer's week |
-| Merchant impact (M) | 0–3 | change in a real merchant's week |
+| Severity (Sev) | S1–S4 / none | from the friction log; a GATE, not a score (see overrides) |
 | Frequency (F) | 0–3 | 3 = every merchant/visitor, every session · 0 = rare |
-| Learning value (L) | 0–3 | what the ledger can measure after shipping it |
+| Customer value (C) | 0–3 | change in a real customer's week |
+| Merchant value (M) | 0–3 | change in a real merchant's week |
+| Learning value (L) | 0–3 | what the ledger/next review can measure after shipping |
 | Effort (E) | days | honest engineering days, ≤5 or it must shrink |
-| Time to production (T) | days | includes verification, ≤ E+1 |
+| Risk | low/med/high | blast radius if it ships wrong |
+| Trust impact | cap | anything that could lose merchant work or embarrass them publicly CAPS the ranking of every competing candidate until addressed |
 
-**Value per engineering day = (C + M) × F + L, divided by E.**
-Ties break toward: (1) lower T, (2) friction fix over feature, (3) the
-candidate whose failure would teach more.
+**Score per engineering day = ((C + M) × F + L) / E.**
+Gates and modifiers, in order:
+1. Severity gates: S1 → hotfix outside the matrix; S2 hit by ≥2 merchants →
+   it IS the release.
+2. Trust cap: while any trust-impacting item is open, no feature outranks it.
+3. Risk discounts ties: at equal score, lower risk wins.
+4. Remaining ties: friction fix over feature, then the candidate whose
+   failure would teach more.
+Every score carries a one-line justification in the weekly review — numbers
+without sentences are not rankings.
 
 ## Worked format
 
