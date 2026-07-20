@@ -10,6 +10,10 @@ import type { Tx } from '@platform/types'
 export interface MerchantMomentum {
   /** People following any of this business's stores. */
   followers: number
+  /** Feedback (Release 1.2): fires earned on sparks + deals in the last 7 days. */
+  fires_this_week: number
+  /** Feedback (Release 1.2): new followers in the last 7 days. */
+  new_followers_this_week: number
   /** Hours since the business last published a spark or deal; null = never. */
   hours_quiet: number | null
   /** Newest on-store product no spark has ever pointed at (visible ones only). */
@@ -18,7 +22,7 @@ export interface MerchantMomentum {
 
 export async function merchantMomentum(tx: Tx, businessId: string): Promise<MerchantMomentum> {
   const client = asClient(tx)
-  const [followers, quiet, unsparked] = await Promise.all([
+  const [followers, quiet, unsparked, firesWeek, followersWeek] = await Promise.all([
     client.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM store_follows f
        JOIN stores s ON s.id = f.store_id
@@ -42,9 +46,26 @@ export async function merchantMomentum(tx: Tx, businessId: string): Promise<Merc
        ORDER BY l.published_at DESC
        LIMIT 1`,
       [businessId]),
+    client.query<{ n: number }>(
+      `SELECT (
+         (SELECT count(*) FROM spark_reactions r JOIN sparks sp ON sp.id = r.spark_id
+          WHERE sp.business_id = $1 AND r.created_at > now() - interval '7 days')
+         +
+         (SELECT count(*) FROM deal_reactions r JOIN deals d ON d.id = r.deal_id
+          WHERE d.business_id = $1 AND r.created_at > now() - interval '7 days')
+       )::int AS n`,
+      [businessId]),
+    client.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM store_follows f
+       JOIN stores s ON s.id = f.store_id
+       WHERE s.business_id = $1 AND s.deleted_at IS NULL
+         AND f.created_at > now() - interval '7 days'`,
+      [businessId]),
   ])
   return {
     followers: Number(followers.rows[0]?.n ?? 0),
+    fires_this_week: Number(firesWeek.rows[0]?.n ?? 0),
+    new_followers_this_week: Number(followersWeek.rows[0]?.n ?? 0),
     hours_quiet: quiet.rows[0]?.hours ?? null,
     unsparked_product: unsparked.rows[0] ?? null,
   }

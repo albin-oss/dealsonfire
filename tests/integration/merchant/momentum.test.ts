@@ -49,8 +49,14 @@ describe('publishing momentum (Release 0.8)', () => {
       body: { business_id: biz.body.business_id, store_id: store.body.store_id, body: 'Fresh off the needles.', product_id: product.body.product_id },
     })
 
+    // a visitor fires the spark → the feedback facts move
+    const sparks = await http.request('GET', `/api/v1/sparks?business_id=${biz.body.business_id}`, { headers: { cookie } })
+    await http.request('POST', `/api/v1/public/sparks/${sparks.body.items[0].id}/react`)
+
     const after = await http.request('GET', '/api/v1/workspace/progress', { headers: { cookie } })
     expect(after.body.momentum.followers).toBe(1)
+    expect(after.body.momentum.new_followers_this_week).toBe(1)
+    expect(after.body.momentum.fires_this_week).toBe(1)
     expect(after.body.momentum.hours_quiet).toBe(0) // just published
     expect(after.body.momentum.unsparked_product).toBeNull() // the blanket had its moment
 
