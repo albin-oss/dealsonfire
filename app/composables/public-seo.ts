@@ -77,17 +77,22 @@ export function productJsonLd(facts: ProductSeoFacts): string {
   })
 }
 
-export function storeMeta(facts: StoreSeoFacts) {
+export function storeMeta(facts: StoreSeoFacts & { title?: string | null }) {
   const description = facts.tagline ?? `${facts.storeName} on DOF.`
   const image = absolute(facts.origin, facts.imageUrl)
+  // a shop introduces itself with its one-liner, not just its name (Release 1.1)
+  const title = facts.title ? `${facts.storeName} — ${facts.title}` : facts.storeName
   return {
     description,
-    ogTitle: facts.storeName,
+    ogTitle: title,
     ogDescription: description,
     ogType: 'website' as const,
     ogUrl: `${facts.origin}/s/${facts.handle}`,
     ...(image ? { ogImage: image } : {}),
     twitterCard: (image ? 'summary_large_image' : 'summary') as 'summary_large_image' | 'summary',
+    twitterTitle: title,
+    twitterDescription: description,
+    ...(image ? { twitterImage: image } : {}),
   }
 }
 

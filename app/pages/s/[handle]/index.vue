@@ -6,8 +6,8 @@
  * the shelf shows active products, and nothing else exists. SSR so the first paint IS the
  * store (LCP budget), and links unfurl with the merchant's name.
  */
-import { computed } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofEmptyState } from '@ds/index'
+import { computed, ref } from 'vue'
+import { useBrandKit, DofText, DofMoney, DofButton, DofEmptyState, announce } from '@ds/index'
 import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { storeMeta } from '../../../composables/public-seo'
 
@@ -37,10 +37,27 @@ useSeoMeta(storeMeta({
   handle: store.value.handle,
   storeName: store.value.name,
   tagline: brand.value?.story ?? brand.value?.tagline ?? null,
+  title: brand.value?.tagline ?? null,
   imageUrl: products.value[0]?.image_url ?? null,
 }))
 
 // The merchant's palette becomes the page's tokens (falls back to system tokens per key).
+// ——— share this shop (Release 1.1): the story leads, the same share idiom as everywhere
+const shared = ref(false)
+async function shareShop() {
+  const url = `${origin}/s/${store.value.handle}`
+  const payload = {
+    title: brand.value?.tagline ? `${store.value.name} — ${brand.value.tagline}` : store.value.name,
+    text: brand.value?.story?.slice(0, 120) ?? brand.value?.tagline ?? `${store.value.name} on DOF`,
+    url,
+  }
+  try {
+    if (navigator.share) { await navigator.share(payload) }
+    else { await navigator.clipboard.writeText(url); shared.value = true; setTimeout(() => (shared.value = false), 2000) }
+    announce('Link ready to share.')
+  } catch { /* user dismissed the sheet — nothing to do */ }
+}
+
 // ——— follow (Release 1.0): per-visitor snapshot, client-side — the storefront read stays cacheable
 const { data: engagement } = useFetch<{ followers: number; viewer_follows: boolean }>(
   () => `/api/v1/public/stores/${encodeURIComponent(handle.value)}/engagement`,
@@ -83,10 +100,18 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
             :follows="engagement?.viewer_follows ?? false"
             variant="full"
           />
+          <DofButton variant="soft" tone="neutral" size="sm" icon="share-2" @click="shareShop">
+            {{ shared ? 'Link copied' : 'Share this shop' }}
+          </DofButton>
           <DofText v-if="(engagement?.followers ?? 0) > 0" role="caption" class="text-foreground/70">
             {{ engagement!.followers === 1 ? '1 person follows' : `${engagement!.followers} people follow` }} this store
           </DofText>
         </div>
+        <a
+          v-if="brand?.story"
+          href="#about"
+          class="dof-interactive mt-2 inline-block rounded-small px-1 text-caption text-foreground/70 underline-offset-4 hover:underline focus-visible:focus-ring"
+        >Meet the maker ↓</a>
         <DofText role="caption" class="text-foreground/70">dof.dev/{{ store.handle }}</DofText>
       </section>
 
@@ -141,6 +166,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       <!-- ——— who we are (Release 0.5 — the identity block) -->
       <section
         v-if="brand?.story || brand?.promise"
+        id="about"
         aria-label="about this store"
         class="flex flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.03] p-5"
       >
@@ -150,6 +176,10 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         </DofText>
         <DofText v-if="brand?.promise" role="caption" class="text-positive">✓ {{ brand.promise }}</DofText>
       </section>
+
+      <NuxtLink to="/home" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/60 underline-offset-4 hover:underline focus-visible:focus-ring">
+        More shops like this on DOF →
+      </NuxtLink>
     </main>
 
     <footer class="border-t border-foreground/10">

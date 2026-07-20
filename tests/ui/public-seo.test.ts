@@ -88,6 +88,21 @@ describe('dealMeta (Release 0.3 — the promotion voice leads)', () => {
   })
 })
 
+describe('storeMeta — the shop introduces itself (Release 1.1)', () => {
+  it('carries the tagline into the unfurl title with twitter parity', async () => {
+    const { storeMeta } = await import('../../app/composables/public-seo')
+    const meta = storeMeta({
+      origin: 'https://dof.dev', handle: 'rosas-knits', storeName: 'Rosa Knits',
+      tagline: 'Rosa Knits started at a kitchen table.', title: 'Soft things, made slowly.',
+      imageUrl: '/img/blanket.webp',
+    })
+    expect(meta.ogTitle).toBe('Rosa Knits — Soft things, made slowly.')
+    expect(meta.twitterTitle).toBe('Rosa Knits — Soft things, made slowly.')
+    expect(meta.twitterImage).toBe('https://dof.dev/img/blanket.webp')
+    expect(meta.twitterCard).toBe('summary_large_image')
+  })
+})
+
 describe('sparkMeta (Release 0.6 — the update IS the message)', () => {
   it('excerpts the body and canonicalizes the spark URL', async () => {
     const { sparkMeta, sparkCanonical } = await import('../../app/composables/public-seo')
