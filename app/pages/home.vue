@@ -8,7 +8,7 @@
  * badge on the Following filter. SSR, public. /discover 301s here.
  */
 import { computed, ref } from 'vue'
-import { DofText, DofMoney, DofChip, DofEmptyState, DofSkeleton } from '@ds/index'
+import { DofText, DofMoney, DofChip, DofEmptyState, DofSkeleton, DofInput, DofButton, announce } from '@ds/index'
 import type { HomeFeedItem } from '../../server/utils/deals-feed'
 
 definePageMeta({ layout: false })
@@ -30,7 +30,7 @@ useSeoMeta({
 
 type Filter = 'all' | 'saved' | 'following'
 const filter = ref<Filter>('all')
-interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number; my_merchants: Array<{ handle: string; name: string; tagline: string | null }> }
+interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number; my_merchants: Array<{ handle: string; name: string; tagline: string | null }>; corner_kept: boolean }
 const { data, pending } = await useFetch<HomeResponse>(
   () => `/api/v1/public/home?filter=${filter.value}`,
   { watch: [filter] },
@@ -38,6 +38,38 @@ const { data, pending } = await useFetch<HomeResponse>(
 const items = computed(() => data.value?.items ?? [])
 const newCount = computed(() => data.value?.new_following_count ?? 0)
 const myMerchants = computed(() => data.value?.my_merchants ?? [])
+const cornerKept = computed(() => data.value?.corner_kept ?? false)
+
+// ——— keep your corner (Release 1.3): continuity, never "create an account"
+const keepOpen = ref(false)
+const keepEmail = ref('')
+const keepPassword = ref('')
+const keeping = ref(false)
+const keepProblem = ref('')
+const kept = ref<{ merchants: number; saved: number } | null>(null)
+async function keepCorner() {
+  if (keeping.value || !keepEmail.value.trim() || keepPassword.value.length < 8) {
+    keepProblem.value = keepPassword.value.length < 8 ? 'A passphrase of 8+ characters keeps it safe.' : 'An email is all it takes.'
+    return
+  }
+  keeping.value = true
+  keepProblem.value = ''
+  try {
+    const res = await $fetch<{ corner: { merchants: number; saved: number } | null }>('/api/v1/auth/register', {
+      method: 'POST',
+      body: { email: keepEmail.value.trim(), password: keepPassword.value },
+    })
+    kept.value = res.corner ?? { merchants: myMerchants.value.length, saved: 0 }
+    announce('Your corner is kept — nothing was lost.')
+  } catch (error) {
+    const detail = (error as { data?: { detail?: string; code?: string } }).data
+    keepProblem.value = detail?.detail?.includes('exists') || detail?.code === 'CONFLICT'
+      ? 'Welcome back — sign in and your corner follows you.'
+      : detail?.detail ?? 'That didn’t take — nothing was lost; try again.'
+  } finally {
+    keeping.value = false
+  }
+}
 
 /** The first-unread divider sits before the first already-seen item (when new ones exist). */
 const dividerIndex = computed(() => {
@@ -92,6 +124,45 @@ function jumpToUnread() {
           @click="filter = f.value"
         />
       </div>
+
+      <!-- keep your corner (Release 1.3): continuity, not account ceremony -->
+      <section
+        v-if="filter === 'following' && myMerchants.length > 0 && !cornerKept && !kept"
+        aria-label="keep your corner"
+        class="flex flex-col gap-3 rounded-large border border-accent/30 bg-accent/5 p-4"
+      >
+        <div class="flex flex-col gap-1">
+          <DofText role="emphasis" as="h2">Keep your corner</DofText>
+          <DofText role="caption" class="text-foreground/80">
+            Your {{ myMerchants.length === 1 ? 'merchant lives' : `${myMerchants.length} merchants live` }} in this browser only.
+            One email keeps your corner — and it opens on any device, exactly as you left it.
+          </DofText>
+        </div>
+        <div v-if="!keepOpen">
+          <DofButton size="sm" tone="accent" icon="bookmark" @click="keepOpen = true">Keep it</DofButton>
+        </div>
+        <form v-else class="flex flex-col gap-2" @submit.prevent="keepCorner">
+          <DofInput v-model="keepEmail" type="email" label="Email" placeholder="you@example.com" autocomplete="email" />
+          <DofInput v-model="keepPassword" type="password" label="Passphrase" hint="8+ characters — so only you can open it." autocomplete="new-password" />
+          <DofText v-if="keepProblem" role="caption" class="text-danger" aria-live="polite">
+            {{ keepProblem }}
+            <NuxtLink v-if="keepProblem.startsWith('Welcome back')" to="/login?next=/home" class="underline underline-offset-4">Sign in</NuxtLink>
+          </DofText>
+          <div>
+            <DofButton size="sm" tone="accent" :loading="keeping" type="submit">Keep my corner</DofButton>
+          </div>
+        </form>
+      </section>
+      <section
+        v-else-if="filter === 'following' && kept"
+        aria-live="polite"
+        class="flex flex-col gap-1 rounded-large border border-positive/40 bg-positive/5 p-4"
+      >
+        <DofText role="emphasis" as="h2">Your corner is kept ✓</DofText>
+        <DofText role="caption" class="text-foreground/80">
+          Nothing was lost — {{ kept.merchants === 1 ? '1 merchant' : `${kept.merchants} merchants` }}{{ kept.saved > 0 ? ` and ${kept.saved} saved ${kept.saved === 1 ? 'deal' : 'deals'}` : '' }} — your corner now opens on any device.
+        </DofText>
+      </section>
 
       <!-- your merchants: the follow data as a visible possession (Release 1.0) -->
       <section v-if="filter === 'following' && myMerchants.length > 0" aria-label="your merchants" class="flex flex-col gap-2">

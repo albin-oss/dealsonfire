@@ -53,6 +53,21 @@ export class PgClaimStore {
       [c.id, c.userId, c.claimType, c.claimRef])
     return rowCount === 1 ? 'claimed' : 'already'
   }
+
+  /** Who holds this artifact (null = unclaimed). */
+  async owner(tx: Tx, claimType: string, claimRef: string): Promise<string | null> {
+    const { rows } = await asClient(tx).query<{ user_id: string }>(
+      `SELECT user_id FROM identity_claims WHERE claim_type = $1 AND claim_ref = $2`, [claimType, claimRef])
+    return rows[0]?.user_id ?? null
+  }
+
+  /** The user's newest claim of a type (the visitor-corner restore path). */
+  async findByUser(tx: Tx, userId: string, claimType: string): Promise<string | null> {
+    const { rows } = await asClient(tx).query<{ claim_ref: string }>(
+      `SELECT claim_ref FROM identity_claims WHERE user_id = $1 AND claim_type = $2
+       ORDER BY created_at DESC LIMIT 1`, [userId, claimType])
+    return rows[0]?.claim_ref ?? null
+  }
 }
 
 export interface PasskeyRecord {
