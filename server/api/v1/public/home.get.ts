@@ -21,6 +21,8 @@ export interface HomeResponse {
   new_following_count: number
   /** Release 1.0 — the visitor's merchants: the follow data as a visible possession. */
   my_merchants: Array<{ handle: string; name: string; tagline: string | null }>
+  /** Release 1.3 — is this corner already kept (claimed to an identity)? */
+  corner_kept: boolean
 }
 
 export default definePublicEndpoint({
@@ -40,6 +42,7 @@ export default definePublicEndpoint({
       last_visit: lastVisit,
       new_following_count: result.newFollowingCount,
       my_merchants: result.myMerchants,
+      corner_kept: result.cornerKept,
     })
   },
 })

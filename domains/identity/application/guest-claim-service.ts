@@ -35,6 +35,16 @@ export class GuestClaimService {
     return this.uow.withTransaction((tx) => this.guest.resolve(tx, this.tokens.hash(token)))
   }
 
+  /** Who holds an artifact (null = unclaimed) — the corner-ownership check (Release 1.3). */
+  async claimOwner(claimType: string, claimRef: string): Promise<string | null> {
+    return this.uow.withTransaction((tx) => this.claims.owner(tx, claimType, claimRef))
+  }
+
+  /** The user's claimed artifact of a type — the corner-restore path (Release 1.3). */
+  async findClaim(userId: string, claimType: string): Promise<string | null> {
+    return this.uow.withTransaction((tx) => this.claims.findByUser(tx, userId, claimType))
+  }
+
   /** Attach an artifact to a user. Idempotent — a second claim of the same artifact no-ops. */
   async claim(userId: string, claimType: string, claimRef: string): Promise<Result<{ outcome: 'claimed' | 'already' }, DomainError>> {
     return this.uow.withTransaction(async (tx) => {

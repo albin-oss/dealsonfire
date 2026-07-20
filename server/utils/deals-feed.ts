@@ -390,3 +390,21 @@ export async function storeEngagementSnapshot(tx: Tx, storeId: string, visitorId
     params)
   return rows[0]!
 }
+
+
+/** What the corner holds (Release 1.3) — the continuity stakes, as counts. */
+export async function cornerContents(tx: Tx, visitorId: string): Promise<{ merchants: number; saved: number }> {
+  const { rows } = await asClient(tx).query<{ merchants: number; saved: number }>(
+    `SELECT
+       (SELECT count(*)::int FROM store_follows WHERE visitor_id = $1) AS merchants,
+       (SELECT count(*)::int FROM deal_saves WHERE visitor_id = $1) AS saved`,
+    [visitorId])
+  return rows[0]!
+}
+
+/** Is this visitor identity already kept by someone? (root read over identity_claims) */
+export async function isCornerKept(tx: Tx, visitorId: string): Promise<boolean> {
+  const { rows } = await asClient(tx).query(
+    `SELECT 1 FROM identity_claims WHERE claim_type = 'visitor' AND claim_ref = $1`, [visitorId])
+  return rows.length > 0
+}

@@ -59,7 +59,7 @@ import { toggleSubjectEngagementInTx } from '@domains/commerce/catalog/applicati
 import { PgSparkRepository, publishSparkCommand, deleteSparkCommand, listSparksQuery, SPARK_REACTION_SUBJECT } from '@domains/commerce/catalog/application/sparks'
 import { followStoreCommand } from '@domains/merchant/core/application/commands/follow-store'
 import { merchantMomentum, type MerchantMomentum } from './momentum'
-import { listMyMerchants, storeEngagementSnapshot } from './deals-feed'
+import { listMyMerchants, storeEngagementSnapshot, cornerContents, isCornerKept } from './deals-feed'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -207,7 +207,9 @@ export interface Container {
     followStore: (handle: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
     dealsFeed: (visitorId: string | null, filter: FeedFilter) => Promise<FeedDeal[]>
     /** Release 0.7 — the living Home stream (deals + sparks, chronological). */
-    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number; myMerchants: Array<{ handle: string; name: string; tagline: string | null }> }>
+    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number; myMerchants: Array<{ handle: string; name: string; tagline: string | null }>; cornerKept: boolean }>
+    /** Release 1.3 — what a visitor's corner holds (the continuity stakes). */
+    cornerContents: (visitorId: string) => Promise<{ merchants: number; saved: number }>
     /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
     storeEngagement: (handle: string, visitorId: string | null) => Promise<{ followers: number; viewer_follows: boolean } | null>
     dealEngagement: (dealId: string, visitorId: string | null) => Promise<Awaited<ReturnType<typeof dealEngagementSnapshot>> | null>
@@ -593,7 +595,10 @@ export function buildContainer(databaseUrl: string): Container {
           items: await listHomeFeed(tx, { visitorId, filter, lastVisit }),
           newFollowingCount: visitorId ? await countNewForFollowing(tx, visitorId, lastVisit) : 0,
           myMerchants: visitorId ? await listMyMerchants(tx, visitorId) : [],
+          cornerKept: visitorId ? await isCornerKept(tx, visitorId) : false,
         })),
+      cornerContents: (visitorId) =>
+        deps.uow.withTransaction((tx) => cornerContents(tx, visitorId)),
       storeEngagement: (handle, visitorId) =>
         deps.uow.withTransaction(async (tx) => {
           const publicDao = new PgPublicStorefrontDao()

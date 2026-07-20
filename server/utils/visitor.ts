@@ -18,6 +18,17 @@ export function getVisitorId(event: H3Event): string | null {
   return value && isUuid(value) ? value : null
 }
 
+/** Continuity (Release 1.3): a claimed corner follows its owner onto any device. */
+export function restoreVisitorId(event: H3Event, id: string): void {
+  setCookie(event, VISITOR_COOKIE, id, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: ONE_YEAR_SECONDS,
+    path: '/',
+  })
+}
+
 /** Engagement actions mint on first use — the cookie is the visitor's shelf key. */
 export function getOrCreateVisitorId(event: H3Event): string {
   const existing = getVisitorId(event)
