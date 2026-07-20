@@ -9,7 +9,7 @@ Intentionally-deferred items from the Module 1 review (PROMPT-004) and hardening
 | TD-003 | Low | Optimistic-concurrency conflicts surface without auto-retry | platform | Module 2 |
 | TD-004 | Low | Last-owner protection needs app enforcement once staff endpoints exist | merchant | Module 2 |
 | TD-005 | Info | Migration 0001 predates `seq`/`correlation_id`/`causation_id` (added in 0003) | platform | n/a |
-| TD-006 | Medium | No Content-Security-Policy | platform/web | Module 2 |
+| TD-006 | ~~Medium~~ CLOSED (Release 1.5) | Production CSP ships in security-headers middleware | platform/web | done |
 | TD-007 | Low | Production env vars fall back to localhost/dev defaults instead of failing fast | platform | Before production launch |
 
 ---
@@ -29,7 +29,11 @@ A `BEFORE UPDATE OR DELETE … RAISE` trigger on the append-only tables would en
 ## TD-005 — Migration 0001 predates trace/seq columns (Info)
 `correlation_id`/`causation_id`/`seq` are added in `0003_event_traceability.sql`; the running system applies all migrations. Correct forward-only evolution. No action.
 
-## TD-006 — No Content-Security-Policy (Medium)
+## TD-006 — No Content-Security-Policy (CLOSED, Release 1.5)
+
+Production-only CSP now ships in `server/middleware/03.security-headers.ts`
+('unsafe-inline' script/style is the stated cost of Nuxt hydration today; a
+nonce-based tightening remains possible later). Original entry kept below for history.
 `03.security-headers.ts` sets the safe baseline (nosniff, frame-options, referrer-policy, HSTS) but **no CSP** — a correct policy for the SSR app + inline styles + Storybook needs its own pass (nonce strategy, `style-src`, connect-src for the API). Deferred rather than shipped wrong (a broken CSP breaks the app). **Milestone:** Module 2.
 
 ## TD-007 — Production env vars default to localhost/dev (Low)
