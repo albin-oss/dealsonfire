@@ -4,6 +4,8 @@
  */
 import type pg from 'pg'
 import type { KernelDeps } from '@domains/merchant/core/application/deps'
+import { OnboardingService } from '@domains/merchant/onboarding/application/onboarding-service'
+import { PgOnboardingProfileRepository } from '@domains/merchant/onboarding/infrastructure/onboarding-repository'
 import { EntitlementService } from '@domains/merchant/core/application/entitlement-service'
 import { TrustPolicyService } from '@domains/merchant/core/application/trust-policy-service'
 import { HandleService } from '@domains/merchant/core/application/handle-service'
@@ -13,6 +15,8 @@ import { createStoreCommand } from '@domains/merchant/core/application/commands/
 import { updateBrandKitCommand } from '@domains/merchant/core/application/commands/update-brand-kit'
 import { publishStoreCommand } from '@domains/merchant/core/application/commands/publish-store'
 import { workspaceOverviewQuery } from '@domains/merchant/core/application/queries/workspace-overview'
+import { handleAvailabilityQuery } from '@domains/merchant/core/application/queries/handle-availability'
+import { getBrandKitQuery } from '@domains/merchant/core/application/queries/brand-kit'
 import { createPool, PgUnitOfWork } from '@platform/db'
 import { PgEventStore } from '@platform/event-store'
 import { PgAuditLog } from '@platform/audit-log'
@@ -39,6 +43,27 @@ import { kernelPayloadValidators } from '@contracts/schemas/events/payloads'
 import { commercePayloadValidators } from '@contracts/schemas/events/commerce-payloads'
 import { commerceOrderingScopeOf } from '@domains/commerce/catalog/domain/events'
 import { PgProductRepository } from '@domains/commerce/catalog/infrastructure/product-repository'
+import { PgPublicStorefrontDao } from '@domains/merchant/core/infrastructure/public-storefront-dao'
+import { MediaService, VercelBlobStorage, SandboxMediaStorage } from '@platform/media'
+import { optionalEnv } from '@platform/config'
+import type { PublicStorefrontResponse, PublicProductResponse, PublicDealResponse, PublicSparkResponse } from '@contracts/schemas/merchant/public-storefront.schema'
+import { asBusinessId } from '@domains/merchant/shared-kernel/ids'
+import { PgAttributeSetRepository, PgBrandRefRepository } from '@domains/commerce/catalog/infrastructure/attribute-repository'
+import { createAttributeSetCommand, archiveAttributeSetCommand, createBrandRefCommand } from '@domains/commerce/catalog/application/commands/attributes'
+import { PgListingRepository } from '@domains/commerce/catalog/infrastructure/listing-repository'
+import { publishToStoreCommand, unpublishFromStoreCommand } from '@domains/commerce/catalog/application/commands/listings'
+import { listingAutoEndConsumer } from '@domains/commerce/catalog/application/consumers/listing-auto-end'
+import { PgDealRepository, createDealCommand, endDealCommand, listDealsQuery } from '@domains/commerce/catalog/application/deals'
+import { resolveEngageableDeal, toggleEngagementInTx } from '@domains/commerce/catalog/application/engagement'
+import { toggleSubjectEngagementInTx } from '@domains/commerce/catalog/application/engagement'
+import { PgSparkRepository, publishSparkCommand, deleteSparkCommand, listSparksQuery, SPARK_REACTION_SUBJECT } from '@domains/commerce/catalog/application/sparks'
+import { followStoreCommand } from '@domains/merchant/core/application/commands/follow-store'
+import { merchantMomentum, type MerchantMomentum } from './momentum'
+import { listMyMerchants, storeEngagementSnapshot } from './deals-feed'
+import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
+import { domainError as engagementError, type DomainError } from '@shared/errors'
+import type { Result } from '@shared/result'
+import { listAttributeSetsQuery, listBrandRefsQuery } from '@domains/commerce/catalog/application/queries/attributes'
 import { PgProductReadDao } from '@domains/commerce/catalog/infrastructure/product-read-dao'
 import type { CommerceDeps } from '@domains/commerce/catalog/application/ports'
 import { createProductCommand } from '@domains/commerce/catalog/application/commands/create-product'
@@ -109,10 +134,23 @@ export interface Container {
       addOptionValues: ReturnType<typeof addOptionValuesCommand>
       removeOption: ReturnType<typeof removeOptionCommand>
       removeOptionValue: ReturnType<typeof removeOptionValueCommand>
+      createAttributeSet: ReturnType<typeof createAttributeSetCommand>
+      archiveAttributeSet: ReturnType<typeof archiveAttributeSetCommand>
+      createBrandRef: ReturnType<typeof createBrandRefCommand>
+      publishToStore: ReturnType<typeof publishToStoreCommand>
+      unpublishFromStore: ReturnType<typeof unpublishFromStoreCommand>
+      createDeal: ReturnType<typeof createDealCommand>
+      endDeal: ReturnType<typeof endDealCommand>
+      publishSpark: ReturnType<typeof publishSparkCommand>
+      deleteSpark: ReturnType<typeof deleteSparkCommand>
     }
     queries: {
       getProduct: ReturnType<typeof getProductQuery>
       listProducts: ReturnType<typeof listProductsQuery>
+      listAttributeSets: ReturnType<typeof listAttributeSetsQuery>
+      listBrandRefs: ReturnType<typeof listBrandRefsQuery>
+      listDeals: ReturnType<typeof listDealsQuery>
+      listSparks: ReturnType<typeof listSparksQuery>
     }
   }
   identity: {
@@ -149,7 +187,36 @@ export interface Container {
   }
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
+    handleAvailability: ReturnType<typeof handleAvailabilityQuery>
+    getBrandKit: ReturnType<typeof getBrandKitQuery>
+    /** Release 0.8 — publishing-momentum facts for one business (root-composed read). */
+    merchantMomentum: (businessId: string) => Promise<MerchantMomentum>
+    /** Public storefront read (UX-IGNITE Phase 3): live stores only; null = mask to 404. */
+    publicStorefront: (handle: string) => Promise<PublicStorefrontResponse | null>
+    /** Public product read (Release 0.2): visible on this channel or null (mask to 404). */
+    publicProduct: (handle: string, productId: string) => Promise<PublicProductResponse | null>
+    /** Public deal read (Release 0.3): deal ∧ product visible, or null (mask to 404). */
+    publicDeal: (handle: string, dealId: string) => Promise<PublicDealResponse | null>
+    /** Public spark read (Release 0.6): spark published ∧ store live, or null (mask). */
+    publicSpark: (handle: string, sparkId: string) => Promise<PublicSparkResponse | null>
   }
+  /** Release 0.4 — anonymous-first engagement (guest actors; idempotent toggles). */
+  engagement: {
+    toggleReaction: (dealId: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    toggleSave: (dealId: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    followStore: (handle: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    dealsFeed: (visitorId: string | null, filter: FeedFilter) => Promise<FeedDeal[]>
+    /** Release 0.7 — the living Home stream (deals + sparks, chronological). */
+    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number; myMerchants: Array<{ handle: string; name: string; tagline: string | null }> }>
+    /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
+    storeEngagement: (handle: string, visitorId: string | null) => Promise<{ followers: number; viewer_follows: boolean } | null>
+    dealEngagement: (dealId: string, visitorId: string | null) => Promise<Awaited<ReturnType<typeof dealEngagementSnapshot>> | null>
+    toggleSparkReaction: (sparkId: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
+    sparkEngagement: (sparkId: string, visitorId: string | null) => Promise<Awaited<ReturnType<typeof sparkEngagementSnapshot>> | null>
+  }
+  onboarding: OnboardingService
+  /** Media Port (UX-AUTHOR-002 §D): storage adapter swappable; the registry is permanent. */
+  media: MediaService
   shutdown(): Promise<void>
 }
 
@@ -201,6 +268,9 @@ export function buildContainer(databaseUrl: string): Container {
     uow: deps.uow,
     products: new PgProductRepository(),
     productReads: new PgProductReadDao(),
+    attributeSets: new PgAttributeSetRepository(),
+    brandRefs: new PgBrandRefRepository(),
+    listings: new PgListingRepository(),
     merchantAccess: merchantAccessAdapter(deps, entitlements),
     eventStore: new PgEventStore({
       eventsTable: 'commerce_domain_events',
@@ -209,6 +279,8 @@ export function buildContainer(databaseUrl: string): Container {
     }),
     audit: commerceAudit,
   }
+  const dealRepository = new PgDealRepository()
+  const sparkRepository = new PgSparkRepository()
   const commerceDispatcher = new OutboxDispatcher(
     pool,
     {
@@ -233,6 +305,8 @@ export function buildContainer(databaseUrl: string): Container {
           await ensureGhostLocationInTx(operationsDeps, tx, { businessId: payload.business_id })
         },
       },
+      // VISIBILITY_CONTRACT §8: product archived → its listings end (replay-silent).
+      listingAutoEndConsumer(commerceDeps),
     ],
     commercePayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'commerce-outbox' }) },
@@ -358,10 +432,23 @@ export function buildContainer(databaseUrl: string): Container {
         addOptionValues: addOptionValuesCommand(commerceDeps),
         removeOption: removeOptionCommand(commerceDeps),
         removeOptionValue: removeOptionValueCommand(commerceDeps),
+        createAttributeSet: createAttributeSetCommand(commerceDeps),
+        archiveAttributeSet: archiveAttributeSetCommand(commerceDeps),
+        createBrandRef: createBrandRefCommand(commerceDeps),
+        publishToStore: publishToStoreCommand(commerceDeps),
+        unpublishFromStore: unpublishFromStoreCommand(commerceDeps),
+        createDeal: createDealCommand(commerceDeps, dealRepository),
+        endDeal: endDealCommand(commerceDeps, dealRepository),
+        publishSpark: publishSparkCommand(commerceDeps),
+        deleteSpark: deleteSparkCommand(commerceDeps),
       },
       queries: {
         getProduct: getProductQuery(commerceDeps),
         listProducts: listProductsQuery(commerceDeps),
+        listAttributeSets: listAttributeSetsQuery(commerceDeps),
+        listBrandRefs: listBrandRefsQuery(commerceDeps),
+        listDeals: listDealsQuery(commerceDeps, dealRepository),
+        listSparks: listSparksQuery(commerceDeps, sparkRepository),
       },
     },
     identity: {
@@ -398,7 +485,155 @@ export function buildContainer(databaseUrl: string): Container {
     },
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
+      handleAvailability: handleAvailabilityQuery(deps),
+      getBrandKit: getBrandKitQuery(deps, entitlements),
+      merchantMomentum: (businessId: string) => deps.uow.withTransaction((tx) => merchantMomentum(tx, businessId)),
+      // Composition-root read: joins the merchant's public face with the commerce shelf.
+      // One transaction, read-only; a null anywhere masks to 404 at the endpoint.
+      publicStorefront: async (handle: string) => {
+        const publicDao = new PgPublicStorefrontDao()
+        return deps.uow.withTransaction(async (tx) => {
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          const products = await commerceDeps.productReads.listPublicShelf(tx, asBusinessId(front.businessId), front.storeId)
+          const sparks = await sparkRepository.listPublicByChannel(tx, asBusinessId(front.businessId), front.storeId)
+          return {
+            store: { handle: front.handle, name: front.name, published_at: front.publishedAt },
+            brand: front.brand,
+            sparks,
+            products: products.map((p) => ({
+              id: p.id, title: p.title, price_minor: p.min_price_amount, currency: p.price_currency,
+              image_url: p.image_url, image_alt: p.image_alt,
+            })),
+          }
+        })
+      },
+      publicProduct: async (handle: string, productId: string) => {
+        const publicDao = new PgPublicStorefrontDao()
+        return deps.uow.withTransaction(async (tx) => {
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          const product = await commerceDeps.productReads.findPublicProduct(tx, asBusinessId(front.businessId), front.storeId, productId)
+          if (!product) return null
+          return {
+            store: { handle: front.handle, name: front.name },
+            brand: front.brand,
+            product: {
+              id: product.id, title: product.title,
+              description: product.description?.content ?? null,
+              price_minor: product.min_price_amount, currency: product.price_currency,
+              image_url: product.image_url, image_alt: product.image_alt,
+            },
+          }
+        })
+      },
+      publicDeal: async (handle: string, dealId: string) => {
+        const publicDao = new PgPublicStorefrontDao()
+        return deps.uow.withTransaction(async (tx) => {
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          const deal = await dealRepository.findPublic(tx, front.businessId, front.storeId, dealId)
+          if (!deal) return null
+          return {
+            store: { handle: front.handle, name: front.name },
+            brand: front.brand,
+            deal: { id: deal.id, headline: deal.headline, story: deal.story, published_at: deal.published_at },
+            product: {
+              id: deal.product.id, title: deal.product.title,
+              description: deal.product.description?.content ?? null,
+              price_minor: deal.product.min_price_amount, currency: deal.product.price_currency,
+              image_url: deal.product.image_url, image_alt: deal.product.image_alt,
+            },
+          }
+        })
+      },
+      publicSpark: async (handle: string, sparkId: string) => {
+        const publicDao = new PgPublicStorefrontDao()
+        return deps.uow.withTransaction(async (tx) => {
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          const spark = await sparkRepository.findPublic(tx, front.businessId, front.storeId, sparkId)
+          if (!spark) return null
+          return {
+            store: { handle: front.handle, name: front.name },
+            brand: front.brand,
+            spark: { id: spark.id, body: spark.body, published_at: spark.published_at, image_url: spark.image_url },
+            product: spark.product ? {
+              id: spark.product.id, title: spark.product.title,
+              price_minor: spark.product.min_price_amount, currency: spark.product.price_currency,
+              image_url: spark.product.image_url, image_alt: spark.product.image_alt,
+            } : null,
+          }
+        })
+      },
     },
+    engagement: {
+      toggleReaction: (dealId, visitorId, ctx) =>
+        deps.uow.withTransaction(async (tx) => {
+          const deal = await resolveEngageableDeal(tx, dealId)
+          if (!deal || !(await isStoreLive(tx, deal.channelId))) {
+            return { ok: false as const, error: engagementError('NOT_FOUND', 'this deal does not exist') }
+          }
+          return toggleEngagementInTx(commerceDeps, 'reaction', tx)({ dealId, deal, visitorId, requestContext: ctx })
+        }),
+      toggleSave: (dealId, visitorId, ctx) =>
+        deps.uow.withTransaction(async (tx) => {
+          const deal = await resolveEngageableDeal(tx, dealId)
+          if (!deal || !(await isStoreLive(tx, deal.channelId))) {
+            return { ok: false as const, error: engagementError('NOT_FOUND', 'this deal does not exist') }
+          }
+          return toggleEngagementInTx(commerceDeps, 'save', tx)({ dealId, deal, visitorId, requestContext: ctx })
+        }),
+      followStore: (handle, visitorId, ctx) =>
+        followStoreCommand(deps)({ storeHandle: handle, visitorId, requestContext: ctx }),
+      dealsFeed: (visitorId, filter) =>
+        deps.uow.withTransaction((tx) => listDealsFeed(tx, { visitorId, filter })),
+      homeFeed: (visitorId, filter, lastVisit) =>
+        deps.uow.withTransaction(async (tx) => ({
+          items: await listHomeFeed(tx, { visitorId, filter, lastVisit }),
+          newFollowingCount: visitorId ? await countNewForFollowing(tx, visitorId, lastVisit) : 0,
+          myMerchants: visitorId ? await listMyMerchants(tx, visitorId) : [],
+        })),
+      storeEngagement: (handle, visitorId) =>
+        deps.uow.withTransaction(async (tx) => {
+          const publicDao = new PgPublicStorefrontDao()
+          const front = await publicDao.findLiveByHandle(tx, handle)
+          if (!front) return null
+          return storeEngagementSnapshot(tx, front.storeId, visitorId)
+        }),
+      dealEngagement: (dealId, visitorId) =>
+        deps.uow.withTransaction(async (tx) => {
+          const deal = await resolveEngageableDeal(tx, dealId)
+          if (!deal || !(await isStoreLive(tx, deal.channelId))) return null
+          return dealEngagementSnapshot(tx, dealId, deal.channelId, visitorId)
+        }),
+      toggleSparkReaction: (sparkId, visitorId, ctx) =>
+        deps.uow.withTransaction(async (tx) => {
+          const spark = await sparkRepository.resolveEngageable(tx, sparkId)
+          if (!spark || !(await isStoreLive(tx, spark.channelId))) {
+            return { ok: false as const, error: engagementError('NOT_FOUND', 'this spark does not exist') }
+          }
+          return toggleSubjectEngagementInTx(commerceDeps, SPARK_REACTION_SUBJECT, tx)({
+            subjectId: sparkId, businessId: spark.businessId, visitorId, requestContext: ctx,
+          })
+        }),
+      sparkEngagement: (sparkId, visitorId) =>
+        deps.uow.withTransaction(async (tx) => {
+          const spark = await sparkRepository.resolveEngageable(tx, sparkId)
+          if (!spark || !(await isStoreLive(tx, spark.channelId))) return null
+          return sparkEngagementSnapshot(tx, sparkId, spark.channelId, visitorId)
+        }),
+    },
+    onboarding: new OnboardingService(deps.uow, new PgOnboardingProfileRepository(), audit),
+    // Media Port: Blob in production (token present); the sandbox twin otherwise (tests,
+    // local dev) — same contract, so consumers never know the difference (test law).
+    media: new MediaService(
+      pool,
+      (() => {
+        const token = optionalEnv('BLOB_READ_WRITE_TOKEN')
+        return token ? new VercelBlobStorage(token) : new SandboxMediaStorage()
+      })(),
+    ),
     shutdown: () => pool.end(),
   }
 }

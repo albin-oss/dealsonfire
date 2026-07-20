@@ -25,6 +25,9 @@ export const performResetRequest = z.object({
 
 export const verifyEmailRequest = z.object({ token: z.string().min(10).max(200) }).strict()
 
+/** Resend a verification email. Uniform answer (enumeration-proof), like recovery/request. */
+export const resendVerificationRequest = z.object({ email: z.string().min(3).max(254) }).strict()
+
 export const stepUpRequest = z.object({ password: z.string().min(1).max(200) }).strict()
 
 export const webauthnVerifyRegistrationRequest = z.object({

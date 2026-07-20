@@ -40,6 +40,30 @@ export const COMMERCE_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'commerce.product.media_removed': z.object({
     product_id: uuid, business_id: uuid, product_media_id: uuid, media_id: uuid,
   }).passthrough(),
+  // VISIBILITY_CONTRACT §7 — one shape, three transitions
+  'commerce.listing.published': z.object({
+    listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
+  }).passthrough(),
+  'commerce.listing.unpublished': z.object({
+    listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
+  }).passthrough(),
+  'commerce.listing.ended': z.object({
+    listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid,
+  }).passthrough(),
+  'commerce.deal.published': z.object({
+    deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: z.string().min(1),
+  }).passthrough(),
+  'commerce.deal.ended': z.object({
+    deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: z.string().min(1),
+  }).passthrough(),
+  'commerce.deal.reacted': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.deal.unreacted': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.deal.saved': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.deal.unsaved': z.object({ deal_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.spark.published': z.object({ spark_id: uuid, business_id: uuid, channel_id: uuid }).passthrough(),
+  'commerce.spark.deleted': z.object({ spark_id: uuid, business_id: uuid, channel_id: uuid }).passthrough(),
+  'commerce.spark.reacted': z.object({ spark_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'commerce.spark.unreacted': z.object({ spark_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
 }
 
 export function commercePayloadValidators(): Record<string, PayloadValidator> {

@@ -24,6 +24,26 @@
       ]
     },
     {
+      "table": "onboarding_profiles",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "user_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [
+        {
+          "column": "user_id",
+          "target_domain": "identity",
+          "target_concept": "user",
+          "cleanup_event": "identity.user.deactivated (future)",
+          "reconciliation": "orphaned-onboarding-profile reconciler when Identity deactivation lands"
+        }
+      ]
+    },
+    {
       "table": "businesses",
       "owner": "merchant",
       "class": "aggregate",
@@ -295,6 +315,162 @@
           "reconciliation": "dangling-MediaRef reconciler required when Media domain lands"
         }
       ]
+    },
+    {
+      "table": "attribute_sets",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "note": "business-owned attribute templates (PROMPT-016); taxonomy-agnostic",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "brand_refs",
+      "owner": "commerce",
+      "class": "registry",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "purge",
+      "note": "business convenience pick-list of brand names; ADR-002 keeps brand a product attribute",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "listings",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "transition",
+      "note": "VISIBILITY_CONTRACT: one row per product×channel; ended is the archive transition, never deleted",
+      "cross_domain_refs": [
+        {
+          "column": "channel_id",
+          "target_domain": "merchant",
+          "target_concept": "store",
+          "cleanup_event": "merchant.store.deleted (future)",
+          "reconciliation": "listings of deleted stores are inert (conjunction already hides them); sweeper optional"
+        }
+      ]
+    },
+    {
+      "table": "deals",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "transition",
+      "note": "the SOCIAL half of ADR-002 deals; the price half (offer_id) joins with CS4 Offers",
+      "cross_domain_refs": [
+        {
+          "column": "channel_id",
+          "target_domain": "merchant",
+          "target_concept": "store",
+          "cleanup_event": "merchant.store.deleted (future)",
+          "reconciliation": "deals of deleted stores are inert (public read resolves live stores only)"
+        }
+      ]
+    },
+    {
+      "table": "deal_reactions",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_columns": ["visitor_id"],
+      "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "deal_saves",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_columns": ["visitor_id"],
+      "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "store_follows",
+      "owner": "merchant",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_columns": ["visitor_id"],
+      "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "sparks",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "transition",
+      "note": "the content layer (Release 0.6): short public updates in the store's voice",
+      "cross_domain_refs": [
+        {
+          "column": "channel_id",
+          "target_domain": "merchant",
+          "target_concept": "store",
+          "cleanup_event": "merchant.store.deleted (future)",
+          "reconciliation": "sparks of deleted stores are inert (public reads resolve live stores only)"
+        },
+        {
+          "column": "media_id",
+          "target_domain": "media",
+          "target_concept": "asset",
+          "cleanup_event": "media.asset.deleted (future)",
+          "reconciliation": "dangling-MediaRef renders as no-photo (LEFT JOIN)"
+        }
+      ]
+    },
+    {
+      "table": "spark_reactions",
+      "owner": "commerce",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_columns": ["visitor_id"],
+      "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
+      "retention": "permanent",
+      "delete_class": "transition",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "media_assets",
+      "owner": "platform",
+      "ownership_note": "Media Port registry (UX-AUTHOR-002 §D): media is cross-capability; the C9 Media capability inherits this table through the same port",
+      "class": "registry",
+      "tenancy_key": "business_id",
+      "scope_key": "business_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "permanent",
+      "delete_class": "purge",
+      "cross_domain_refs": []
     },
     {
       "table": "operations_domain_events",

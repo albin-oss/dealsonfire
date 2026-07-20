@@ -10,7 +10,7 @@ export interface AggregateRef {
 }
 
 export interface PlatformActor {
-  readonly type: 'user' | 'ai_agent' | 'admin' | 'system'
+  readonly type: 'user' | 'ai_agent' | 'admin' | 'system' | 'guest'
   readonly id: string
   readonly membershipId?: string
 }

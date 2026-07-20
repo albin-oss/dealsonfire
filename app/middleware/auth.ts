@@ -8,6 +8,9 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const { isAuthenticated, loaded, refresh } = useSession()
   if (!loaded.value) await refresh()
   if (!isAuthenticated.value) {
+    // the platform's front door: an anonymous visitor at the root belongs on the
+    // living Home, not a login wall — merchants deep-linking elsewhere still get login
+    if (to.path === '/') return navigateTo('/home')
     return navigateTo(`/login?next=${encodeURIComponent(to.fullPath)}`)
   }
 })

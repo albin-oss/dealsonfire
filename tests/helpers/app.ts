@@ -10,9 +10,41 @@ import { getContainer } from '../../server/utils/container'
 import { defineEventHandler, getCookie } from 'h3'
 import { SESSION_COOKIE } from '@domains/identity/application/session-service'
 import workspaceGet from '../../server/api/v1/workspace.get'
+import workspaceProgressGet from '../../server/api/v1/workspace/progress.get'
+import onboardingGet from '../../server/api/v1/onboarding/index.get'
+import onboardingPut from '../../server/api/v1/onboarding/index.put'
+import onboardingComplete from '../../server/api/v1/onboarding/complete.post'
+import handleAvailabilityGet from '../../server/api/v1/handles/[handle]/availability.get'
+import publicStorefrontGet from '../../server/api/v1/public/stores/[handle].get'
+import publicProductGet from '../../server/api/v1/public/stores/[handle]/products/[productId].get'
+import dealsPost from '../../server/api/v1/deals/index.post'
+import dealsGet from '../../server/api/v1/deals/index.get'
+import dealEndPost from '../../server/api/v1/deals/[dealId]/end.post'
+import publicDealGet from '../../server/api/v1/public/stores/[handle]/deals/[dealId].get'
+import dealReactPost from '../../server/api/v1/public/deals/[dealId]/react.post'
+import dealSavePost from '../../server/api/v1/public/deals/[dealId]/save.post'
+import storeFollowPost from '../../server/api/v1/public/stores/[handle]/follow.post'
+import dealsFeedGet from '../../server/api/v1/public/deals/index.get'
+import homeGet from '../../server/api/v1/public/home.get'
+import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
+import sparksPost from '../../server/api/v1/sparks/index.post'
+import sparksGet from '../../server/api/v1/sparks/index.get'
+import sparkDeletePost from '../../server/api/v1/sparks/[sparkId]/delete.post'
+import publicSparkGet from '../../server/api/v1/public/stores/[handle]/sparks/[sparkId].get'
+import sparkReactPost from '../../server/api/v1/public/sparks/[sparkId]/react.post'
+import sparkEngagementGet from '../../server/api/v1/public/sparks/[sparkId]/engagement.get'
+import storeEngagementGet from '../../server/api/v1/public/stores/[handle]/engagement.get'
+import publishToStorePost from '../../server/api/v1/products/[productId]/publish-to-store.post'
+import unpublishFromStorePost from '../../server/api/v1/products/[productId]/unpublish-from-store.post'
+import mediaUploadPost from '../../server/api/v1/media/index.post'
+import attributeSetsPost from '../../server/api/v1/attribute-sets/index.post'
+import attributeSetsGet from '../../server/api/v1/attribute-sets/index.get'
+import brandsPost from '../../server/api/v1/brands/index.post'
+import brandsGet from '../../server/api/v1/brands/index.get'
 import businessesPost from '../../server/api/v1/businesses/index.post'
 import storesPost from '../../server/api/v1/businesses/[businessId]/stores.post'
 import brandKitPut from '../../server/api/v1/stores/[storeId]/brand-kit.put'
+import brandKitGet from '../../server/api/v1/stores/[storeId]/brand-kit.get'
 import publishPost from '../../server/api/v1/stores/[storeId]/publish.post'
 import productsPost from '../../server/api/v1/products/index.post'
 import productsGet from '../../server/api/v1/products/index.get'
@@ -42,6 +74,7 @@ import authStepUp from '../../server/api/v1/auth/step-up.post'
 import authRecoveryRequest from '../../server/api/v1/auth/recovery/request.post'
 import authRecoveryReset from '../../server/api/v1/auth/recovery/reset.post'
 import authVerifyEmail from '../../server/api/v1/auth/verify-email.post'
+import authResendVerification from '../../server/api/v1/auth/resend-verification.post'
 import mediaOrderPut from '../../server/api/v1/products/[productId]/media/order.put'
 
 export interface TestHttp {
@@ -65,9 +98,41 @@ export async function startTestApp(): Promise<TestHttp> {
   }))
   const router = createRouter()
   router.get('/api/v1/workspace', workspaceGet)
+  router.get('/api/v1/workspace/progress', workspaceProgressGet)
+  router.get('/api/v1/onboarding', onboardingGet)
+  router.put('/api/v1/onboarding', onboardingPut)
+  router.post('/api/v1/onboarding/complete', onboardingComplete)
+  router.get('/api/v1/handles/:handle/availability', handleAvailabilityGet)
+  router.get('/api/v1/public/stores/:handle', publicStorefrontGet)
+  router.get('/api/v1/public/stores/:handle/products/:productId', publicProductGet)
+  router.post('/api/v1/deals', dealsPost)
+  router.get('/api/v1/deals', dealsGet)
+  router.post('/api/v1/deals/:dealId/end', dealEndPost)
+  router.get('/api/v1/public/stores/:handle/deals/:dealId', publicDealGet)
+  router.post('/api/v1/public/deals/:dealId/react', dealReactPost)
+  router.post('/api/v1/public/deals/:dealId/save', dealSavePost)
+  router.post('/api/v1/public/stores/:handle/follow', storeFollowPost)
+  router.get('/api/v1/public/deals', dealsFeedGet)
+  router.get('/api/v1/public/home', homeGet)
+  router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
+  router.post('/api/v1/sparks', sparksPost)
+  router.get('/api/v1/sparks', sparksGet)
+  router.post('/api/v1/sparks/:sparkId/delete', sparkDeletePost)
+  router.get('/api/v1/public/stores/:handle/sparks/:sparkId', publicSparkGet)
+  router.post('/api/v1/public/sparks/:sparkId/react', sparkReactPost)
+  router.get('/api/v1/public/sparks/:sparkId/engagement', sparkEngagementGet)
+  router.get('/api/v1/public/stores/:handle/engagement', storeEngagementGet)
+  router.post('/api/v1/products/:productId/publish-to-store', publishToStorePost)
+  router.post('/api/v1/products/:productId/unpublish-from-store', unpublishFromStorePost)
+  router.post('/api/v1/media', mediaUploadPost)
+  router.post('/api/v1/attribute-sets', attributeSetsPost)
+  router.get('/api/v1/attribute-sets', attributeSetsGet)
+  router.post('/api/v1/brands', brandsPost)
+  router.get('/api/v1/brands', brandsGet)
   router.post('/api/v1/businesses', businessesPost)
   router.post('/api/v1/businesses/:businessId/stores', storesPost)
   router.put('/api/v1/stores/:storeId/brand-kit', brandKitPut)
+  router.get('/api/v1/stores/:storeId/brand-kit', brandKitGet)
   router.post('/api/v1/stores/:storeId/publish', publishPost)
   router.post('/api/v1/products', productsPost)
   router.get('/api/v1/products', productsGet)
@@ -98,6 +163,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/auth/recovery/request', authRecoveryRequest)
   router.post('/api/v1/auth/recovery/reset', authRecoveryReset)
   router.post('/api/v1/auth/verify-email', authVerifyEmail)
+  router.post('/api/v1/auth/resend-verification', authResendVerification)
   app.use(router)
 
   const server: Server = createServer(toNodeListener(app))
@@ -107,13 +173,15 @@ export async function startTestApp(): Promise<TestHttp> {
 
   return {
     async request(method, path, opts = {}) {
+      // FormData passes through untouched (fetch sets the multipart boundary itself)
+      const isForm = typeof FormData !== 'undefined' && opts.body instanceof FormData
       const response = await fetch(base + path, {
         method,
         headers: {
-          'content-type': 'application/json',
+          ...(isForm ? {} : { 'content-type': 'application/json' }),
           ...(opts.headers ?? {}),
         },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        body: opts.body === undefined ? undefined : isForm ? (opts.body as FormData) : JSON.stringify(opts.body),
       })
       const text = await response.text()
       let body: any

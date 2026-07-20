@@ -27,3 +27,4 @@ storybook-static/
 
 # Claude Code per-user local settings (machine-specific; launch.json is shared)
 .claude/settings.local.json
+.data/

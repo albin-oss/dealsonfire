@@ -4,7 +4,10 @@
     {
       "name": "nuxt-dev",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/nuxt/bin/nuxt.mjs", "dev", "--cwd", "/Users/akj/Desktop/DOF"],
+      "runtimeArgs": [
+        "/Users/akj/Desktop/DOF/node_modules/tsx/dist/cli.mjs",
+        "/Users/akj/Desktop/DOF/scripts/dev-demo.ts"
+      ],
       "port": 3000
     }
   ]

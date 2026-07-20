@@ -20,4 +20,19 @@ export class PgHandleLedger implements HandleLedger {
     )
     return rows.length > 0
   }
+
+  /**
+   * Advisory availability read (real-time UX). A handle is taken when it is active/redirect/
+   * quarantined, or reserved and not yet expired. Unknown or expired-reservation = free. This
+   * is best-effort — the atomic `claim()` on `ON CONFLICT` remains the race-safe source of truth.
+   */
+  async lookup(tx: Tx, handle: string): Promise<{ taken: boolean }> {
+    const { rows } = await asClient(tx).query<{ one: number }>(
+      `SELECT 1 AS one FROM store_handles
+       WHERE handle = $1
+         AND (status <> 'reserved' OR reserved_until IS NULL OR reserved_until > now())`,
+      [handle],
+    )
+    return { taken: rows.length > 0 }
+  }
 }

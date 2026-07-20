@@ -5,14 +5,16 @@
  * (drafts persist; re-entry resumes). Six movements: welcome → idea → mirror →
  * first thing → reveal (the Bundle) → launch (real aggregates via the kernel APIs).
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import {
   DofButton, DofText, DofTextarea, DofInput, DofMoneyInput, DofChip, DofProblem,
-  DofProposalCard, DofCheckbox, DofDivider, DofIcon, TRANSITIONS, DURATIONS_MS, announce, cx,
+  DofProposalCard, DofCheckbox, DofDivider, DofIcon, DofHandleBadge,
+  type HandleBadgeState, type IconName,
+  TRANSITIONS, DURATIONS_MS, useReducedMotion, announce, cx,
 } from '@ds/index'
-import { ruleBasedIntelligence } from '../composables/ignite/intelligence'
+import { ruleBasedIntelligence, slugify } from '../composables/ignite/intelligence'
 import { useIgniteJourney, chosenIdentity, clearIgniteDraft, type IgniteState } from '../composables/ignite/journey'
-import { createLaunchService, LaunchError, type LaunchProgress } from '../composables/ignite/launch'
+import { createLaunchService, LaunchError, devUserId, type LaunchProgress } from '../composables/ignite/launch'
 import StorefrontPreview from '../components/ignite/StorefrontPreview.vue'
 import IgniteImportDoor from '../components/ignite/IgniteImportDoor.vue'
 
@@ -69,13 +71,61 @@ const showAdvanced = ref(false)
 const basicItems = computed(() => state.value.revealItems.filter((i) => !i.advanced))
 const advancedItems = computed(() => state.value.revealItems.filter((i) => i.advanced))
 
-// ——— launch (real saga against the kernel APIs)
+// ——— handle availability (UX-IGNITE Phase 3): advisory, debounced, never a dead end.
+// The badge reflects the handle the launch would actually claim; picking a suggestion
+// records an explicit override the launch saga honors.
+const effectiveHandle = computed(() => {
+  const override = state.value.handleOverride?.trim()
+  if (override) return override
+  const name = state.value.customName.trim() || identity.value?.name || ''
+  return name ? slugify(name) : ''
+})
+const handleState = ref<HandleBadgeState>('idle')
+const handleSuggestions = ref<string[]>([])
+let availabilityTimer: ReturnType<typeof setTimeout> | undefined
+
+async function checkHandle(handle: string) {
+  if (!handle) { handleState.value = 'idle'; return }
+  handleState.value = 'checking'
+  try {
+    const res = await $fetch<{ available: boolean; reason: string; suggestions: string[] }>(
+      `/api/v1/handles/${encodeURIComponent(handle)}/availability`,
+      { headers: { 'x-dof-user-id': devUserId() } },
+    )
+    if (handle !== effectiveHandle.value) return // stale response — a newer check owns the badge
+    handleState.value = res.available ? 'available' : res.reason === 'invalid_format' ? 'invalid' : 'taken'
+    handleSuggestions.value = res.available ? [] : res.suggestions
+  } catch {
+    handleState.value = 'idle' // advisory only — silence over noise; the launch fallback still guards
+  }
+}
+watch(effectiveHandle, (handle) => {
+  clearTimeout(availabilityTimer)
+  handleState.value = handle ? 'checking' : 'idle'
+  availabilityTimer = setTimeout(() => void checkHandle(handle), 450)
+})
+onBeforeUnmount(() => clearTimeout(availabilityTimer))
+
+function pickSuggestion(suggestion: string) {
+  state.value.handleOverride = suggestion
+  announce(`Handle set to ${suggestion}`)
+}
+// a new name invalidates a previously picked handle — the suggestion belonged to the old one
+watch(() => [state.value.customName, state.value.identityIndex], () => { state.value.handleOverride = '' })
+
+// ——— launch (real saga against the kernel APIs), narrated (UX-IGNITE-002 §F)
 const fetcher = (path: string, options: { method: 'POST' | 'PUT'; body: Record<string, unknown>; headers: Record<string, string> }) =>
   $fetch<Record<string, unknown>>(path, options)
 const launchService = createLaunchService(fetcher)
 const launching = ref(false)
-const launchMessage = ref('')
 const launchProblem = ref<LaunchError | null>(null)
+const reducedMotion = useReducedMotion()
+
+/** The narration log: the real kernel steps, appearing as they run, resolving to ✓.
+ *  A retry RESUMES it — completed steps stay checked because the saga never re-runs them. */
+const narration = ref<Array<{ step: LaunchProgress['step']; message: string; done: boolean }>>([])
+/** Session-only celebration gate: a resumed, already-launched draft never re-animates. */
+const justLaunched = ref(false)
 
 async function approveAndLaunch() {
   await journey.next() // reveal → launch screen
@@ -88,16 +138,48 @@ async function runLaunch() {
   launchProblem.value = null
   try {
     const result = await launchService.launch(state.value, identity.value, reading.value.fulfillment, (p: LaunchProgress) => {
-      launchMessage.value = p.message
+      // narration: previous line resolves to ✓ as the next begins (coalesces naturally
+      // when the kernel is fast — honesty first, drama second)
+      for (const line of narration.value) line.done = true
+      const existing = narration.value.find((l) => l.step === p.step)
+      if (existing) existing.done = false
+      else narration.value.push({ step: p.step, message: p.message, done: false })
       announce(p.message)
     })
+    for (const line of narration.value) line.done = true
     state.value.launched = { ...result }
+    justLaunched.value = true
     await journey.persist()
-    announce(`${identity.value.name} is live.`)
+    announce(`${identity.value.name} is live at dof.dev/${result.handle}.`)
   } catch (error) {
     launchProblem.value = error instanceof LaunchError ? error : new LaunchError('business', 'Something unexpected happened — trying again is safe.')
   } finally {
     launching.value = false
+  }
+}
+
+// ——— the single Next Opportunity (Phase 3 refinement): contextual, one, never a checklist
+const nextOpportunity = computed<{ icon: IconName; title: string; why: string; action: string; run: () => unknown } | null>(() => {
+  if (!state.value.launched) return null
+  return state.value.launched.productId
+    ? {
+        icon: 'send', title: 'Share your store',
+        why: 'Your first visitor is one link away — send it to someone who’d smile.',
+        action: 'Copy the link', run: copyStoreLink,
+      }
+    : {
+        icon: 'plus', title: 'Put something on the shelf',
+        why: 'The doors are open — give visitors one thing to fall for.',
+        action: 'Add a product', run: () => void router.push('/products'),
+      }
+})
+async function copyStoreLink() {
+  const url = `${window.location.origin}/s/${state.value.launched!.handle}`
+  try {
+    await navigator.clipboard.writeText(url)
+    announce('Store link copied.')
+  } catch {
+    announce(url) // clipboard denied — at least surface it
   }
 }
 
@@ -198,6 +280,13 @@ const stepWord = computed(() => {
             label="Or name it yourself"
             placeholder="Type your own name — the look stays"
           />
+          <DofHandleBadge
+            v-if="effectiveHandle"
+            :handle="effectiveHandle"
+            :state="handleState"
+            :suggestions="handleSuggestions"
+            @pick="pickSuggestion"
+          />
           <DofText v-if="journey.blockedReason.value" role="caption" class="text-critical" aria-live="polite">
             {{ journey.blockedReason.value }}
           </DofText>
@@ -278,25 +367,49 @@ const stepWord = computed(() => {
           </DofProposalCard>
         </section>
 
-        <!-- ——— launch -->
+        <!-- ——— launch: the becoming (UX-IGNITE-002 §F — the one celebration in DOF) -->
         <section v-else-if="journey.current.value.id === 'launch'" key="launch" class="flex flex-col items-center gap-5 text-center">
+          <!-- arrived: the preview grows into the store -->
           <template v-if="state.launched && identity">
-            <DofIcon name="party-popper" size="lg" class="text-ember" />
-            <DofText role="display" as="h1">{{ identity.name }} is live.</DofText>
-            <DofText role="body" tone="muted">
-              You started a business today. That's the whole sentence.
-            </DofText>
-            <div class="flex w-full max-w-md flex-col gap-2 rounded-large border border-line bg-surface-raised p-4 text-start">
-              <DofText role="caption" tone="muted">Your store</DofText>
-              <DofText role="emphasis">dof.dev/{{ state.launched.handle }}</DofText>
-              <DofText v-if="state.launched.productId" role="caption" tone="faint">
-                “{{ state.productTitle }}” is on the shelf.
-              </DofText>
+            <Transition
+              appear
+              enter-active-class="ease-settle"
+              :enter-from-class="justLaunched && !reducedMotion ? 'scale-90 opacity-0' : 'opacity-0'"
+              enter-to-class="scale-100 opacity-100"
+              :style="{ transitionDuration: `${justLaunched && !reducedMotion ? DURATIONS_MS.celebration : DURATIONS_MS.instant}ms` }"
+            >
+              <div class="w-full max-w-xl transition-[transform,opacity]" :style="{ transitionDuration: `${justLaunched && !reducedMotion ? DURATIONS_MS.celebration : DURATIONS_MS.instant}ms` }">
+                <StorefrontPreview :identity="identity" :hero-line="heroLine" :product-title="state.productTitle" :price-minor="state.priceMinor" />
+              </div>
+            </Transition>
+            <DofText role="display" as="h1">You're open.</DofText>
+            <div class="flex flex-col items-center gap-1">
+              <DofText role="title" as="p">dof.dev/{{ state.launched.handle }}</DofText>
+              <DofText role="caption" tone="muted">You started a business today. That's the whole sentence.</DofText>
             </div>
-            <div class="flex gap-3">
-              <DofButton tone="accent" icon="arrow-right" size="lg" @click="finish()">Open my workspace</DofButton>
+            <div class="flex flex-wrap items-center justify-center gap-3">
+              <NuxtLink :to="`/s/${state.launched.handle}`" class="contents">
+                <DofButton tone="ember" icon="arrow-right" size="lg">Visit your store</DofButton>
+              </NuxtLink>
+              <DofButton variant="ghost" tone="neutral" @click="finish()">Open my workspace</DofButton>
+            </div>
+            <!-- the single Next Opportunity — a trusted guide, never a checklist -->
+            <div
+              v-if="nextOpportunity"
+              class="mt-2 flex w-full max-w-md items-start gap-3 rounded-large border border-line bg-surface-raised p-4 text-start"
+            >
+              <DofIcon :name="nextOpportunity.icon" size="sm" class="mt-0.5 shrink-0 text-muted-foreground" />
+              <div class="flex flex-1 flex-col gap-1">
+                <DofText role="emphasis" as="h2">{{ nextOpportunity.title }}</DofText>
+                <DofText role="caption" tone="muted">{{ nextOpportunity.why }}</DofText>
+              </div>
+              <DofButton size="sm" variant="soft" tone="accent" @click="nextOpportunity.run()">
+                {{ nextOpportunity.action }}
+              </DofButton>
             </div>
           </template>
+
+          <!-- paused: calm, resumable — the narration keeps its ✓s on retry -->
           <template v-else-if="launchProblem">
             <DofProblem
               class="w-full text-start"
@@ -308,9 +421,26 @@ const stepWord = computed(() => {
             />
             <DofButton variant="ghost" tone="neutral" @click="exitToWorkspace()">Keep my draft & exit</DofButton>
           </template>
+
+          <!-- becoming: the held moment — the real steps, narrated -->
           <template v-else>
-            <DofIcon name="loader-circle" size="lg" class="animate-spin text-muted-foreground" />
-            <DofText role="title" as="h1">{{ launchMessage || 'Setting the table…' }}</DofText>
+            <div v-if="identity" class="w-full max-w-md">
+              <StorefrontPreview :identity="identity" :hero-line="heroLine" :product-title="state.productTitle" :price-minor="state.priceMinor" compact-card />
+            </div>
+            <ul class="flex w-full max-w-md list-none flex-col gap-2 p-0 text-start" aria-label="opening your store">
+              <li v-for="line in narration" :key="line.step" class="flex items-center gap-2">
+                <DofIcon
+                  :name="line.done ? 'check' : 'loader-circle'"
+                  size="sm"
+                  :class="line.done ? 'text-positive' : 'animate-spin text-muted-foreground'"
+                />
+                <DofText role="body" :tone="line.done ? 'muted' : undefined">{{ line.message }}</DofText>
+              </li>
+              <li v-if="narration.length === 0" class="flex items-center gap-2">
+                <DofIcon name="loader-circle" size="sm" class="animate-spin text-muted-foreground" />
+                <DofText role="body">Setting the table…</DofText>
+              </li>
+            </ul>
           </template>
         </section>
       </Transition>

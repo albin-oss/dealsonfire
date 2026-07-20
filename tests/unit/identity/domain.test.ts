@@ -70,11 +70,16 @@ describe('Session model (US-3/4/5)', () => {
     })
   }
 
-  it('active within both windows; expired past rolling; expired past absolute', () => {
+  it('active within both windows; expired past rolling; inactive at the absolute cap', () => {
     const now = new Date('2026-07-09T12:00:00Z')
     expect(base().isActive(now)).toBe(true)
+    // past the rolling window while the absolute cap is still ahead → inactive
     expect(base({ rollingExpiresAt: new Date(now.getTime() - 1) }).isActive(now)).toBe(false)
-    expect(base({ absoluteExpiresAt: new Date(now.getTime() - 1) }).isActive(now)).toBe(false)
+    // a session rolled to its absolute cap (rolling === absolute) is inactive at the cap.
+    // (rolling can never exceed absolute — the rehydration guard enforces that invariant,
+    // so "rolling future / absolute past" is an impossible row, not a test case.)
+    const cap = new Date(now.getTime())
+    expect(base({ rollingExpiresAt: cap, absoluteExpiresAt: cap }).isActive(now)).toBe(false)
   })
 
   it('revoked is never active', () => {
@@ -104,6 +109,21 @@ describe('Session model (US-3/4/5)', () => {
     const e = Session.initialExpiry(now)
     expect(e.rollingExpiresAt.getTime()).toBe(now.getTime() + SESSION_ROLLING_MS)
     expect(e.absoluteExpiresAt.getTime()).toBe(now.getTime() + SESSION_ABSOLUTE_MS)
+  })
+
+  it('rehydration guard: refuses structurally-impossible rows (corruption is an outage)', () => {
+    const now = new Date('2026-07-09T12:00:00Z')
+    const good = {
+      id: uuidv7(), userId: uuidv7(), stepUpAt: null, createdAt: now,
+      rollingExpiresAt: new Date(now.getTime() + SESSION_ROLLING_MS),
+      absoluteExpiresAt: new Date(now.getTime() + SESSION_ABSOLUTE_MS), revokedAt: null,
+    }
+    expect(() => Session.rehydrate(good)).not.toThrow()
+    expect(() => Session.rehydrate({ ...good, id: '' })).toThrow(/corrupt session/)
+    expect(() => Session.rehydrate({ ...good, rollingExpiresAt: new Date(NaN) })).toThrow(/corrupt session/)
+    // rolling past the absolute cap is impossible for a stored row
+    expect(() => Session.rehydrate({ ...good, rollingExpiresAt: new Date(good.absoluteExpiresAt.getTime() + 1) }))
+      .toThrow(/exceeds absolute cap/)
   })
 })
 
@@ -146,5 +166,16 @@ describe('User aggregate (US-1)', () => {
     expect(user.emailVerified).toBe(true)
     user.verifyEmail() // idempotent
     expect(user.pullPendingEvents()).toHaveLength(0)
+  })
+
+  it('rehydration guard: a row the domain cannot explain fails explicitly', () => {
+    const good = {
+      id: asUserId(uuidv7()), email: 'r@example.com', emailVerified: true,
+      displayName: 'Rosa', status: 'active' as const, sequence: 3,
+    }
+    expect(() => User.rehydrate(good)).not.toThrow()
+    expect(() => User.rehydrate({ ...good, email: '' })).toThrow(/corrupt user/)
+    expect(() => User.rehydrate({ ...good, status: 'zombie' as unknown as 'active' })).toThrow(/unknown status/)
+    expect(() => User.rehydrate({ ...good, sequence: -1 })).toThrow(/invalid sequence/)
   })
 })

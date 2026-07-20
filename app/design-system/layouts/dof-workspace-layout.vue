@@ -24,14 +24,32 @@ const props = defineProps<{
   activeId: string
   /** Workspace title for assistive tech (e.g. the store name). */
   label: string
+  /**
+   * Contextual fifth slot (UX-WORKSPACE-001 §7): when set to an item's id, that item
+   * occupies the LAST mobile tab slot. The first four never move (spatial memory);
+   * the sidebar is unaffected. Ignored when the item is already visible or unknown.
+   */
+  contextualId?: string | null
 }>()
 
 const emit = defineEmits<{ navigate: [id: string] }>()
 const messages = useDsMessages()
 
 const TAB_SLOTS = 5
-const tabItems = computed(() => (props.items.length <= TAB_SLOTS ? props.items : props.items.slice(0, TAB_SLOTS - 1)))
-const overflowItems = computed(() => (props.items.length <= TAB_SLOTS ? [] : props.items.slice(TAB_SLOTS - 1)))
+const baseTabItems = computed(() => (props.items.length <= TAB_SLOTS ? props.items : props.items.slice(0, TAB_SLOTS - 1)))
+const tabItems = computed(() => {
+  const base = baseTabItems.value
+  const id = props.contextualId
+  if (!id || base.some((item) => item.id === id)) return base
+  const contextual = props.items.find((item) => item.id === id)
+  if (!contextual || base.length === 0) return base
+  return [...base.slice(0, base.length - 1), contextual] // swap only the final slot
+})
+const overflowItems = computed(() => {
+  const visible = new Set(tabItems.value.map((item) => item.id))
+  const hidden = props.items.filter((item) => !visible.has(item.id))
+  return hidden
+})
 const overflowOpen = ref(false)
 
 function go(id: string) {

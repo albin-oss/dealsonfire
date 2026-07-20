@@ -23,6 +23,7 @@ export default defineQueryEndpoint({
       status: parsed.data.status,
       showArchived: parsed.data.show_archived === 'true',
       q: parsed.data.q,
+      channelId: parsed.data.channel_id ?? null,
       limit,
       cursor,
     })

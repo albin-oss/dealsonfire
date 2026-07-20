@@ -62,7 +62,7 @@ function walk(rel) {
 walk(authDir)
 const expectedEndpoints = [
   'login.post.ts', 'logout-all.post.ts', 'logout.post.ts', 'register.post.ts', 'session.get.ts',
-  'step-up.post.ts', 'verify-email.post.ts',
+  'step-up.post.ts', 'verify-email.post.ts', 'resend-verification.post.ts',
   'recovery/request.post.ts', 'recovery/reset.post.ts',
   'webauthn/authenticate.post.ts', 'webauthn/authentication-options.post.ts',
   'webauthn/registration-options.post.ts', 'webauthn/verify-registration.post.ts',

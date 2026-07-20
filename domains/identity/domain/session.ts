@@ -11,6 +11,10 @@ export const SESSION_ROLLING_MS = 30 * 24 * 60 * 60 * 1000
 export const SESSION_ABSOLUTE_MS = 90 * 24 * 60 * 60 * 1000
 export const STEP_UP_WINDOW_MS = 5 * 60 * 1000
 
+function isValidDate(d: unknown): d is Date {
+  return d instanceof Date && !Number.isNaN(d.getTime())
+}
+
 export interface SessionProps {
   id: string
   userId: string
@@ -24,7 +28,21 @@ export interface SessionProps {
 export class Session {
   private constructor(private readonly props: SessionProps) {}
 
+  /**
+   * Rehydrate a persisted session. A row the domain cannot explain is an outage, not a
+   * guess (kernel corruption-guard precedent — cf. location-repository). We refuse
+   * structurally-impossible state explicitly rather than let it flow into a live session.
+   */
   static rehydrate(props: SessionProps): Session {
+    const bad = (why: string): never => { throw new Error(`corrupt session row (${props.id}): ${why}`) }
+    if (!props.id) bad('missing id')
+    if (!props.userId) bad('missing userId')
+    if (!isValidDate(props.createdAt)) bad('createdAt not a valid date')
+    if (!isValidDate(props.rollingExpiresAt)) bad('rollingExpiresAt not a valid date')
+    if (!isValidDate(props.absoluteExpiresAt)) bad('absoluteExpiresAt not a valid date')
+    if (props.rollingExpiresAt.getTime() > props.absoluteExpiresAt.getTime()) bad('rolling expiry exceeds absolute cap')
+    if (props.stepUpAt !== null && !isValidDate(props.stepUpAt)) bad('stepUpAt present but not a valid date')
+    if (props.revokedAt !== null && !isValidDate(props.revokedAt)) bad('revokedAt present but not a valid date')
     return new Session(props)
   }
 

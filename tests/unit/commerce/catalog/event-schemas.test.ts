@@ -15,6 +15,19 @@ const uuid = uuidv7()
 
 /** A valid baseline payload per event type — each corruption below mutates ONE field. */
 const VALID: Record<string, Record<string, unknown>> = {
+  'commerce.listing.published': { listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.listing.unpublished': { listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.listing.ended': { listing_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.deal.published': { deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: 'Weekend special' },
+  'commerce.deal.ended': { deal_id: uuid, product_id: uuid, business_id: uuid, channel_id: uuid, headline: 'Weekend special' },
+  'commerce.deal.reacted': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.deal.unreacted': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.deal.saved': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.deal.unsaved': { deal_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.spark.published': { spark_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.spark.deleted': { spark_id: uuid, business_id: uuid, channel_id: uuid },
+  'commerce.spark.reacted': { spark_id: uuid, business_id: uuid, visitor_id: uuid },
+  'commerce.spark.unreacted': { spark_id: uuid, business_id: uuid, visitor_id: uuid },
   [COMMERCE_EVENT.PRODUCT_CREATED]: {
     product_id: uuid, business_id: uuid, title: 'Soap', fulfillment_kind: 'physical',
     category_path: null, status: 'draft', variant_count: 1, source: 'manual',

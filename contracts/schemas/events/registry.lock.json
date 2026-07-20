@@ -18,6 +18,21 @@
     "commerce.variant.updated": 1,
     "commerce.variant.price_changed": 1,
     "commerce.product.media_added": 1,
-    "commerce.product.media_removed": 1
+    "commerce.product.media_removed": 1,
+    "commerce.listing.published": 1,
+    "commerce.listing.unpublished": 1,
+    "commerce.listing.ended": 1,
+    "commerce.deal.published": 1,
+    "commerce.deal.ended": 1,
+    "commerce.deal.reacted": 1,
+    "commerce.deal.unreacted": 1,
+    "commerce.deal.saved": 1,
+    "commerce.deal.unsaved": 1,
+    "merchant.store.followed": 1,
+    "merchant.store.unfollowed": 1,
+    "commerce.spark.published": 1,
+    "commerce.spark.deleted": 1,
+    "commerce.spark.reacted": 1,
+    "commerce.spark.unreacted": 1
   }
 }

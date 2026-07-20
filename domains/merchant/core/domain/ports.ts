@@ -66,6 +66,8 @@ export interface StorefrontConfigRepository {
 export interface HandleLedger {
   /** Claim a handle for a store, atomically. False = taken/reserved/quarantined (409 upstream). */
   claim(tx: Tx, handle: string, storeId: StoreId): Promise<boolean>
+  /** Advisory read for real-time availability UX. Authoritative claim remains `claim()`. */
+  lookup(tx: Tx, handle: string): Promise<{ taken: boolean }>
 }
 
 export interface CapabilityDefinition {

@@ -113,7 +113,7 @@ export class AuthService {
     })
   }
 
-  /** Verify email via token. */
+  /** US-6 verify email via single-use token. Idempotent + audited on the detected change. */
   async verifyEmail(token: string): Promise<Result<{ userId: string }, DomainError>> {
     const tokenHash = this.deps.tokens.hash(token)
     return this.deps.uow.withTransaction(async (tx) => {
@@ -121,9 +121,29 @@ export class AuthService {
       if (!userId) return err(domainError('INVALID_TOKEN', 'that verification link is no longer valid — request a new one'))
       const user = await this.deps.users.findById(tx, asUserId(userId), { forUpdate: true })
       if (!user) return err(domainError('NOT_FOUND', 'account not found'))
+      // Already verified: the token is spent but nothing changes — idempotent success.
+      // (Skipping update() also avoids tripping the sequence guard on a no-op verifyEmail.)
+      if (user.emailVerified) return ok({ userId })
       user.verifyEmail()
       await this.deps.users.update(tx, user)
+      await this.deps.audit.record(tx, {
+        businessId: null, actor: { type: 'user', id: userId }, command: 'identity.email.verify',
+        sensitivity: 'normal', target: { type: 'user', id: userId }, afterDigest: { email_verified: true },
+      })
       return ok({ userId })
+    })
+  }
+
+  /** US-6 resend verification. Enumeration-proof: silent unless an UNVERIFIED account exists;
+   *  supersedes any outstanding verify token so only the freshest link works (replay-safe). */
+  async resendVerification(rawEmail: string): Promise<void> {
+    const email = createEmail(rawEmail)
+    if (!email.ok) return
+    await this.deps.uow.withTransaction(async (tx) => {
+      const user = await this.deps.users.findActiveByEmail(tx, email.value)
+      if (!user || user.emailVerified) return // silent — no oracle, and no resend once verified
+      await this.recovery.invalidateOutstanding(tx, user.id, 'email_verify')
+      await this.issueRecovery(tx, user.id, user.email, 'email_verify')
     })
   }
 

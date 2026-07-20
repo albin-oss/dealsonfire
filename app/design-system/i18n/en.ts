@@ -41,6 +41,22 @@ export const DS_MESSAGES = {
     loadMore: 'Load more',
     saveAndExit: 'Save & exit',
     working: 'Working…',
+    notNow: 'Not now',
+  },
+  handle: {
+    checking: 'Checking…',
+    available: 'Available',
+    taken: 'Taken — try one of these',
+    invalid: 'Letters, numbers and dashes only',
+  },
+  media: {
+    add: 'Add a photo — JPEG, PNG, or WebP',
+    uploading: 'Uploading…',
+    failed: 'That upload didn’t make it — try again.',
+    remove: 'Remove photo',
+    altLabel: 'Describe the photo',
+    altWhy: 'A few words for people using screen readers.',
+    pending: 'Product photo',
   },
   ignite: {
     confidence: {

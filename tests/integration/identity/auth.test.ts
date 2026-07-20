@@ -205,6 +205,58 @@ describe('recovery (US-6) — single-use, session-revoking', () => {
     expect((await http.request('POST', '/api/v1/auth/verify-email', { body: { token } })).status).toBe(200)
     const { rows } = await container.pool.query(`SELECT email_verified FROM users WHERE email = $1`, [email])
     expect(rows[0].email_verified).toBe(true)
+    // audit written for the detected change (CAP-R1-ID-002)
+    const audit = await container.pool.query(`SELECT command FROM identity_audit_logs WHERE command = 'identity.email.verify'`)
+    expect(audit.rows.length).toBe(1)
+  })
+
+  it('a verification link is single-use — replay is refused (AC-4)', async () => {
+    const email = uniqueEmail()
+    await http.request('POST', '/api/v1/auth/register', { body: { email, password: PW } })
+    const mail = container.identity.emailOutbox!.outbox.find((m) => m.to === email && m.subject.includes('Confirm'))!
+    const token = /token=([^\s&]+)/.exec(mail.body)![1]!
+    expect((await http.request('POST', '/api/v1/auth/verify-email', { body: { token } })).status).toBe(200)
+    const replay = await http.request('POST', '/api/v1/auth/verify-email', { body: { token } })
+    expect(replay.status).toBe(400)
+    expect(replay.body.code).toBe('INVALID_TOKEN')
+  })
+
+  it('resend issues a fresh link, supersedes the old one, and answers uniformly (AC-5)', async () => {
+    const email = uniqueEmail()
+    await http.request('POST', '/api/v1/auth/register', { body: { email, password: PW } })
+    const first = /token=([^\s&]+)/.exec(
+      container.identity.emailOutbox!.outbox.find((m) => m.to === email && m.subject.includes('Confirm'))!.body)![1]!
+    container.identity.emailOutbox!.outbox.length = 0
+
+    // resend → uniform 200, a new email with a new token
+    const resent = await http.request('POST', '/api/v1/auth/resend-verification', { body: { email } })
+    expect(resent.status).toBe(200)
+    expect(resent.body).toEqual({ sent: true })
+    const second = /token=([^\s&]+)/.exec(
+      container.identity.emailOutbox!.outbox.find((m) => m.to === email && m.subject.includes('Confirm'))!.body)![1]!
+    expect(second).not.toBe(first)
+
+    // the OLD token is now invalid (superseded); the NEW one verifies
+    expect((await http.request('POST', '/api/v1/auth/verify-email', { body: { token: first } })).status).toBe(400)
+    expect((await http.request('POST', '/api/v1/auth/verify-email', { body: { token: second } })).status).toBe(200)
+  })
+
+  it('resend is enumeration-proof: unknown + already-verified both answer 200 and send nothing', async () => {
+    // unknown address → uniform 200, no email
+    const unknown = await http.request('POST', '/api/v1/auth/resend-verification', { body: { email: uniqueEmail() } })
+    expect(unknown.status).toBe(200)
+    expect(container.identity.emailOutbox!.outbox.length).toBe(0)
+
+    // already-verified → uniform 200, no new email (nothing to resend)
+    const email = uniqueEmail()
+    await http.request('POST', '/api/v1/auth/register', { body: { email, password: PW } })
+    const token = /token=([^\s&]+)/.exec(
+      container.identity.emailOutbox!.outbox.find((m) => m.to === email && m.subject.includes('Confirm'))!.body)![1]!
+    await http.request('POST', '/api/v1/auth/verify-email', { body: { token } })
+    container.identity.emailOutbox!.outbox.length = 0
+    const afterVerify = await http.request('POST', '/api/v1/auth/resend-verification', { body: { email } })
+    expect(afterVerify.status).toBe(200)
+    expect(container.identity.emailOutbox!.outbox.length).toBe(0)
   })
 })
 

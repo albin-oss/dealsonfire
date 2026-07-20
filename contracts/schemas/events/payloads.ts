@@ -19,6 +19,8 @@ export const KERNEL_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'merchant.business.standing_changed': z.object({ business_id: uuid, from: standing, to: standing, reason_code: z.string() }).passthrough(),
   'merchant.business.trust_level_raised': z.object({ business_id: uuid, from: trustLevel, to: trustLevel }).passthrough(),
   'merchant.store.created': z.object({ store_id: uuid, business_id: uuid, handle: z.string(), name: z.string() }).passthrough(),
+  'merchant.store.followed': z.object({ store_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
+  'merchant.store.unfollowed': z.object({ store_id: uuid, business_id: uuid, visitor_id: uuid }).passthrough(),
   'merchant.store.published': z.object({
     store_id: uuid, business_id: uuid, handle: z.string(), name: z.string(),
     brand_kit: z.object({ name: z.string(), palette: z.record(z.string(), z.string()) }).nullable(),

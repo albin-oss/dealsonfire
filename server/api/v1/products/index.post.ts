@@ -17,6 +17,7 @@ export default defineCommandEndpoint({
       actor: { type: 'user', id: auth.userId },
       userId: auth.userId,
       businessId: body.business_id,
+      publishToStoreId: body.publish_to_store_id ?? null,
       title: body.title,
       description: body.description ?? null,
       fulfillmentKind: body.fulfillment_kind,

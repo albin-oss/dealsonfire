@@ -37,5 +37,13 @@ export function merchantAccessAdapter(deps: KernelDeps, entitlements: Entitlemen
         capabilities,
       })
     },
+
+    async resolveStoreChannel(tx: Tx, businessId: string, storeId: string): Promise<Result<{ channelId: string }, DomainError>> {
+      const store = await deps.stores.findById(tx, storeId as Parameters<typeof deps.stores.findById>[1])
+      if (!store || store.businessId !== businessId || store.status === 'deleted') {
+        return err(domainError('NOT_FOUND', 'store not found')) // masked (VISIBILITY_CONTRACT §15)
+      }
+      return ok({ channelId: store.id })
+    },
   }
 }

@@ -1,5 +1,5 @@
 {
-  "auth.schema.ts": "cf17bb3fd50d53c0cde4ff0c7bba6d9704f53fd8b04b552acb4456913d0a4cbb",
+  "auth.schema.ts": "63c2f8d41e4878c9db425dfc31e6a1eea1c7ee123efd401f072651f2da294ae1",
   "identity-payloads.ts": "f9156f7325194fb451e8b8e0f580743cfb594492ff6257aef3cf7c8ba44000df",
   "events": [
     "identity.session.revoked_all",
