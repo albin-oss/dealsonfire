@@ -33,6 +33,7 @@ const { data: progress, pending } = useFetch<OnboardingProgressResponse>('/api/v
 const posture = computed(() => derivePosture(progress.value ?? null))
 const opportunity = computed(() => selectOpportunity(progress.value ?? null))
 const journey = computed(() => journeyMoments(progress.value ?? null))
+const pulse = computed(() => pulseSentence(progress.value ?? null))
 
 // The hero announces only when it CHANGES (a completed step reveals the next one) —
 // never on initial load (UX-WORKSPACE-001 §19).
@@ -87,7 +88,17 @@ const greeting = computed(() =>
       <template #header>
         <DofText role="emphasis" as="h2">How you're doing</DofText>
       </template>
+      <!-- the pulse (Release 1.2): one earned sentence, one next action — never charts -->
+      <div v-if="pulse" class="flex flex-col gap-3">
+        <DofText role="body" reading>{{ pulse.sentence }}</DofText>
+        <div>
+          <NuxtLink :to="pulse.to" class="contents">
+            <DofButton size="sm" tone="accent" icon="flame">{{ pulse.actionLabel }}</DofButton>
+          </NuxtLink>
+        </div>
+      </div>
       <DofEmptyState
+        v-else
         icon="trending-up"
         title="Your business health appears here"
         why="After your first sales, this becomes a sentence — “Twice your usual Tuesday” — never a wall of charts."

@@ -72,6 +72,48 @@ function momentumOpportunity(progress: OnboardingProgressResponse | null): Oppor
   return null
 }
 
+export interface Pulse {
+  sentence: string
+  actionLabel: string
+  to: string
+}
+
+/**
+ * The pulse (Release 1.2) — "How you're doing" as ONE encouraging sentence built from
+ * facts the merchant earned. Never statistics for their own sake; every sentence ends
+ * in a next action. Null = keep teaching the empty state.
+ */
+export function pulseSentence(progress: OnboardingProgressResponse | null): Pulse | null {
+  const m = progress?.momentum
+  if (!m) return null
+  const followerWord = (n: number) => (n === 1 ? 'person' : 'people')
+  if (m.fires_this_week > 0 && m.new_followers_this_week > 0) {
+    return {
+      sentence: `This week: ${m.fires_this_week} ${m.fires_this_week === 1 ? 'fire' : 'fires'} on your posts and ${m.new_followers_this_week} new ${followerWord(m.new_followers_this_week)} following — your words are working.`,
+      actionLabel: 'Write today’s spark', to: '/sparks',
+    }
+  }
+  if (m.new_followers_this_week > 0) {
+    return {
+      sentence: `${m.new_followers_this_week} new ${followerWord(m.new_followers_this_week)} followed your shop this week — they’ll see your next post on their Home.`,
+      actionLabel: 'Say hello with a spark', to: '/sparks',
+    }
+  }
+  if (m.fires_this_week > 0) {
+    return {
+      sentence: `Your posts earned ${m.fires_this_week} ${m.fires_this_week === 1 ? 'fire' : 'fires'} this week — people saw this.`,
+      actionLabel: 'Keep the streak honest', to: '/sparks',
+    }
+  }
+  if (m.followers > 0) {
+    return {
+      sentence: `${m.followers} ${followerWord(m.followers)} follow your shop — everything you publish lands on their Home.`,
+      actionLabel: 'Give them something today', to: '/sparks',
+    }
+  }
+  return null
+}
+
 /** THE Next Opportunity. A null/failed progress read degrades to the launch invitation. */
 export function selectOpportunity(progress: OnboardingProgressResponse | null): Opportunity {
   const next = progress?.next_milestone_id ?? null
