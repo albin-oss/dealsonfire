@@ -53,7 +53,7 @@ test('the store identity page renders and is axe-clean (WCAG)', async ({ page })
 test('the sparks page renders and is axe-clean (WCAG)', async ({ page }) => {
   await page.goto('/sparks')
   await page.waitForSelector('main#dof-main')
-  await expect(page.getByRole('heading', { name: 'Sparks' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sparks', exact: true })).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
 })
@@ -61,4 +61,21 @@ test('the sparks page renders and is axe-clean (WCAG)', async ({ page }) => {
 test('the public spark page 404s honestly when nothing is visible', async ({ page }) => {
   const res = await page.goto(`/s/nobody-here/sparks/00000000-0000-7000-8000-000000000000`)
   expect(res?.status()).toBe(404)
+})
+
+test('dead ends are branded: the 404 keeps DOF’s voice and offers a way home', async ({ page }) => {
+  const res = await page.goto('/s/nobody-here-at-all')
+  expect(res?.status()).toBe(404)
+  await expect(page.getByText('This corner doesn’t exist')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'See today’s deals' })).toBeVisible()
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
+})
+
+test('maturity signals: favicon, theme-color, lang, robots', async ({ page, request }) => {
+  await page.goto('/home')
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/favicon.svg')
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  const robots = await request.get('/robots.txt')
+  expect(await robots.text()).toContain('Disallow: /api/')
 })

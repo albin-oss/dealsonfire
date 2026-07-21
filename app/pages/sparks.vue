@@ -11,6 +11,7 @@ import {
   DofEmptyState, DofSkeleton, DofProblem, announce, type SlotMedia,
 } from '@ds/index'
 import { devUserId } from '../composables/ignite/launch'
+import { useCopyFeedback } from '../composables/use-copy'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Sparks — DOF' })
@@ -97,12 +98,8 @@ async function publish() {
   }
 }
 
-async function copySparkLink(id: string) {
-  try {
-    await navigator.clipboard.writeText(`${window.location.origin}${sparkUrl(id)}`)
-    announce('Link copied — send it to someone.')
-  } catch { announce(`${window.location.origin}${sparkUrl(id)}`) }
-}
+const { copiedId, copy } = useCopyFeedback()
+const copySparkLink = (id: string) => copy(id, `${window.location.origin}${sparkUrl(id)}`)
 
 const deleting = ref<string | null>(null)
 async function deleteSpark(spark: SparkItem) {
@@ -146,7 +143,7 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
       <NuxtLink :to="`${sparkUrl(justPublished.sparkId)}?v=${Date.now()}`" target="_blank" class="contents">
         <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
       </NuxtLink>
-      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copySparkLink(justPublished.sparkId)">Copy link</DofButton>
+      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copySparkLink(justPublished.sparkId)">{{ copiedId === justPublished.sparkId ? 'Copied ✓' : 'Copy link' }}</DofButton>
       <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
     </section>
 
@@ -210,7 +207,7 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
             <NuxtLink v-if="store" :to="`${sparkUrl(sp.id)}?v=${Date.now()}`" target="_blank" class="contents">
               <DofButton size="sm" variant="ghost" tone="neutral" icon="external-link">View live</DofButton>
             </NuxtLink>
-            <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copySparkLink(sp.id)">Copy link</DofButton>
+            <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copySparkLink(sp.id)">{{ copiedId === sp.id ? 'Copied ✓' : 'Copy link' }}</DofButton>
             <DofButton size="sm" variant="ghost" tone="neutral" icon="trash-2" :loading="deleting === sp.id" @click="deleteSpark(sp)">Take down</DofButton>
           </div>
         </li>
