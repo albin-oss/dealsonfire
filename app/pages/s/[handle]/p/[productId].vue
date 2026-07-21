@@ -80,17 +80,8 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
 </script>
 
 <template>
-  <div v-bind="scopeAttrs" class="min-h-dvh bg-surface font-ui text-foreground">
-    <header class="border-b border-foreground/10">
-      <div class="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4">
-        <NuxtLink :to="`/s/${store.handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">
-          <DofText role="title" as="span">{{ store.name }}</DofText>
-        </NuxtLink>
-        <nav aria-label="store" class="flex gap-4 text-caption text-foreground/80">
-          <NuxtLink :to="`/s/${store.handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">Shop</NuxtLink>
-        </nav>
-      </div>
-    </header>
+  <div v-bind="scopeAttrs">
+    <StoreShell :store-name="store.name" :handle="store.handle" width="wide">
 
     <main class="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-10 regular:flex-row regular:gap-12">
       <img
@@ -158,11 +149,6 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       </div>
     </section>
 
-    <footer class="border-t border-foreground/10">
-      <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 text-caption text-foreground/60">
-        <NuxtLink :to="`/s/${store.handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">{{ store.name }}</NuxtLink>
-        <NuxtLink to="/home" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">powered by DOF</NuxtLink>
-      </div>
-    </footer>
+    </StoreShell>
   </div>
 </template>

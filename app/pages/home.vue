@@ -119,7 +119,7 @@ function jumpToUnread() {
     </header>
 
     <main id="stream" class="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6">
-      <div class="flex gap-2" role="group" aria-label="filter the stream">
+      <div class="sticky top-0 layer-sticky -mx-4 flex gap-2 border-b border-foreground/5 bg-surface/90 px-4 py-2 backdrop-blur" role="group" aria-label="filter the stream">
         <DofChip
           v-for="f in FILTERS" :key="f.value"
           :label="f.value === 'following' && newCount > 0 ? `${f.label} · ${newCount} new` : f.label"
@@ -192,14 +192,15 @@ function jumpToUnread() {
         {{ dividerIndex }} new since your last visit — jump to where you left off ↓
       </button>
 
-      <div v-if="pending" class="flex flex-col gap-4" aria-hidden="true">
+      <!-- skeletons only on a cold start; a filter switch keeps the stream in place -->
+      <div v-if="pending && items.length === 0" class="flex flex-col gap-4" aria-hidden="true">
         <DofSkeleton v-for="n in 3" :key="n" class="h-40 rounded-large" />
       </div>
 
-      <ul v-else-if="items.length > 0" class="flex list-none flex-col gap-4 p-0">
+      <ul v-else-if="items.length > 0" :class="pending && 'opacity-60'" class="flex list-none flex-col gap-4 p-0 transition-opacity tempo-quick">
         <template v-for="(item, index) in items" :key="`${item.type}-${item.id}`">
           <!-- the first-unread divider: everything below, you've already seen -->
-          <li v-if="index === dividerIndex" id="caught-up" aria-hidden="true" class="flex items-center gap-3 py-1">
+          <li v-if="index === dividerIndex" id="caught-up" aria-hidden="true" class="flex scroll-mt-16 items-center gap-3 py-1">
             <span class="h-px flex-1 bg-foreground/15" />
             <DofText role="caption" class="text-foreground/50">You’re caught up</DofText>
             <span class="h-px flex-1 bg-foreground/15" />

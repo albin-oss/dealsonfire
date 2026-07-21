@@ -235,6 +235,30 @@
   }
 }
 
+/* Press feedback (Release 1.7): every interactive primitive settles 2% under the
+   finger for one instant tempo — tactility without theater. Motion-respectful. */
+@media (prefers-reduced-motion: no-preference) {
+  .dof-interactive {
+    transition: transform var(--dof-ref-duration-instant) ease-out;
+  }
+  .dof-interactive:active {
+    transform: scale(0.98);
+  }
+}
+
+/* Page transitions (Release 1.7): one quick-tempo crossfade between routes — the
+   screens belong to one product, so they hand off, never jump-cut. */
+@media (prefers-reduced-motion: no-preference) {
+  .page-enter-active,
+  .page-leave-active {
+    transition: opacity var(--dof-ref-duration-quick) ease;
+  }
+  .page-enter-from,
+  .page-leave-to {
+    opacity: 0;
+  }
+}
+
 /* Reduced motion: full parity is implemented per pattern (§7); this is the floor
    that guarantees nothing keeps moving for users who asked it not to. */
 @media (prefers-reduced-motion: reduce) {
