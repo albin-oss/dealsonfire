@@ -57,6 +57,14 @@ Each step's procedure lives where stated; this file is the order and the law.
 - The bias checklist (`research/REALITY_REVIEW.md`) runs at Step 1 and again
   at Step 6, both times initialed in the log entry.
 
+## Afterward: the reflection (10–15 min, not optional)
+
+Every review ends with the Founder Reflection (`REFLECTION.md`): the founder
+is part of the system and therefore a source of bias. File
+`review/log/REFL-<date>.md` in the same commit as the REV entry. Shipped
+releases additionally get a decision retrospective (`templates/decision-retro.md`)
+at the first review where their outcome is measurable.
+
 ## Decision log
 
 `review/log/REV-<yyyy-mm-dd>.md` — append-only, one file per review, template
