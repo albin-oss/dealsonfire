@@ -39,7 +39,7 @@ describe('POST /api/v1/media (sandbox storage twin)', () => {
     const res = await http.request('POST', '/api/v1/media', { headers: { cookie }, ...pngUpload(businessId) })
     expect(res.status).toBe(201)
     expect(res.body.media_id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(res.body.url).toContain('sandbox.media.local')
+    expect(res.body.url).toMatch(/^\/dev-media\/media\//) // dev sandbox writes real bytes (Release 1.6)
     const { rows } = await container.pool.query(`SELECT business_id, content_type FROM media_assets`)
     expect(rows[0]).toMatchObject({ business_id: businessId, content_type: 'image/png' })
     expect(await container.media.resolve(res.body.media_id, businessId)).toBe(res.body.url)

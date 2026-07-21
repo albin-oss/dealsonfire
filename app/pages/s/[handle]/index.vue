@@ -123,13 +123,12 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
                 :to="`/s/${store.handle}/p/${product.id}`"
                 class="dof-interactive flex flex-col gap-2 rounded-large border border-foreground/10 bg-foreground/[0.03] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
               >
-                <img
+                <PublicImg
                   v-if="product.image_url"
                   :src="product.image_url"
                   :alt="product.image_alt ?? product.title"
-                  class="h-28 w-full rounded-medium object-cover"
-                  loading="lazy"
-                >
+                  img-class="h-28 w-full rounded-medium object-cover"
+                />
                 <div v-else class="flex h-28 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
                   {{ store.name }}
                 </div>
@@ -156,7 +155,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
               :to="`/s/${store.handle}/sparks/${sp.id}`"
               class="dof-interactive flex items-start gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
             >
-              <img v-if="sp.image_url" :src="sp.image_url" alt="" class="size-14 shrink-0 rounded-medium object-cover" loading="lazy">
+              <PublicImg v-if="sp.image_url" :src="sp.image_url" alt="" img-class="size-14 shrink-0 rounded-medium object-cover" />
               <DofText role="body" class="line-clamp-2 text-foreground/90">{{ sp.body }}</DofText>
             </NuxtLink>
           </li>

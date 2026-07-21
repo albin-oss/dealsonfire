@@ -310,7 +310,7 @@ function resetComposer() {
       </div>
       <ul v-else-if="grid && grid.items.length > 0" class="grid list-none grid-cols-2 gap-3 p-0 regular:grid-cols-3">
         <li v-for="p in grid.items" :key="p.id" class="flex flex-col gap-1.5 rounded-large border border-line p-3">
-          <img v-if="p.image_url" :src="p.image_url" :alt="p.image_alt ?? p.title" class="h-20 w-full rounded-medium object-cover" loading="lazy">
+          <PublicImg v-if="p.image_url" :src="p.image_url" :alt="p.image_alt ?? p.title" img-class="h-20 w-full rounded-medium object-cover" />
           <DofText role="body" class="truncate font-medium">{{ p.title }}</DofText>
           <DofMoney v-if="p.min_price_amount" :amount="p.min_price_amount" :currency="p.price_currency ?? 'EUR'" class="text-caption text-muted-foreground" />
           <DofText role="caption" :tone="p.on_store ? undefined : 'muted'" :class="p.on_store && 'text-positive'">

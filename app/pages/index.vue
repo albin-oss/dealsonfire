@@ -34,6 +34,11 @@ const posture = computed(() => derivePosture(progress.value ?? null))
 const opportunity = computed(() => selectOpportunity(progress.value ?? null))
 const journey = computed(() => journeyMoments(progress.value ?? null))
 const pulse = computed(() => pulseSentence(progress.value ?? null))
+// momentum is only computed once a store exists — a zero-cost store proxy
+const hasStore = computed(() => progress.value?.momentum != null)
+// a mentor never repeats itself: the pulse keeps its sentence but yields its button
+// when the hero opportunity already points at the same door
+const pulseAction = computed(() => (pulse.value && pulse.value.to !== opportunity.value.to ? pulse.value : null))
 
 // The hero announces only when it CHANGES (a completed step reveals the next one) —
 // never on initial load (UX-WORKSPACE-001 §19).
@@ -76,12 +81,13 @@ const greeting = computed(() =>
     </ClientOnly>
 
     <section aria-label="quick actions" class="flex flex-wrap gap-2">
-      <!-- a mentor never says the same thing twice: the ember action yields while the hero
-           is already pointing at Ignite -->
-      <DofButton v-if="snoozed || opportunity.to !== '/ignite'" tone="ember" icon="flame" @click="router.push('/ignite')">Create your store — about 4 minutes</DofButton>
-      <DofButton variant="soft" tone="accent" icon="plus" @click="router.push('/products')">Add your first product</DofButton>
+      <!-- a mentor never says the same thing twice — and never suggests building what
+           already stands: the ember action retires once a store exists -->
+      <DofButton v-if="!hasStore && (snoozed || opportunity.to !== '/ignite')" tone="ember" icon="flame" @click="router.push('/ignite')">Create your store — about 4 minutes</DofButton>
+      <DofButton variant="soft" tone="accent" icon="plus" @click="router.push('/products')">{{ hasStore ? 'Add a product' : 'Add your first product' }}</DofButton>
       <DofButton variant="soft" tone="neutral" icon="store" @click="router.push('/store')">See your store</DofButton>
       <DofButton variant="soft" tone="neutral" icon="tag" @click="router.push('/deals')">Plan a deal</DofButton>
+      <DofButton v-if="hasStore" variant="soft" tone="neutral" icon="flame" @click="router.push('/sparks')">Write a spark</DofButton>
     </section>
 
     <DofCard>
@@ -91,9 +97,9 @@ const greeting = computed(() =>
       <!-- the pulse (Release 1.2): one earned sentence, one next action — never charts -->
       <div v-if="pulse" class="flex flex-col gap-3">
         <DofText role="body" reading>{{ pulse.sentence }}</DofText>
-        <div>
-          <NuxtLink :to="pulse.to" class="contents">
-            <DofButton size="sm" tone="accent" icon="flame">{{ pulse.actionLabel }}</DofButton>
+        <div v-if="pulseAction">
+          <NuxtLink :to="pulseAction.to" class="contents">
+            <DofButton size="sm" tone="accent" icon="flame">{{ pulseAction.actionLabel }}</DofButton>
           </NuxtLink>
         </div>
       </div>
