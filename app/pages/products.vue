@@ -17,6 +17,7 @@ import {
 import { parseLine, inferKind, suggestCategory, draftDescription, type AuthoringKind } from '../composables/authoring-intelligence'
 import { productReadiness } from '../composables/product-readiness'
 import { devUserId } from '../composables/ignite/launch'
+import { useCopyFeedback } from '../composables/use-copy'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Products — DOF' })
@@ -169,12 +170,8 @@ async function publish() {
 // ——— the View-live flow (Release 0.2): publish → see it → copy it → share it. No modal.
 const justPublished = ref<{ title: string; productId: string } | null>(null)
 const productUrl = (id: string) => `/s/${storeHandle.value}/p/${id}`
-async function copyProductLink(id: string) {
-  try {
-    await navigator.clipboard.writeText(`${window.location.origin}${productUrl(id)}`)
-    announce('Link copied — send it to someone.')
-  } catch { announce(`${window.location.origin}${productUrl(id)}`) }
-}
+const { copiedId, copy } = useCopyFeedback()
+const copyProductLink = (id: string) => copy(id, `${window.location.origin}${productUrl(id)}`)
 
 // ——— on/off the store: instantly reversible intent, never a confirmation dialog
 const toggling = ref<string | null>(null)
@@ -300,7 +297,7 @@ function resetComposer() {
         <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
       </NuxtLink>
       <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyProductLink(justPublished.productId)">
-        Copy link
+        {{ copiedId === justPublished.productId ? 'Copied ✓' : 'Copy link' }}
       </DofButton>
       <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
     </section>
@@ -328,7 +325,7 @@ function resetComposer() {
               <NuxtLink :to="`${productUrl(p.id)}?v=${Date.now()}`" target="_blank" class="contents">
                 <DofButton size="sm" variant="ghost" tone="neutral" icon="external-link">View live</DofButton>
               </NuxtLink>
-              <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copyProductLink(p.id)">Copy link</DofButton>
+              <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copyProductLink(p.id)">{{ copiedId === p.id ? "Copied ✓" : "Copy link" }}</DofButton>
             </template>
           </div>
         </li>

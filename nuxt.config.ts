@@ -7,6 +7,13 @@ import tailwindcss from '@tailwindcss/vite'
 // via the @ds public index, no auto-import magic (DESIGN-SYSTEM-001 §1.2).
 export default defineNuxtConfig({
   compatibilityDate: '2026-07-01',
+  app: {
+    head: {
+      htmlAttrs: { lang: 'en' },
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+      meta: [{ name: 'theme-color', content: '#ea580c' }],
+    },
+  },
   future: { compatibilityVersion: 4 },
   css: ['~/design-system/tokens/theme.css'],
   // The Ignite ceremony is client-rendered: resume() reads the local draft in setup,

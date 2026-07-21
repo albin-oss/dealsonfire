@@ -11,6 +11,7 @@ import {
   DofEmptyState, DofSkeleton, DofProblem, announce,
 } from '@ds/index'
 import { devUserId } from '../composables/ignite/launch'
+import { useCopyFeedback } from '../composables/use-copy'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Deals — DOF' })
@@ -77,12 +78,8 @@ async function publishDeal() {
   }
 }
 
-async function copyDealLink(id: string) {
-  try {
-    await navigator.clipboard.writeText(`${window.location.origin}${dealUrl(id)}`)
-    announce('Link copied — send it to someone.')
-  } catch { announce(`${window.location.origin}${dealUrl(id)}`) }
-}
+const { copiedId, copy } = useCopyFeedback()
+const copyDealLink = (id: string) => copy(id, `${window.location.origin}${dealUrl(id)}`)
 
 const ending = ref<string | null>(null)
 async function endDeal(deal: DealItem) {
@@ -121,7 +118,7 @@ async function endDeal(deal: DealItem) {
       <NuxtLink :to="`${dealUrl(justPublished.dealId)}?v=${Date.now()}`" target="_blank" class="contents">
         <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
       </NuxtLink>
-      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyDealLink(justPublished.dealId)">Copy link</DofButton>
+      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyDealLink(justPublished.dealId)">{{ copiedId === justPublished.dealId ? 'Copied ✓' : 'Copy link' }}</DofButton>
       <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
     </section>
 
@@ -215,7 +212,7 @@ async function endDeal(deal: DealItem) {
             <NuxtLink :to="`${dealUrl(d.id)}?v=${Date.now()}`" target="_blank" class="contents">
               <DofButton size="sm" variant="ghost" tone="neutral" icon="external-link">View live</DofButton>
             </NuxtLink>
-            <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copyDealLink(d.id)">Copy link</DofButton>
+            <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copyDealLink(d.id)">{{ copiedId === d.id ? 'Copied ✓' : 'Copy link' }}</DofButton>
             <DofButton size="sm" variant="ghost" tone="neutral" :loading="ending === d.id" @click="endDeal(d)">End deal</DofButton>
           </template>
         </li>

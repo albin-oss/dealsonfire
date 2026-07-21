@@ -14,6 +14,7 @@ import {
 import type { BrandKitResponse } from '@contracts/schemas/merchant/brand-kit.schema'
 import { draftStory, draftPromises } from '../composables/identity-intelligence'
 import { devUserId } from '../composables/ignite/launch'
+import { useCopyFeedback } from '../composables/use-copy'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Your store — DOF' })
@@ -105,12 +106,9 @@ async function save() {
   }
 }
 
-async function copyStoreLink() {
-  if (!storeUrl.value) return
-  try {
-    await navigator.clipboard.writeText(`${window.location.origin}${storeUrl.value}`)
-    announce('Link copied — send it to someone.')
-  } catch { announce(`${window.location.origin}${storeUrl.value}`) }
+const { copiedId, copy } = useCopyFeedback()
+function copyStoreLink() {
+  if (storeUrl.value) void copy('store', `${window.location.origin}${storeUrl.value}`)
 }
 </script>
 
@@ -125,7 +123,7 @@ async function copyStoreLink() {
         <NuxtLink :to="`${storeUrl}?v=${Date.now()}`" target="_blank" class="contents">
           <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
         </NuxtLink>
-        <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyStoreLink">Copy link</DofButton>
+        <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyStoreLink">{{ copiedId === 'store' ? 'Copied ✓' : 'Copy link' }}</DofButton>
       </div>
     </section>
 

@@ -108,6 +108,9 @@ function jumpToUnread() {
 
 <template>
   <div class="min-h-dvh bg-surface font-ui text-foreground">
+    <a href="#stream" class="sr-only rounded-small bg-accent px-3 py-2 text-on-accent focus:not-sr-only focus:absolute focus:start-2 focus:top-2 focus:layer-overlay">
+      Skip to the stream
+    </a>
     <header class="border-b border-foreground/10">
       <div class="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-4">
         <DofText role="title" as="h1">Today on DOF</DofText>
@@ -115,7 +118,7 @@ function jumpToUnread() {
       </div>
     </header>
 
-    <main class="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6">
+    <main id="stream" class="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6">
       <div class="flex gap-2" role="group" aria-label="filter the stream">
         <DofChip
           v-for="f in FILTERS" :key="f.value"
@@ -213,13 +216,12 @@ function jumpToUnread() {
             <!-- a deal: the offer leads -->
             <NuxtLink v-if="item.type === 'deal'" :to="itemLink(item)" class="dof-interactive flex flex-col gap-2 rounded-medium focus-visible:focus-ring">
               <DofText role="title" as="h2">{{ item.text }}</DofText>
-              <img
+              <PublicImg
                 v-if="item.image_url"
                 :src="item.image_url"
                 :alt="item.image_alt ?? item.product_title ?? ''"
-                class="h-48 w-full rounded-medium object-cover"
-                loading="lazy"
-              >
+                img-class="h-48 w-full rounded-medium object-cover"
+              />
               <div class="flex items-baseline justify-between gap-2">
                 <DofText role="body" class="truncate text-foreground/80">{{ item.product_title }}</DofText>
                 <DofMoney v-if="item.price_minor !== null" :amount="item.price_minor" :currency="item.currency ?? 'EUR'" class="shrink-0 font-medium" />
@@ -246,13 +248,12 @@ function jumpToUnread() {
             <NuxtLink v-else-if="item.type === 'product'" :to="itemLink(item)" class="dof-interactive flex flex-col gap-2 rounded-medium focus-visible:focus-ring">
               <DofText role="caption" class="uppercase tracking-widest text-accent">New in {{ item.store_name }}</DofText>
               <DofText role="title" as="h2">{{ item.text }}</DofText>
-              <img
+              <PublicImg
                 v-if="item.image_url"
                 :src="item.image_url"
                 :alt="item.image_alt ?? item.text"
-                class="h-48 w-full rounded-medium object-cover"
-                loading="lazy"
-              >
+                img-class="h-48 w-full rounded-medium object-cover"
+              />
               <div class="flex items-baseline justify-end">
                 <DofMoney v-if="item.price_minor !== null" :amount="item.price_minor" :currency="item.currency ?? 'EUR'" class="shrink-0 font-medium" />
               </div>
@@ -261,13 +262,12 @@ function jumpToUnread() {
             <!-- a spark: the words lead -->
             <NuxtLink v-else :to="itemLink(item)" class="dof-interactive flex flex-col gap-2 rounded-medium focus-visible:focus-ring">
               <DofText role="body" class="line-clamp-4 whitespace-pre-line text-foreground/95" reading>{{ item.text }}</DofText>
-              <img
+              <PublicImg
                 v-if="item.image_url"
                 :src="item.image_url"
                 :alt="`photo from ${item.store_name}`"
-                class="max-h-64 w-full rounded-medium object-cover"
-                loading="lazy"
-              >
+                img-class="h-48 w-full rounded-medium object-cover"
+              />
             </NuxtLink>
 
             <DealEngage
@@ -285,7 +285,7 @@ function jumpToUnread() {
         </template>
       </ul>
 
-      <DofEmptyState v-else icon="flame" :title="emptyCopy.title" :why="emptyCopy.why">
+      <DofEmptyState v-else icon="flame" :title="emptyCopy.title" :why="emptyCopy.why" heading-as="h2">
         <template v-if="filter !== 'all'" #action>
           <button
             type="button"
