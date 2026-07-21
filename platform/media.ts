@@ -33,10 +33,25 @@ export interface MediaStorage {
   put(path: string, data: Buffer, contentType: MediaContentType): Promise<{ url: string }>
 }
 
+/**
+ * Sandbox storage (dev/tests). When a writable directory is provided the bytes land on
+ * disk and the returned URL is served by the dev-media route — so "upload a photo → see
+ * the photo" works end-to-end locally (the merchant journey's core act). Without a
+ * directory (unit tests) it records metadata and returns an inert URL, as before.
+ */
 export class SandboxMediaStorage implements MediaStorage {
   readonly stored: Array<{ path: string; bytes: number }> = []
+  constructor(private readonly baseDir?: string) {}
   async put(path: string, data: Buffer): Promise<{ url: string }> {
     this.stored.push({ path, bytes: data.length })
+    if (this.baseDir) {
+      const { mkdir, writeFile } = await import('node:fs/promises')
+      const { join, dirname } = await import('node:path')
+      const target = join(this.baseDir, path)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, data)
+      return { url: `/dev-media/${path}` }
+    }
     return { url: `https://sandbox.media.local/${path}` }
   }
 }

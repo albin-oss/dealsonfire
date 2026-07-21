@@ -636,7 +636,8 @@ export function buildContainer(databaseUrl: string): Container {
       pool,
       (() => {
         const token = optionalEnv('BLOB_READ_WRITE_TOKEN')
-        return token ? new VercelBlobStorage(token) : new SandboxMediaStorage()
+        // dev sandbox writes real bytes so uploads render (served by /dev-media)
+        return token ? new VercelBlobStorage(token) : new SandboxMediaStorage('.data/media')
       })(),
     ),
     shutdown: () => pool.end(),

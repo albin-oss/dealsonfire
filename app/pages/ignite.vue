@@ -230,7 +230,7 @@ const stepWord = computed(() => {
             everything can be changed later. About four minutes.
           </DofText>
           <div class="flex items-center gap-3">
-            <DofButton tone="ember" icon="flame" size="lg" @click="journey.next()">Let's start</DofButton>
+            <DofButton tone="ember" icon="flame" size="lg" class="whitespace-nowrap" @click="journey.next()">Let's start</DofButton>
             <DofText role="caption" tone="faint">Your draft saves itself — leave anytime.</DofText>
           </div>
         </section>

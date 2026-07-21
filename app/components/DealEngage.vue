@@ -96,7 +96,9 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
       :aria-pressed="follows"
       @click="toggle('follow')"
     >
-      {{ follows ? 'Following' : variant === 'full' ? `Follow ${storeName}` : 'Follow' }}
+      <template v-if="follows">Following</template>
+      <template v-else-if="variant === 'full'"><span class="hidden sm:inline">Follow {{ storeName }}</span><span class="sm:hidden">Follow</span></template>
+      <template v-else>Follow</template>
     </DofButton>
   </div>
 </template>
