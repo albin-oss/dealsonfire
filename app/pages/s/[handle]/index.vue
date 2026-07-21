@@ -76,15 +76,8 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
 </script>
 
 <template>
-  <div v-bind="scopeAttrs" class="min-h-dvh bg-surface font-ui text-foreground">
-    <header class="border-b border-foreground/10">
-      <div class="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4">
-        <DofText role="title" as="h1">{{ store.name }}</DofText>
-        <nav aria-label="store" class="flex gap-4 text-caption text-foreground/80">
-          <a href="#shelf" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">Shop</a>
-        </nav>
-      </div>
-    </header>
+  <div v-bind="scopeAttrs">
+    <StoreShell :store-name="store.name" :handle="store.handle" width="wide" current>
 
     <main class="mx-auto flex max-w-4xl flex-col gap-10 px-4 py-10">
       <section class="flex flex-col gap-2">
@@ -181,11 +174,6 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       </NuxtLink>
     </main>
 
-    <footer class="border-t border-foreground/10">
-      <div class="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 text-caption text-foreground/60">
-        <span>{{ store.name }}</span>
-        <NuxtLink to="/home" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">powered by DOF</NuxtLink>
-      </div>
-    </footer>
+    </StoreShell>
   </div>
 </template>
