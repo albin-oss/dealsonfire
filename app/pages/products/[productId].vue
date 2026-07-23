@@ -223,9 +223,12 @@ const currency = computed(() => product.value?.variants[0]?.price.currency ?? 'E
 
 <template>
   <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
-    <div v-if="pending || !product" class="flex flex-col gap-3" aria-hidden="true">
-      <DofSkeleton v-for="n in 3" :key="n" class="h-20 rounded-large" />
-    </div>
+    <template v-if="pending || !product">
+      <h1 class="sr-only">Loading this product…</h1>
+      <div class="flex flex-col gap-3" aria-hidden="true">
+        <DofSkeleton v-for="n in 3" :key="n" class="h-20 rounded-large" />
+      </div>
+    </template>
 
     <template v-else>
       <PageHeader :title="product.title" subtitle="Everything about this product, in one place.">

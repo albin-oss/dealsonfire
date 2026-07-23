@@ -186,7 +186,11 @@ export type FeedVoice = 'all' | 'deals' | 'sparks' | 'products' | 'makers'
 
 export async function listHomeFeed(
   tx: Tx,
-  opts: { visitorId: string | null; filter: FeedFilter; lastVisit: string | null; limit?: number; voice?: FeedVoice },
+  opts: {
+    visitorId: string | null; filter: FeedFilter; lastVisit: string | null; limit?: number; voice?: FeedVoice
+    /** Keyset cursor (Increment 07): items strictly OLDER than (sortKey, id). */
+    before?: { sortKey: string; id: string } | null
+  },
 ): Promise<HomeFeedItem[]> {
   const visitor = opts.visitorId
   if (!visitor && opts.filter !== 'all') return []
@@ -334,6 +338,15 @@ export async function listHomeFeed(
             : [dealBranch, sparkBranch, storeBranch, productBranch, makerBranch]
   const union = branches.join('\n       UNION ALL\n')
 
+  // keyset pagination: strictly older than the cursor row (stable under inserts)
+  let cursorClause = ''
+  if (opts.before) {
+    params.push(opts.before.sortKey)
+    const keyParam = params.length
+    params.push(opts.before.id)
+    cursorClause = `WHERE (sort_key, id) < ($${keyParam}::timestamptz, $${params.length}::uuid)`
+  }
+
   // the subquery names every column ONCE — the union is order-independent (the
   // first-branch-names-the-columns pitfall bit twice before this)
   const { rows } = await asClient(tx).query<HomeFeedItem & { sort_key: string }>(
@@ -342,6 +355,7 @@ export async function listHomeFeed(
        product_id, product_title, price_minor, currency, image_url, image_alt,
        promise, fires, viewer_reacted, viewer_saved, viewer_follows, is_new, sort_key
      )
+     ${cursorClause}
      ORDER BY sort_key DESC, id DESC
      LIMIT $1`,
     params,

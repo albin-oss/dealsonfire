@@ -41,12 +41,30 @@ const VOICES: Array<{ value: Voice; label: string }> = [
   { value: 'makers', label: 'Shops & makers' },
 ]
 
-interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number; my_merchants: Array<{ handle: string; name: string; tagline: string | null }>; corner_kept: boolean }
+interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number; my_merchants: Array<{ handle: string; name: string; tagline: string | null }>; corner_kept: boolean; next_cursor: string | null }
 const { data, pending } = await useFetch<HomeResponse>(
   () => `/api/v1/public/home?filter=${filter.value}&voice=${voice.value}`,
   { watch: [filter, voice] },
 )
-const items = computed(() => data.value?.items ?? [])
+// older pages accumulate below the live head (reset when the lens changes)
+const olderItems = ref<HomeFeedItem[]>([])
+const olderCursor = ref<string | null>(null)
+const loadingMore = ref(false)
+watch([filter, voice], () => { olderItems.value = []; olderCursor.value = null })
+const items = computed(() => [...(data.value?.items ?? []), ...olderItems.value])
+const nextCursor = computed(() => olderCursor.value ?? data.value?.next_cursor ?? null)
+async function showMore() {
+  if (!nextCursor.value || loadingMore.value) return
+  loadingMore.value = true
+  try {
+    const page = await $fetch<HomeResponse>(`/api/v1/public/home?filter=${filter.value}&voice=${voice.value}&before=${encodeURIComponent(nextCursor.value)}`)
+    olderItems.value = [...olderItems.value, ...page.items]
+    olderCursor.value = page.items.length >= 48 ? `${page.items.at(-1)!.published_at}~${page.items.at(-1)!.id}` : null
+    if (page.items.length < 48) olderCursor.value = null
+  } finally {
+    loadingMore.value = false
+  }
+}
 const newCount = computed(() => data.value?.new_following_count ?? 0)
 const myMerchants = computed(() => data.value?.my_merchants ?? [])
 const cornerKept = computed(() => data.value?.corner_kept ?? false)
@@ -343,7 +361,11 @@ function jumpToUnread() {
         </template>
       </ul>
 
-      <DofEmptyState v-else icon="flame" :title="emptyCopy.title" :why="emptyCopy.why" heading-as="h2">
+      <div v-if="items.length > 0 && nextCursor" class="flex justify-center">
+        <DofButton variant="soft" tone="neutral" :loading="loadingMore" @click="showMore">Show more of the street</DofButton>
+      </div>
+
+      <DofEmptyState v-else-if="!pending && items.length === 0" icon="flame" :title="emptyCopy.title" :why="emptyCopy.why" heading-as="h2">
         <template v-if="filter !== 'all'" #action>
           <button
             type="button"

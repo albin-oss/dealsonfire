@@ -23,6 +23,8 @@ export interface HomeResponse {
   my_merchants: Array<{ handle: string; name: string; tagline: string | null }>
   /** Release 1.3 — is this corner already kept (claimed to an identity)? */
   corner_kept: boolean
+  /** Increment 07 — keyset cursor for the next page (null = end of the street). */
+  next_cursor: string | null
 }
 
 export default definePublicEndpoint({
@@ -34,9 +36,15 @@ export default definePublicEndpoint({
     const filter: FeedFilter = raw === 'saved' || raw === 'following' ? raw : 'all'
     const rawVoice = String(getQuery(event).voice ?? 'all')
     const voice: FeedVoice = ['deals', 'sparks', 'products', 'makers'].includes(rawVoice) ? rawVoice as FeedVoice : 'all'
+    // cursor: "<iso>~<uuid>" — items strictly older than this pair
+    const rawBefore = String(getQuery(event).before ?? '')
+    const beforeMatch = /^(.+)~([0-9a-f-]{36})$/.exec(rawBefore)
+    const before = beforeMatch && !Number.isNaN(new Date(beforeMatch[1]!).getTime())
+      ? { sortKey: beforeMatch[1]!, id: beforeMatch[2]! }
+      : null
     const visitorId = getVisitorId(event)
     const { lastVisit } = observeHomeVisit(event)
-    const result = await getContainer().engagement.homeFeed(visitorId, filter, lastVisit, voice)
+    const result = await getContainer().engagement.homeFeed(visitorId, filter, lastVisit, voice, before)
     setResponseHeader(event, 'Cache-Control', 'private, no-store')
     return ok({
       items: result.items,
@@ -45,6 +53,9 @@ export default definePublicEndpoint({
       new_following_count: result.newFollowingCount,
       my_merchants: result.myMerchants,
       corner_kept: result.cornerKept,
+      next_cursor: result.items.length >= 48
+        ? `${result.items.at(-1)!.published_at}~${result.items.at(-1)!.id}`
+        : null,
     })
   },
 })

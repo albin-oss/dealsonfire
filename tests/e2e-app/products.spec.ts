@@ -79,3 +79,17 @@ test('maturity signals: favicon, theme-color, lang, robots', async ({ page, requ
   const robots = await request.get('/robots.txt')
   expect(await robots.text()).toContain('Disallow: /api/')
 })
+
+test('the shops directory renders publicly and is axe-clean (WCAG)', async ({ page }) => {
+  await page.goto('/shops')
+  await expect(page.getByRole('heading', { name: 'Shops on DOF' })).toBeVisible()
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
+})
+
+test('the product detail page is axe-clean while loading (WCAG)', async ({ page }) => {
+  await page.goto('/products/00000000-0000-7000-8000-000000000000')
+  await page.waitForSelector('main#dof-main')
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
+})

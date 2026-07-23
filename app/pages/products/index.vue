@@ -47,14 +47,35 @@ const shelfFilter = ref<ShelfFilter>('all')
 type ShelfSort = 'newest' | 'title' | 'price'
 const shelfSort = ref<ShelfSort>('newest')
 
-const { data: grid, refresh: refreshGrid, pending: gridPending } = useFetch<{ items: GridRow[] }>(
+const { data: grid, refresh: refreshGrid, pending: gridPending } = useFetch<{ items: GridRow[]; next_cursor: string | null }>(
   () => `/api/v1/products?business_id=${businessId.value}&limit=100${storeId.value ? `&channel_id=${storeId.value}` : ''}${searchDebounced.value ? `&q=${encodeURIComponent(searchDebounced.value)}` : ''}${shelfFilter.value === 'archived' ? '&show_archived=true&status=archived' : ''}`,
   { lazy: true, server: false, headers, immediate: false, watch: [searchDebounced, shelfFilter] },
 )
 watch(businessId, (id) => { if (id) void refreshGrid() }, { immediate: true })
 
+// older pages accumulate under the first (existing DAO keyset, first UI use)
+const olderRows = ref<GridRow[]>([])
+const olderCursor = ref<string | null>(null)
+const loadingMore = ref(false)
+watch([searchDebounced, shelfFilter, businessId], () => { olderRows.value = []; olderCursor.value = null })
+const gridCursor = computed(() => olderCursor.value ?? grid.value?.next_cursor ?? null)
+async function showMoreProducts() {
+  if (!gridCursor.value || loadingMore.value || !businessId.value) return
+  loadingMore.value = true
+  try {
+    const page = await $fetch<{ items: GridRow[]; next_cursor: string | null }>(
+      `/api/v1/products?business_id=${businessId.value}&limit=100${storeId.value ? `&channel_id=${storeId.value}` : ''}${searchDebounced.value ? `&q=${encodeURIComponent(searchDebounced.value)}` : ''}${shelfFilter.value === 'archived' ? '&show_archived=true&status=archived' : ''}&cursor=${encodeURIComponent(gridCursor.value)}`,
+      { headers },
+    )
+    olderRows.value = [...olderRows.value, ...page.items]
+    olderCursor.value = page.next_cursor
+  } finally {
+    loadingMore.value = false
+  }
+}
+
 const shelf = computed(() => {
-  let items = grid.value?.items ?? []
+  let items = [...(grid.value?.items ?? []), ...olderRows.value]
   if (shelfFilter.value === 'on_store') items = items.filter((p) => p.on_store)
   if (shelfFilter.value === 'hidden') items = items.filter((p) => !p.on_store && p.status !== 'archived')
   const sorted = [...items]
@@ -410,14 +431,18 @@ function resetComposer() {
           </div>
         </li>
       </ul>
+      <div v-if="shelf.length > 0 && gridCursor" class="flex justify-center">
+        <DofButton variant="soft" tone="neutral" size="sm" :loading="loadingMore" @click="showMoreProducts">Show more products</DofButton>
+      </div>
+
       <DofEmptyState
-        v-else-if="searchDebounced || shelfFilter !== 'all'"
+        v-if="!gridPending && shelf.length === 0 && (searchDebounced || shelfFilter !== 'all')"
         icon="search"
         title="Nothing matches"
         why="Try a different search or filter — nothing has been lost."
       />
       <DofEmptyState
-        v-else
+        v-else-if="!gridPending && shelf.length === 0 && !searchDebounced && shelfFilter === 'all'"
         icon="package"
         title="Your first product goes here"
         why="One line above is all it takes — the shelf fills as you do."

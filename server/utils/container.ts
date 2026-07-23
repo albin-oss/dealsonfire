@@ -207,7 +207,7 @@ export interface Container {
     followStore: (handle: string, visitorId: string, ctx?: Record<string, unknown>) => Promise<Result<{ active: boolean; count: number }, DomainError>>
     dealsFeed: (visitorId: string | null, filter: FeedFilter) => Promise<FeedDeal[]>
     /** Release 0.7 — the living Home stream (deals + sparks, chronological). */
-    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null, voice?: FeedVoice) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number; myMerchants: Array<{ handle: string; name: string; tagline: string | null }>; cornerKept: boolean }>
+    homeFeed: (visitorId: string | null, filter: FeedFilter, lastVisit: string | null, voice?: FeedVoice, before?: { sortKey: string; id: string } | null) => Promise<{ items: HomeFeedItem[]; newFollowingCount: number; myMerchants: Array<{ handle: string; name: string; tagline: string | null }>; cornerKept: boolean }>
     /** Capability 02 — the shop directory (live stores, newest first). */
     liveShops: () => Promise<Awaited<ReturnType<typeof listLiveShops>>>
     /** Release 1.3 — what a visitor's corner holds (the continuity stakes). */
@@ -592,9 +592,9 @@ export function buildContainer(databaseUrl: string): Container {
         followStoreCommand(deps)({ storeHandle: handle, visitorId, requestContext: ctx }),
       dealsFeed: (visitorId, filter) =>
         deps.uow.withTransaction((tx) => listDealsFeed(tx, { visitorId, filter })),
-      homeFeed: (visitorId, filter, lastVisit, voice) =>
+      homeFeed: (visitorId, filter, lastVisit, voice, before) =>
         deps.uow.withTransaction(async (tx) => ({
-          items: await listHomeFeed(tx, { visitorId, filter, lastVisit, voice }),
+          items: await listHomeFeed(tx, { visitorId, filter, lastVisit, voice, before }),
           newFollowingCount: visitorId ? await countNewForFollowing(tx, visitorId, lastVisit) : 0,
           myMerchants: visitorId ? await listMyMerchants(tx, visitorId) : [],
           cornerKept: visitorId ? await isCornerKept(tx, visitorId) : false,
