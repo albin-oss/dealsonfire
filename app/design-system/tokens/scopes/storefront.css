@@ -8,9 +8,15 @@
  *
  * Contrast is validated at BrandKit SAVE time (merchant domain command path), not at
  * render time — storefronts are accessible by construction, never by runtime fallback.
+ *
+ * Storefronts have NO dark resolution BY DESIGN: brand palettes are contrast-validated
+ * against this light resolution only, so the brand surface stays the brand surface in
+ * every OS mode (a shop's walls don't change color at night). `color-scheme: light`
+ * pins UA-rendered parts (form controls, scrollbars) to match.
  */
 
 [data-scope='storefront'] {
+  color-scheme: light;
   --dof-sys-color-surface: var(--dof-brand-surface, var(--dof-ref-neutral-50));
   --dof-sys-color-surface-raised: var(--dof-brand-surface-raised, var(--dof-ref-neutral-0));
   --dof-sys-color-surface-sunken: var(--dof-brand-surface-sunken, var(--dof-ref-neutral-100));
@@ -24,7 +30,15 @@
   --dof-sys-color-focus: var(--dof-brand-accent, var(--dof-ref-accent-500));
 
   /* Status + ember stay platform-owned in every scope: safety colors and the fire
-     motif are DOF vocabulary, not brand surface (UX-BIBLE §11; trust dress code §3.5). */
+     motif are DOF vocabulary, not brand surface (UX-BIBLE §11; trust dress code §3.5).
+     They ARE pinned to the light-surface resolution here — storefront surfaces never
+     go dark, so the dark ramp (…-300) would wash out against them. */
+  --dof-sys-color-positive: var(--dof-ref-positive-600);
+  --dof-sys-color-caution: var(--dof-ref-caution-700);
+  --dof-sys-color-critical: var(--dof-ref-critical-600);
+  --dof-sys-color-info: var(--dof-ref-info-600);
+  --dof-sys-color-ember: var(--dof-ref-ember-600);
+  --dof-sys-color-on-ember: var(--dof-ref-neutral-0);
 
   --dof-sys-font-ui: var(--dof-brand-font-ui, ui-sans-serif, system-ui, sans-serif);
   --dof-sys-font-reading: var(--dof-brand-font-reading, var(--dof-sys-font-ui));

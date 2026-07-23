@@ -14,7 +14,7 @@ interface Shop { handle: string; name: string; tagline: string | null; story: st
 const origin = useRequestURL().origin
 useHead({
   title: 'Shops on DOF',
-  htmlAttrs: { 'data-scope': 'storefront' },
+  htmlAttrs: { 'data-scope': 'marketplace' },
   link: [{ rel: 'canonical', href: `${origin}/shops` }],
 })
 useSeoMeta({

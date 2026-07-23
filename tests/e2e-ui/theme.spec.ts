@@ -31,6 +31,15 @@ test('dark mode is a full re-resolution, inherited by every scope', async ({ pag
   expect(adminDark).toBe(dark) // inheritance: admin didn't re-declare surface
 })
 
+test('dark mode: marketplace re-resolves dark; storefront stays pinned to its light brand surface', async ({ page }) => {
+  await gotoStory(page, 'foundation-tokens--scope-gallery', 'mode:light')
+  const marketLight = await bg(page, '[data-scope="marketplace"]')
+  const storeLight = await bg(page, '[data-scope="storefront"]')
+  await gotoStory(page, 'foundation-tokens--scope-gallery', 'mode:dark')
+  expect(await bg(page, '[data-scope="marketplace"]')).not.toBe(marketLight) // the street goes dark
+  expect(await bg(page, '[data-scope="storefront"]')).toBe(storeLight) // the shop's walls don't change at night
+})
+
 test('nested storefront scope: BrandKit wins inside, workspace resolution outside', async ({ page }) => {
   await gotoStory(page, 'foundation-tokens--nested-scopes')
   const outer = await bg(page, '[data-scope="workspace"]')
