@@ -10,7 +10,7 @@ import { getQuery, setResponseHeader } from 'h3'
 import { definePublicEndpoint } from '../../../utils/define-public-endpoint'
 import { getContainer } from '../../../utils/container'
 import { getVisitorId, observeHomeVisit } from '../../../utils/visitor'
-import type { HomeFeedItem, FeedFilter } from '../../../utils/deals-feed'
+import type { HomeFeedItem, FeedFilter, FeedVoice } from '../../../utils/deals-feed'
 import { ok, type Result } from '@shared/result'
 import type { DomainError } from '@shared/errors'
 
@@ -32,9 +32,11 @@ export default definePublicEndpoint({
   async handler({ event }): Promise<Result<HomeResponse, DomainError>> {
     const raw = String(getQuery(event).filter ?? 'all')
     const filter: FeedFilter = raw === 'saved' || raw === 'following' ? raw : 'all'
+    const rawVoice = String(getQuery(event).voice ?? 'all')
+    const voice: FeedVoice = ['deals', 'sparks', 'products', 'makers'].includes(rawVoice) ? rawVoice as FeedVoice : 'all'
     const visitorId = getVisitorId(event)
     const { lastVisit } = observeHomeVisit(event)
-    const result = await getContainer().engagement.homeFeed(visitorId, filter, lastVisit)
+    const result = await getContainer().engagement.homeFeed(visitorId, filter, lastVisit, voice)
     setResponseHeader(event, 'Cache-Control', 'private, no-store')
     return ok({
       items: result.items,

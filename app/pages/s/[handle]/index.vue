@@ -64,6 +64,11 @@ const { data: engagement } = useFetch<{ followers: number; viewer_follows: boole
   { lazy: true, server: false },
 )
 
+// continuity: remember this visit on this device (Capability 02)
+import { useRecentlyViewed } from '../../../composables/use-recently-viewed'
+const { record } = useRecentlyViewed()
+onMounted(() => record({ kind: 'shop', to: `/s/${store.value.handle}`, title: store.value.name, context: brand.value?.tagline ?? 'a shop on DOF' }))
+
 const { scopeAttrs } = useBrandKit(computed(() => ({
   accent: brand.value?.palette.primary,
   accentStrong: brand.value?.palette.primary,
