@@ -10,14 +10,15 @@ import {
   DofText, DofButton, DofInput, DofTextarea, DofChip, DofMoney,
   DofEmptyState, DofSkeleton, DofProblem, announce,
 } from '@ds/index'
-import { devUserId } from '../composables/ignite/launch'
 import { useCopyFeedback } from '../composables/use-copy'
+import { useDevHeaders } from '../composables/dev-headers'
+import { useArmedAction } from '../composables/use-armed-action'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Deals — DOF' })
 
 // ——— workspace context (same spine as the Composer)
-const headers = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
+const headers = useDevHeaders()
 const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })
@@ -82,18 +83,9 @@ const { copiedId, copy } = useCopyFeedback()
 const copyDealLink = (id: string) => copy(id, `${window.location.origin}${dealUrl(id)}`)
 
 const ending = ref<string | null>(null)
-const armedId = ref<string | null>(null)
-let armTimer: ReturnType<typeof setTimeout> | null = null
+const { armedId, arm } = useArmedAction('Tap again to end this deal.')
 function armOrEnd(deal: DealItem) {
-  if (armedId.value !== deal.id) {
-    armedId.value = deal.id
-    announce('Tap again to end this deal.')
-    if (armTimer) clearTimeout(armTimer)
-    armTimer = setTimeout(() => (armedId.value = null), 3000)
-    return
-  }
-  armedId.value = null
-  void endDeal(deal)
+  if (arm(deal.id)) void endDeal(deal)
 }
 async function endDeal(deal: DealItem) {
   if (!businessId.value || ending.value) return
@@ -119,18 +111,9 @@ async function endDeal(deal: DealItem) {
     <PageHeader title="Deals" subtitle="Give one of your products a moment — a headline, a story, a link worth sharing." />
 
     <!-- ——— just published: View live → Copy link → share (the Release 0.2 idiom) -->
-    <section
-      v-if="justPublished && storeHandle"
-      class="flex flex-wrap items-center gap-3 rounded-large border border-positive/40 bg-positive/5 p-4"
-      aria-live="polite"
-    >
-      <DofText role="body" class="flex-1"><strong>“{{ justPublished.headline }}”</strong> is live.</DofText>
-      <NuxtLink :to="`${dealUrl(justPublished.dealId)}?v=${Date.now()}`" target="_blank" class="contents">
-        <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
-      </NuxtLink>
-      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyDealLink(justPublished.dealId)">{{ copiedId === justPublished.dealId ? 'Copied ✓' : 'Copy link' }}</DofButton>
-      <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
-    </section>
+    <PublishedBar v-if="justPublished && storeHandle" :live-url="dealUrl(justPublished.dealId)" @dismiss="justPublished = null">
+      <strong>“{{ justPublished.headline }}”</strong> is live.
+    </PublishedBar>
 
     <!-- ——— create: pick → describe → publish (the preview IS the form) -->
     <section aria-label="create a deal" class="flex flex-col gap-4">
