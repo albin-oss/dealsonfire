@@ -125,13 +125,13 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
 
 <template>
   <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
-    <section class="flex flex-col gap-1">
-      <DofText role="headline" as="h1">Sparks</DofText>
-      <DofText role="body" tone="muted">What’s happening in the shop today? Short, honest, worth reading.</DofText>
-      <DofText v-if="followers > 0" role="caption" class="text-accent">
-        {{ followers === 1 ? '1 person follows' : `${followers} people follow` }} your store — every spark lands on their Home.
-      </DofText>
-    </section>
+    <PageHeader title="Sparks" subtitle="What’s happening in the shop today? Short, honest, worth reading.">
+      <template #meta>
+        <DofText v-if="followers > 0" role="caption" class="text-accent">
+          {{ followers === 1 ? '1 person follows' : `${followers} people follow` }} your store — every spark lands on their Home.
+        </DofText>
+      </template>
+    </PageHeader>
 
     <!-- ——— just published: View live → Copy link (the Release 0.2 idiom) -->
     <section

@@ -9,7 +9,7 @@
 import { computed, ref, watch } from 'vue'
 import {
   DofText, DofButton, DofInput, DofTextarea, DofChip,
-  DofEmptyState, DofSkeleton, DofProblem, announce,
+  DofEmptyState, DofSkeleton, DofProblem, announce, useBrandKit,
 } from '@ds/index'
 import type { BrandKitResponse } from '@contracts/schemas/merchant/brand-kit.schema'
 import { draftStory, draftPromises } from '../composables/identity-intelligence'
@@ -107,6 +107,19 @@ async function save() {
 }
 
 const { copiedId, copy } = useCopyFeedback()
+// the preview wears the store's real palette — the same brand-kit idiom the live
+// storefront uses, so what the merchant sees here IS what the street sees
+const { scopeAttrs: previewAttrs } = useBrandKit(computed(() => ({
+  accent: kit.value?.palette.primary,
+  accentStrong: kit.value?.palette.primary,
+})))
+
+// the audience line (same read the sparks page uses)
+const { data: progressData } = useFetch<{ momentum: { followers: number } | null }>('/api/v1/workspace/progress', {
+  lazy: true, server: false, headers,
+})
+const followers = computed(() => progressData.value?.momentum?.followers ?? 0)
+
 function copyStoreLink() {
   if (storeUrl.value) void copy('store', `${window.location.origin}${storeUrl.value}`)
 }
@@ -114,18 +127,14 @@ function copyStoreLink() {
 
 <template>
   <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
-    <section class="flex flex-wrap items-end justify-between gap-3">
-      <div class="flex flex-col gap-1">
-        <DofText role="headline" as="h1">Your store</DofText>
-        <DofText role="body" tone="muted">People buy from people — tell them who you are.</DofText>
-      </div>
-      <div v-if="storeUrl && store?.status === 'live'" class="flex gap-2">
+    <PageHeader title="Your store" subtitle="People buy from people — tell them who you are.">
+      <template v-if="storeUrl && store?.status === 'live'" #actions>
         <NuxtLink :to="`${storeUrl}?v=${Date.now()}`" target="_blank" class="contents">
           <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
         </NuxtLink>
         <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyStoreLink">{{ copiedId === 'store' ? 'Copied ✓' : 'Copy link' }}</DofButton>
-      </div>
-    </section>
+      </template>
+    </PageHeader>
 
     <DofEmptyState
       v-if="workspace && !store"
@@ -141,7 +150,7 @@ function copyStoreLink() {
         <DofSkeleton v-for="n in 3" :key="n" class="h-16 rounded-large" />
       </div>
 
-      <template v-else>
+      <div v-else class="grid items-start gap-8 regular:grid-cols-[1fr_22rem]">
         <!-- ——— the identity editor -->
         <section aria-label="your identity" class="flex flex-col gap-4">
           <DofInput
@@ -199,19 +208,30 @@ function copyStoreLink() {
           </div>
         </section>
 
-        <!-- ——— as customers see it -->
-        <section v-if="tagline.trim() || story.trim() || promise.trim()" aria-label="preview" class="flex flex-col gap-2">
+        <!-- ——— as customers see it: a true mirror of the storefront hero, in the
+             store's own palette, always present (it fills as they type) -->
+        <section aria-label="preview" class="flex flex-col gap-2 regular:sticky regular:top-6">
           <DofText role="emphasis" as="h2">As customers see it</DofText>
-          <div class="flex flex-col gap-3 rounded-large border border-line bg-surface-raised p-5">
-            <div class="flex flex-col gap-0.5">
+          <div v-bind="previewAttrs" class="overflow-hidden rounded-large border border-line">
+            <div class="flex flex-col gap-2 border-b border-foreground/10 bg-surface p-5">
               <DofText role="title" as="p">{{ store.name }}</DofText>
-              <DofText v-if="tagline.trim()" role="caption" tone="muted">{{ tagline.trim() }}</DofText>
+              <DofText role="emphasis" as="p" :tone="tagline.trim() ? undefined : 'muted'">
+                {{ tagline.trim() || `Welcome to ${store.name}.` }}
+              </DofText>
+              <DofText role="caption" class="text-accent">dof.dev/{{ store.handle }}</DofText>
             </div>
-            <DofText v-if="story.trim()" role="body" class="text-foreground/90" reading>{{ story.trim() }}</DofText>
-            <DofText v-if="promise.trim()" role="caption" class="text-positive">✓ {{ promise.trim() }}</DofText>
+            <div class="flex flex-col gap-3 bg-surface p-5">
+              <DofText v-if="story.trim()" role="body" class="text-foreground/90" reading>{{ story.trim() }}</DofText>
+              <DofText v-else role="caption" tone="muted">Your story appears here as you write it.</DofText>
+              <DofText v-if="promise.trim()" role="caption" class="text-positive">✓ {{ promise.trim() }}</DofText>
+              <DofText v-if="followers > 0" role="caption" tone="muted">
+                {{ followers === 1 ? '1 person follows' : `${followers} people follow` }} this store
+              </DofText>
+            </div>
           </div>
+          <DofText role="caption" tone="muted">This is the top of your live storefront — word for word.</DofText>
         </section>
-      </template>
+      </div>
     </template>
 
     <div v-else class="flex flex-col gap-3" aria-hidden="true">

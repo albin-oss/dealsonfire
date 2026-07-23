@@ -205,10 +205,7 @@ function resetComposer() {
 
 <template>
   <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
-    <section class="flex flex-col gap-1">
-      <DofText role="headline" as="h1">Products</DofText>
-      <DofText role="body" tone="muted">One line is enough — DOF drafts the rest, you approve.</DofText>
-    </section>
+    <PageHeader title="Products" subtitle="One line is enough — DOF drafts the rest, you approve." />
 
     <!-- ——— the Composer -->
     <section aria-label="add a product" class="flex flex-col gap-4 rounded-large border border-line bg-surface-raised p-5">

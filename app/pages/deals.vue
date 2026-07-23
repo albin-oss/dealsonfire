@@ -103,10 +103,7 @@ async function endDeal(deal: DealItem) {
 
 <template>
   <div class="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-8">
-    <section class="flex flex-col gap-1">
-      <DofText role="headline" as="h1">Deals</DofText>
-      <DofText role="body" tone="muted">Give one of your products a moment — a headline, a story, a link worth sharing.</DofText>
-    </section>
+    <PageHeader title="Deals" subtitle="Give one of your products a moment — a headline, a story, a link worth sharing." />
 
     <!-- ——— just published: View live → Copy link → share (the Release 0.2 idiom) -->
     <section

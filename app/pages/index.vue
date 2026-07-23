@@ -111,7 +111,10 @@ const greeting = computed(() =>
       />
     </DofCard>
 
-    <DofCard>
+    <!-- teaching placeholders serve the merchant who hasn't started; an active
+         merchant's workspace stays tight (a screen full of "nothing yet" reads
+         unfinished, not helpful) -->
+    <DofCard v-if="!hasStore">
       <template #header>
         <DofText role="emphasis" as="h2">Continue where you left off</DofText>
       </template>
@@ -122,7 +125,7 @@ const greeting = computed(() =>
       />
     </DofCard>
 
-    <DofCard>
+    <DofCard v-if="!hasStore">
       <template #header>
         <DofText role="emphasis" as="h2">Recent activity</DofText>
       </template>
