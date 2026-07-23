@@ -22,10 +22,12 @@ test('landing page renders the honest empty states and passes axe', async ({ pag
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
 })
 
-test('S0 shows exactly the five essential areas; raising the level reveals more', async ({ page }) => {
+test('S0 shows the shipped essentials; raising the level reveals more', async ({ page }) => {
   await gotoFresh(page)
   const sidebar = page.locator('nav').first()
-  await expect(sidebar.getByRole('button')).toHaveText(['Home', 'Products', 'Orders', 'Deals', 'Settings'])
+  // Store and Sparks joined S0 when they shipped (Increment 02): the default nav
+  // shows what EXISTS; the reveal ladder governs the not-yet-built
+  await expect(sidebar.getByRole('button')).toHaveText(['Home', 'Products', 'Orders', 'Deals', 'Store', 'Sparks', 'Settings'])
 
   // raise via the user menu (the visible face of Progressive Complexity)
   await page.getByRole('button', { name: 'User menu' }).click()
