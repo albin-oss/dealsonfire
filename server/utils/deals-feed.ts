@@ -182,9 +182,11 @@ export interface HomeFeedItem {
  * last-visit watermark. Personal filters need an identity (empty worlds otherwise);
  * `saved` is deal-scoped by design (sparks have no save).
  */
+export type FeedVoice = 'all' | 'deals' | 'sparks' | 'products' | 'makers'
+
 export async function listHomeFeed(
   tx: Tx,
-  opts: { visitorId: string | null; filter: FeedFilter; lastVisit: string | null; limit?: number },
+  opts: { visitorId: string | null; filter: FeedFilter; lastVisit: string | null; limit?: number; voice?: FeedVoice },
 ): Promise<HomeFeedItem[]> {
   const visitor = opts.visitorId
   if (!visitor && opts.filter !== 'all') return []
@@ -248,7 +250,7 @@ export async function listHomeFeed(
               (SELECT count(*)::int FROM spark_reactions r2 WHERE r2.spark_id = sp.id),
               ${sparkViewer},
               ($2::timestamptz IS NOT NULL AND sp.published_at > $2::timestamptz),
-              sp.published_at
+              sp.published_at AS sort_key
        FROM sparks sp
        JOIN stores s ON s.id = sp.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
        LEFT JOIN media_assets ma ON ma.id = sp.media_id
@@ -272,7 +274,7 @@ export async function listHomeFeed(
               0,
               ${followViewer},
               ($2::timestamptz IS NOT NULL AND s.published_at > $2::timestamptz),
-              s.published_at
+              s.published_at AS sort_key
        FROM stores s
        LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
        WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
@@ -290,7 +292,7 @@ export async function listHomeFeed(
               0,
               ${followViewer},
               ($2::timestamptz IS NOT NULL AND b.updated_at > $2::timestamptz),
-              b.updated_at
+              b.updated_at AS sort_key
        FROM brand_kits b
        JOIN stores s ON s.id = b.owner_id AND b.owner_type = 'store'
        WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
@@ -308,7 +310,7 @@ export async function listHomeFeed(
               0,
               ${followViewer},
               ($2::timestamptz IS NOT NULL AND l.published_at > $2::timestamptz),
-              l.published_at
+              l.published_at AS sort_key
        FROM listings l
        JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
        JOIN stores s ON s.id = l.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
@@ -320,13 +322,26 @@ export async function listHomeFeed(
        ) img ON true
        WHERE l.status = 'published' AND l.published_at IS NOT NULL ${followFilter('s')}`
 
-  // 'saved' is deal-scoped by design (only deals are saveable) -> the other voices drop out
-  const union = opts.filter === 'saved'
-    ? dealBranch
-    : [dealBranch, sparkBranch, storeBranch, productBranch, makerBranch].join('\n       UNION ALL\n')
+  // 'saved' is deal-scoped by design (only deals are saveable) -> the other voices drop out.
+  // The voice filter (Capability 02) narrows the blend to one kind of thing — still
+  // chronological, still no ranking.
+  const voice = opts.voice ?? 'all'
+  const branches =
+    opts.filter === 'saved' || voice === 'deals' ? [dealBranch]
+      : voice === 'sparks' ? [sparkBranch]
+        : voice === 'products' ? [productBranch]
+          : voice === 'makers' ? [storeBranch, makerBranch]
+            : [dealBranch, sparkBranch, storeBranch, productBranch, makerBranch]
+  const union = branches.join('\n       UNION ALL\n')
 
+  // the subquery names every column ONCE — the union is order-independent (the
+  // first-branch-names-the-columns pitfall bit twice before this)
   const { rows } = await asClient(tx).query<HomeFeedItem & { sort_key: string }>(
-    `SELECT * FROM (${union}) stream
+    `SELECT * FROM (${union}) AS stream(
+       type, id, text, story, published_at, store_handle, store_name,
+       product_id, product_title, price_minor, currency, image_url, image_alt,
+       promise, fires, viewer_reacted, viewer_saved, viewer_follows, is_new, sort_key
+     )
      ORDER BY sort_key DESC, id DESC
      LIMIT $1`,
     params,
@@ -407,4 +422,30 @@ export async function isCornerKept(tx: Tx, visitorId: string): Promise<boolean> 
   const { rows } = await asClient(tx).query(
     `SELECT 1 FROM identity_claims WHERE claim_type = 'visitor' AND claim_ref = $1`, [visitorId])
   return rows.length > 0
+}
+
+/** The shop directory (Capability 02): every live store as a card — newest first
+ * (honest recency, no ranking), with the brand voice and true counts. */
+export async function listLiveShops(tx: Tx): Promise<Array<{
+  handle: string; name: string; tagline: string | null; story: string | null; promise: string | null
+  followers: number; products_on_store: number; opened_at: string
+}>> {
+  const { rows } = await asClient(tx).query<{
+    handle: string; name: string; tagline: string | null; story: string | null; promise: string | null
+    followers: number; products_on_store: number; opened_at: string
+  }>(
+    `SELECT s.handle, s.name,
+            b.voice->>'tone' AS tagline, b.voice->>'story' AS story, b.voice->>'promise' AS promise,
+            (SELECT count(*)::int FROM store_follows f WHERE f.store_id = s.id) AS followers,
+            (SELECT count(DISTINCT l.product_id)::int FROM listings l
+             JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+             WHERE l.channel_id = s.id AND l.status = 'published') AS products_on_store,
+            s.published_at::text AS opened_at
+     FROM stores s
+     LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
+     WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+       AND s.published_at IS NOT NULL
+     ORDER BY s.published_at DESC
+     LIMIT 60`)
+  return rows
 }

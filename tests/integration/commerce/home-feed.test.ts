@@ -152,6 +152,30 @@ describe('the living Home (Release 0.7)', () => {
     expect((await http.request('GET', '/api/v1/public/stores/nobody-here/engagement')).status).toBe(404)
   })
 
+  it('voice filters narrow the blend — and survive any branch leading the union (Capability 02)', async () => {
+    const m = await merchant()
+    const products = await http.request('GET', `/api/v1/products?business_id=${m.businessId}&limit=1`, { headers: { cookie: m.cookie } })
+    await http.request('POST', '/api/v1/deals', {
+      headers: { cookie: m.cookie },
+      body: { product_id: products.body.items[0].id, store_id: m.storeId, headline: 'Voice test deal' },
+    })
+    await http.request('POST', '/api/v1/sparks', {
+      headers: { cookie: m.cookie },
+      body: { business_id: m.businessId, store_id: m.storeId, body: 'Voice test spark.' },
+    })
+    // regression: only the deal branch carried column aliases; a voice whose first
+    // branch was NOT deals returned null types (or 500 on sort_key)
+    for (const [voice, types] of [
+      ['deals', ['deal']], ['sparks', ['spark']], ['products', []],
+      ['makers', ['store']], ['all', ['spark', 'deal', 'store']],
+    ] as const) {
+      const res = await http.request('GET', `/api/v1/public/home?voice=${voice}`)
+      expect(res.status).toBe(200)
+      const got = [...new Set(res.body.items.map((i: { type: string }) => i.type))].sort()
+      expect(got).toEqual([...types].sort())
+    }
+  })
+
   it('a written story becomes a Meet-the-Maker card; silence stays silent (Release 0.9)', async () => {
     const m = await merchant()
 

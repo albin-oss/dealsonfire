@@ -30,15 +30,40 @@ useSeoMeta({
 
 type Filter = 'all' | 'saved' | 'following'
 const filter = ref<Filter>('all')
+// voice filter (Capability 02): one kind of thing, still chronological
+type Voice = 'all' | 'deals' | 'sparks' | 'products' | 'makers'
+const voice = ref<Voice>('all')
+const VOICES: Array<{ value: Voice; label: string }> = [
+  { value: 'all', label: 'Everything' },
+  { value: 'deals', label: 'Deals' },
+  { value: 'sparks', label: 'Updates' },
+  { value: 'products', label: 'New things' },
+  { value: 'makers', label: 'Shops & makers' },
+]
+
 interface HomeResponse { items: HomeFeedItem[]; has_identity: boolean; last_visit: string | null; new_following_count: number; my_merchants: Array<{ handle: string; name: string; tagline: string | null }>; corner_kept: boolean }
 const { data, pending } = await useFetch<HomeResponse>(
-  () => `/api/v1/public/home?filter=${filter.value}`,
-  { watch: [filter] },
+  () => `/api/v1/public/home?filter=${filter.value}&voice=${voice.value}`,
+  { watch: [filter, voice] },
 )
 const items = computed(() => data.value?.items ?? [])
 const newCount = computed(() => data.value?.new_following_count ?? 0)
 const myMerchants = computed(() => data.value?.my_merchants ?? [])
 const cornerKept = computed(() => data.value?.corner_kept ?? false)
+
+
+// first-visit orientation (client-side; dismissed once, stays dismissed)
+const introDismissed = ref(true)
+onMounted(() => { introDismissed.value = window.localStorage.getItem('dof.intro-dismissed') === '1' })
+function dismissIntro() {
+  introDismissed.value = true
+  window.localStorage.setItem('dof.intro-dismissed', '1')
+}
+
+// recently viewed (client-side continuity)
+import { useRecentlyViewed } from '../composables/use-recently-viewed'
+const { items: recentlyViewed, load: loadRecent } = useRecentlyViewed()
+onMounted(loadRecent)
 
 // ——— keep your corner (Release 1.3): continuity, never "create an account"
 const keepOpen = ref(false)
@@ -114,17 +139,49 @@ function jumpToUnread() {
     <header class="border-b border-foreground/10">
       <div class="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 py-4">
         <DofText role="title" as="h1">Today on DOF</DofText>
-        <DofText role="caption" class="text-foreground/60">DOF</DofText>
+        <nav aria-label="site" class="flex items-center gap-4 text-caption text-foreground/80">
+          <NuxtLink to="/shops" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">Shops</NuxtLink>
+          <DofText role="caption" class="text-foreground/60">DOF</DofText>
+        </nav>
       </div>
     </header>
 
     <main id="stream" class="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6">
-      <div class="sticky top-0 layer-sticky -mx-4 flex gap-2 border-b border-foreground/5 bg-surface/90 px-4 py-2 backdrop-blur" role="group" aria-label="filter the stream">
+      <!-- first visit: what this place IS (dismissed once, never again) -->
+      <section v-if="!introDismissed" class="flex flex-wrap items-center gap-3 rounded-large border border-accent/30 bg-accent/5 p-4">
+        <DofText role="body" class="flex-1" reading>
+          DOF is a street of independent shops — their deals, updates, and stories, newest first. No algorithm; just today.
+        </DofText>
+        <NuxtLink to="/shops" class="contents"><DofButton size="sm" tone="accent" icon="store">Meet the shops</DofButton></NuxtLink>
+        <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss introduction" @click="dismissIntro" />
+      </section>
+
+      <!-- recently viewed: client-side continuity -->
+      <section v-if="recentlyViewed.length > 0" aria-label="recently viewed" class="flex flex-col gap-2">
+        <DofText role="caption" tone="muted">Recently viewed</DofText>
+        <ul class="flex list-none gap-2 overflow-x-auto p-0">
+          <li v-for="item in recentlyViewed" :key="item.to" class="shrink-0">
+            <NuxtLink :to="item.to" class="dof-interactive flex flex-col rounded-medium border border-foreground/15 px-3 py-1.5 focus-visible:focus-ring">
+              <DofText role="caption" class="max-w-40 truncate font-medium">{{ item.title }}</DofText>
+              <DofText role="caption" class="max-w-40 truncate text-foreground/60">{{ item.context }}</DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
+
+      <div class="sticky top-0 layer-sticky -mx-4 flex flex-wrap gap-2 border-b border-foreground/5 bg-surface/90 px-4 py-2 backdrop-blur" role="group" aria-label="filter the stream">
         <DofChip
           v-for="f in FILTERS" :key="f.value"
           :label="f.value === 'following' && newCount > 0 ? `${f.label} · ${newCount} new` : f.label"
           :selected="filter === f.value"
           selectable @toggle="filter = f.value"
+        />
+        <span class="mx-1 h-4 w-px self-center bg-foreground/15" aria-hidden="true" />
+        <DofChip
+          v-for="v in VOICES" :key="v.value"
+          :label="v.label"
+          :selected="voice === v.value"
+          selectable @toggle="voice = v.value"
         />
       </div>
 

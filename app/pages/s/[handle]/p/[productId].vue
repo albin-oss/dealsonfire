@@ -68,6 +68,10 @@ const { data: shelf } = useFetch<PublicStorefrontResponse>(
 const related = computed(() =>
   (shelf.value?.products ?? []).filter((p) => p.id !== product.value.id).slice(0, 3))
 
+import { useRecentlyViewed } from '../../../../composables/use-recently-viewed'
+const { record } = useRecentlyViewed()
+onMounted(() => record({ kind: 'product', to: `/s/${store.value.handle}/p/${product.value.id}`, title: product.value.title, context: store.value.name }))
+
 const { scopeAttrs } = useBrandKit(computed(() => ({
   accent: brand.value?.palette.primary,
   accentStrong: brand.value?.palette.primary,
