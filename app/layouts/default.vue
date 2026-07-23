@@ -13,7 +13,7 @@ import {
 import { WORKSPACE_MODULES, modulesForSurface, moduleByPath, useSurfaceLevel, type SurfaceLevel } from '../composables/workspace-nav'
 import { contextualFifthId } from '../composables/workspace-companion'
 import type { OnboardingProgressResponse } from '@contracts/schemas/merchant/onboarding.schema'
-import { devUserId } from '../composables/ignite/launch'
+import { useDevHeaders } from '../composables/dev-headers'
 import WorkspaceTopBar from '../components/workspace/WorkspaceTopBar.vue'
 import WorkspaceSwitcher from '../components/workspace/WorkspaceSwitcher.vue'
 import NotificationCenter from '../components/workspace/NotificationCenter.vue'
@@ -28,7 +28,7 @@ const activeId = computed(() => moduleByPath(route.path)?.id ?? 'home')
 
 // Contextual mobile fifth slot (UX-WORKSPACE-001 §7). Nuxt dedupes this read with the
 // Home's by key — one request feeds the hero, the journey, and the tab bar.
-const devHeaders = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
+const devHeaders = useDevHeaders()
 const { data: progress } = useFetch<OnboardingProgressResponse>('/api/v1/workspace/progress', {
   lazy: true,
   server: false,

@@ -13,14 +13,14 @@ import {
 } from '@ds/index'
 import type { BrandKitResponse } from '@contracts/schemas/merchant/brand-kit.schema'
 import { draftStory, draftPromises } from '../composables/identity-intelligence'
-import { devUserId } from '../composables/ignite/launch'
+import { useDevHeaders } from '../composables/dev-headers'
 import { useCopyFeedback } from '../composables/use-copy'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Your store — DOF' })
 
 // ——— workspace context (the same spine as Products and Deals)
-const headers = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
+const headers = useDevHeaders()
 const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string; name: string; status: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })

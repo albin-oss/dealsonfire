@@ -13,7 +13,7 @@ import {
   DofOpportunityCard, DofJourneyCard,
 } from '@ds/index'
 import type { OnboardingProgressResponse } from '@contracts/schemas/merchant/onboarding.schema'
-import { devUserId } from '../composables/ignite/launch'
+import { useDevHeaders } from '../composables/dev-headers'
 import { derivePosture, selectOpportunity, journeyMoments } from '../composables/workspace-companion'
 
 // US-9: workspace requires a session (session mode only; dev leaves it open).
@@ -27,7 +27,7 @@ useHead({ title: 'Home — DOF' })
 const { data: progress, pending } = useFetch<OnboardingProgressResponse>('/api/v1/workspace/progress', {
   lazy: true,
   server: false,
-  headers: { 'x-dof-user-id': import.meta.client ? devUserId() : '' },
+  headers: useDevHeaders(),
 })
 
 const posture = computed(() => derivePosture(progress.value ?? null))

@@ -10,15 +10,16 @@ import {
   DofText, DofButton, DofTextarea, DofChip, DofMediaSlot,
   DofEmptyState, DofSkeleton, DofProblem, announce, type SlotMedia,
 } from '@ds/index'
-import { devUserId } from '../composables/ignite/launch'
 import { useCopyFeedback } from '../composables/use-copy'
+import { useDevHeaders } from '../composables/dev-headers'
+import { useArmedAction } from '../composables/use-armed-action'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Sparks — DOF' })
 const route = useRoute()
 
 // ——— workspace context (the same spine as Products, Deals, Store)
-const headers = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
+const headers = useDevHeaders()
 const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string; name: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })
@@ -103,18 +104,9 @@ const copySparkLink = (id: string) => copy(id, `${window.location.origin}${spark
 
 const deleting = ref<string | null>(null)
 // destructive actions arm first: the first tap asks, the second acts, 3s disarms
-const armedId = ref<string | null>(null)
-let armTimer: ReturnType<typeof setTimeout> | null = null
+const { armedId, arm } = useArmedAction('Tap again to take this spark down.')
 function armOrDelete(spark: SparkItem) {
-  if (armedId.value !== spark.id) {
-    armedId.value = spark.id
-    announce('Tap again to take this spark down.')
-    if (armTimer) clearTimeout(armTimer)
-    armTimer = setTimeout(() => (armedId.value = null), 3000)
-    return
-  }
-  armedId.value = null
-  void deleteSpark(spark)
+  if (arm(spark.id)) void deleteSpark(spark)
 }
 async function deleteSpark(spark: SparkItem) {
   if (!businessId.value || deleting.value) return
@@ -148,18 +140,9 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
     </PageHeader>
 
     <!-- ——— just published: View live → Copy link (the Release 0.2 idiom) -->
-    <section
-      v-if="justPublished && store"
-      class="flex flex-wrap items-center gap-3 rounded-large border border-positive/40 bg-positive/5 p-4"
-      aria-live="polite"
-    >
-      <DofText role="body" class="flex-1">Your spark is live.</DofText>
-      <NuxtLink :to="`${sparkUrl(justPublished.sparkId)}?v=${Date.now()}`" target="_blank" class="contents">
-        <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
-      </NuxtLink>
-      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copySparkLink(justPublished.sparkId)">{{ copiedId === justPublished.sparkId ? 'Copied ✓' : 'Copy link' }}</DofButton>
-      <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
-    </section>
+    <PublishedBar v-if="justPublished && store" :live-url="sparkUrl(justPublished.sparkId)" @dismiss="justPublished = null">
+      Your spark is live.
+    </PublishedBar>
 
     <!-- ——— the composer -->
     <DofEmptyState

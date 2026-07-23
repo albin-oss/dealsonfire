@@ -16,14 +16,14 @@ import {
 } from '@ds/index'
 import { parseLine, inferKind, suggestCategory, draftDescription, type AuthoringKind } from '../composables/authoring-intelligence'
 import { productReadiness } from '../composables/product-readiness'
-import { devUserId } from '../composables/ignite/launch'
 import { useCopyFeedback } from '../composables/use-copy'
+import { useDevHeaders } from '../composables/dev-headers'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Products — DOF' })
 
 // ——— workspace context: the business this composer authors into
-const headers = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
+const headers = useDevHeaders()
 const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })
@@ -282,22 +282,9 @@ function resetComposer() {
     </section>
 
     <!-- ——— just published: View Live → Copy Link → Share (Release 0.2, no modal) -->
-    <section
-      v-if="justPublished && storeHandle"
-      class="flex flex-wrap items-center gap-3 rounded-large border border-positive/40 bg-positive/5 p-4"
-      aria-live="polite"
-    >
-      <DofText role="body" class="flex-1">
-        <strong>“{{ justPublished.title }}”</strong> is on your store.
-      </DofText>
-      <NuxtLink :to="`${productUrl(justPublished.productId)}?v=${Date.now()}`" target="_blank" class="contents">
-        <DofButton size="sm" tone="accent" icon="external-link">View live</DofButton>
-      </NuxtLink>
-      <DofButton size="sm" variant="soft" tone="neutral" icon="copy" @click="copyProductLink(justPublished.productId)">
-        {{ copiedId === justPublished.productId ? 'Copied ✓' : 'Copy link' }}
-      </DofButton>
-      <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss" @click="justPublished = null" />
-    </section>
+    <PublishedBar v-if="justPublished && storeHandle" :live-url="productUrl(justPublished.productId)" @dismiss="justPublished = null">
+      <strong>“{{ justPublished.title }}”</strong> is on your store.
+    </PublishedBar>
 
     <!-- ——— the shelf -->
     <section aria-label="your products" class="flex flex-col gap-3">
