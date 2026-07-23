@@ -23,6 +23,8 @@ export default defineConfig({
     {
       name: 'app',
       testDir: 'tests/e2e-app',
+      // cold-render warmup runs before any test's clock starts (see global-setup.ts)
+      globalSetup: './tests/e2e-app/global-setup.ts',
       use: { baseURL: 'http://127.0.0.1:3100', viewport: { width: 1280, height: 800 } },
     },
   ],
