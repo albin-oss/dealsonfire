@@ -27,6 +27,7 @@ import storeFollowPost from '../../server/api/v1/public/stores/[handle]/follow.p
 import dealsFeedGet from '../../server/api/v1/public/deals/index.get'
 import homeGet from '../../server/api/v1/public/home.get'
 import shopsGet from '../../server/api/v1/public/shops.get'
+import searchGet from '../../server/api/v1/public/search.get'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
 import sparksPost from '../../server/api/v1/sparks/index.post'
 import sparksGet from '../../server/api/v1/sparks/index.get'
@@ -117,6 +118,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/public/deals', dealsFeedGet)
   router.get('/api/v1/public/home', homeGet)
   router.get('/api/v1/public/shops', shopsGet)
+  router.get('/api/v1/public/search', searchGet)
   router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
   router.post('/api/v1/sparks', sparksPost)
   router.get('/api/v1/sparks', sparksGet)

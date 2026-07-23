@@ -463,3 +463,54 @@ export async function listLiveShops(tx: Tx): Promise<Array<{
      LIMIT 60`)
   return rows
 }
+
+/**
+ * Street search (Increment 08 — Cap-02's deferred core). Grouped matches over
+ * VISIBLE entities only (every branch carries its full conjunction — search must
+ * never become a visibility oracle). Substring match on names/titles/headlines;
+ * within each group, newest first — matches are found, never ranked.
+ */
+export interface SearchResults {
+  shops: Array<{ handle: string; name: string; tagline: string | null }>
+  products: Array<{ id: string; title: string; price_minor: number | null; currency: string | null; store_handle: string; store_name: string }>
+  deals: Array<{ id: string; headline: string; store_handle: string; store_name: string }>
+  sparks: Array<{ id: string; excerpt: string; store_handle: string; store_name: string }>
+}
+
+export async function searchStreet(tx: Tx, q: string): Promise<SearchResults> {
+  const term = `%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`
+  const client = asClient(tx)
+  const [shops, products, deals, sparks] = await Promise.all([
+    client.query<SearchResults['shops'][number]>(
+      `SELECT s.handle, s.name, b.voice->>'tone' AS tagline
+       FROM stores s LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
+       WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+         AND s.name ILIKE $1
+       ORDER BY s.published_at DESC NULLS LAST LIMIT 5`, [term]),
+    client.query<SearchResults['products'][number]>(
+      `SELECT p.id, p.title,
+              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+              (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
+              s.handle AS store_handle, s.name AS store_name
+       FROM listings l
+       JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+       JOIN stores s ON s.id = l.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+       WHERE l.status = 'published' AND p.title ILIKE $1
+       ORDER BY l.published_at DESC LIMIT 5`, [term]),
+    client.query<SearchResults['deals'][number]>(
+      `SELECT d.id, d.headline, s.handle AS store_handle, s.name AS store_name
+       FROM deals d
+       JOIN listings l ON l.product_id = d.product_id AND l.channel_id = d.channel_id AND l.status = 'published'
+       JOIN products p ON p.id = d.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+       JOIN stores s ON s.id = d.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+       WHERE d.status = 'published' AND d.headline ILIKE $1
+       ORDER BY d.published_at DESC LIMIT 5`, [term]),
+    client.query<{ id: string; excerpt: string; store_handle: string; store_name: string }>(
+      `SELECT sp.id, left(sp.body, 80) AS excerpt, s.handle AS store_handle, s.name AS store_name
+       FROM sparks sp
+       JOIN stores s ON s.id = sp.channel_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
+       WHERE sp.status = 'published' AND sp.body ILIKE $1
+       ORDER BY sp.published_at DESC LIMIT 5`, [term]),
+  ])
+  return { shops: shops.rows, products: products.rows, deals: deals.rows, sparks: sparks.rows }
+}

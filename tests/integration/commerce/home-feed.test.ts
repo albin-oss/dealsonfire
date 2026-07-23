@@ -152,6 +152,32 @@ describe('the living Home (Release 0.7)', () => {
     expect((await http.request('GET', '/api/v1/public/stores/nobody-here/engagement')).status).toBe(404)
   })
 
+  it('street search finds visible things — and NEVER hidden ones (Increment 08)', async () => {
+    const m = await merchant()
+    await http.request('POST', '/api/v1/sparks', {
+      headers: { cookie: m.cookie },
+      body: { business_id: m.businessId, store_id: m.storeId, body: 'Searchable lavender spark.' },
+    })
+
+    const found = await http.request('GET', '/api/v1/public/search?q=lavender')
+    expect(found.status).toBe(200)
+    expect(found.body.products.map((p: { title: string }) => p.title)).toEqual(['Lavender blanket'])
+    expect(found.body.sparks[0].excerpt).toContain('Searchable lavender')
+    expect(found.body.shops.map((s: { name: string }) => s.name)).toEqual([])
+
+    // hide the product → search must not become a visibility oracle
+    await http.request('POST', `/api/v1/products/${m.productId}/unpublish-from-store`, {
+      headers: { cookie: m.cookie }, body: { store_id: m.storeId },
+    })
+    const hidden = await http.request('GET', '/api/v1/public/search?q=lavender')
+    expect(hidden.body.products).toEqual([])
+
+    // shop names match; short queries are refused
+    const shop = await http.request('GET', '/api/v1/public/search?q=rosa')
+    expect(shop.body.shops[0]).toMatchObject({ name: 'Rosa Knits', handle: m.handle })
+    expect((await http.request('GET', '/api/v1/public/search?q=a')).status).toBe(422)
+  })
+
   it('the street pages: keyset cursor returns disjoint, strictly-older items (Increment 07)', async () => {
     const m = await merchant()
     // three sparks make a small street; page size 48 won't split them, so page

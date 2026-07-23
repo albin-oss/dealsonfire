@@ -174,6 +174,9 @@ function jumpToUnread() {
         <DofButton size="sm" variant="ghost" tone="neutral" icon="x" aria-label="Dismiss introduction" @click="dismissIntro" />
       </section>
 
+      <!-- search the street (Increment 08) -->
+      <StreetSearch />
+
       <!-- recently viewed: client-side continuity -->
       <section v-if="recentlyViewed.length > 0" aria-label="recently viewed" class="flex flex-col gap-2">
         <DofText role="caption" tone="muted">Recently viewed</DofText>
