@@ -13,6 +13,7 @@ import {
 import { WORKSPACE_MODULES, modulesForSurface, moduleByPath, useSurfaceLevel, type SurfaceLevel } from '../composables/workspace-nav'
 import { contextualFifthId } from '../composables/workspace-companion'
 import type { OnboardingProgressResponse } from '@contracts/schemas/merchant/onboarding.schema'
+import { devUserId } from '../composables/ignite/launch'
 import WorkspaceTopBar from '../components/workspace/WorkspaceTopBar.vue'
 import WorkspaceSwitcher from '../components/workspace/WorkspaceSwitcher.vue'
 import NotificationCenter from '../components/workspace/NotificationCenter.vue'
@@ -27,10 +28,22 @@ const activeId = computed(() => moduleByPath(route.path)?.id ?? 'home')
 
 // Contextual mobile fifth slot (UX-WORKSPACE-001 §7). Nuxt dedupes this read with the
 // Home's by key — one request feeds the hero, the journey, and the tab bar.
+const devHeaders = { 'x-dof-user-id': import.meta.client ? devUserId() : '' }
 const { data: progress } = useFetch<OnboardingProgressResponse>('/api/v1/workspace/progress', {
   lazy: true,
   server: false,
+  headers: devHeaders,
 })
+
+// the shell knows WHOSE workspace this is — the header wears the store's name
+const { data: workspaceData } = useFetch<{ businesses: Array<{ business_id: string; display_name: string; stores: Array<{ store_id: string; handle: string; name: string }> }> }>('/api/v1/workspace', {
+  lazy: true, server: false, headers: devHeaders,
+})
+const activeBusiness = computed(() => workspaceData.value?.businesses[0] ?? null)
+const workspaces = computed(() => (activeBusiness.value
+  ? [{ id: activeBusiness.value.business_id, name: activeBusiness.value.stores[0]?.name ?? activeBusiness.value.display_name }]
+  : [{ id: 'default', name: 'My workspace' }]))
+const storeHandle = computed(() => activeBusiness.value?.stores[0]?.handle ?? null)
 const contextualId = computed(() => contextualFifthId(progress.value ?? null))
 
 function navigate(id: string) {
@@ -50,6 +63,20 @@ const notificationsOpen = ref(false)
 
 // idempotent across layout remounts (HMR): nav commands are this layout's own set
 import { listCommands } from '@ds/index'
+if (!listCommands().some((c) => c.id === 'bridge.street')) {
+  registerCommands([
+    {
+      id: 'bridge.street', label: 'Today on DOF — the street', group: 'Go to',
+      icon: 'flame', keywords: ['home', 'public', 'feed', 'street', 'discover'],
+      run: () => { void router.push('/home') },
+    },
+    {
+      id: 'bridge.storefront', label: 'View your store — live', group: 'Go to',
+      icon: 'external-link', keywords: ['storefront', 'live', 'public', 'shop'],
+      run: () => { if (storeHandle.value) void router.push(`/s/${storeHandle.value}`) },
+    },
+  ])
+}
 if (!listCommands().some((c) => c.id === 'nav.home')) {
   registerCommands(WORKSPACE_MODULES.map((m) => ({
     id: `nav.${m.id}`,
@@ -87,7 +114,7 @@ function recordSearch(term: string) {
     @navigate="navigate"
   >
     <template #brand>
-      <WorkspaceSwitcher />
+      <WorkspaceSwitcher :workspaces="workspaces" />
     </template>
     <template #header>
       <WorkspaceTopBar
