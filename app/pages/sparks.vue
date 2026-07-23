@@ -102,6 +102,20 @@ const { copiedId, copy } = useCopyFeedback()
 const copySparkLink = (id: string) => copy(id, `${window.location.origin}${sparkUrl(id)}`)
 
 const deleting = ref<string | null>(null)
+// destructive actions arm first: the first tap asks, the second acts, 3s disarms
+const armedId = ref<string | null>(null)
+let armTimer: ReturnType<typeof setTimeout> | null = null
+function armOrDelete(spark: SparkItem) {
+  if (armedId.value !== spark.id) {
+    armedId.value = spark.id
+    announce('Tap again to take this spark down.')
+    if (armTimer) clearTimeout(armTimer)
+    armTimer = setTimeout(() => (armedId.value = null), 3000)
+    return
+  }
+  armedId.value = null
+  void deleteSpark(spark)
+}
 async function deleteSpark(spark: SparkItem) {
   if (!businessId.value || deleting.value) return
   deleting.value = spark.id
@@ -208,7 +222,7 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
               <DofButton size="sm" variant="ghost" tone="neutral" icon="external-link">View live</DofButton>
             </NuxtLink>
             <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copySparkLink(sp.id)">{{ copiedId === sp.id ? 'Copied ✓' : 'Copy link' }}</DofButton>
-            <DofButton size="sm" variant="ghost" tone="neutral" icon="trash-2" :loading="deleting === sp.id" @click="deleteSpark(sp)">Take down</DofButton>
+            <DofButton size="sm" :variant="armedId === sp.id ? 'soft' : 'ghost'" :tone="armedId === sp.id ? 'critical' : 'neutral'" icon="trash-2" :loading="deleting === sp.id" @click="armOrDelete(sp)">{{ armedId === sp.id ? 'Really take down?' : 'Take down' }}</DofButton>
           </div>
         </li>
       </ul>
