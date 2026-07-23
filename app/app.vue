@@ -12,6 +12,7 @@ useHead({ htmlAttrs: { lang: 'en', 'data-scope': 'workspace', 'data-mode': mode 
 </script>
 
 <template>
+  <NuxtLoadingIndicator color="var(--color-accent)" :height="2" />
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>

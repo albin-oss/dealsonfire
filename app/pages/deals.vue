@@ -82,6 +82,19 @@ const { copiedId, copy } = useCopyFeedback()
 const copyDealLink = (id: string) => copy(id, `${window.location.origin}${dealUrl(id)}`)
 
 const ending = ref<string | null>(null)
+const armedId = ref<string | null>(null)
+let armTimer: ReturnType<typeof setTimeout> | null = null
+function armOrEnd(deal: DealItem) {
+  if (armedId.value !== deal.id) {
+    armedId.value = deal.id
+    announce('Tap again to end this deal.')
+    if (armTimer) clearTimeout(armTimer)
+    armTimer = setTimeout(() => (armedId.value = null), 3000)
+    return
+  }
+  armedId.value = null
+  void endDeal(deal)
+}
 async function endDeal(deal: DealItem) {
   if (!businessId.value || ending.value) return
   ending.value = deal.id
@@ -210,7 +223,7 @@ async function endDeal(deal: DealItem) {
               <DofButton size="sm" variant="ghost" tone="neutral" icon="external-link">View live</DofButton>
             </NuxtLink>
             <DofButton size="sm" variant="ghost" tone="neutral" icon="copy" @click="copyDealLink(d.id)">{{ copiedId === d.id ? 'Copied ✓' : 'Copy link' }}</DofButton>
-            <DofButton size="sm" variant="ghost" tone="neutral" :loading="ending === d.id" @click="endDeal(d)">End deal</DofButton>
+            <DofButton size="sm" :variant="armedId === d.id ? 'soft' : 'ghost'" :tone="armedId === d.id ? 'critical' : 'neutral'" :loading="ending === d.id" @click="armOrEnd(d)">{{ armedId === d.id ? 'Really end it?' : 'End deal' }}</DofButton>
           </template>
         </li>
       </ul>

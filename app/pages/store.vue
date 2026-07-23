@@ -38,6 +38,8 @@ const { data: grid, refresh: refreshGrid } = useFetch<{ items: GridRow[] }>(
 // ——— the identity (Brand Kit voice)
 const kit = ref<BrandKitResponse | null>(null)
 const loadingKit = ref(false)
+const IDENTITY_DRAFT_KEY = 'dof.identity-draft'
+const draftRestored = ref(false)
 const tagline = ref('')
 const story = ref('')
 const promise = ref('')
@@ -52,6 +54,23 @@ async function loadKit() {
     promise.value = kit.value.voice.promise ?? ''
   } catch { /* the editor teaches from blank */ } finally {
     loadingKit.value = false
+    // the workspace promise: nothing you start is ever lost — an unsaved draft
+    // from a previous visit comes back (post-hydration, post-load)
+    try {
+      const draft = JSON.parse(window.localStorage.getItem(IDENTITY_DRAFT_KEY) ?? 'null')
+      if (draft && (draft.tagline !== (kit.value?.voice.tone ?? '') || draft.story !== (kit.value?.voice.story ?? '') || draft.promise !== (kit.value?.voice.promise ?? ''))) {
+        tagline.value = draft.tagline ?? tagline.value
+        story.value = draft.story ?? story.value
+        promise.value = draft.promise ?? promise.value
+        draftRestored.value = true
+        announce('Restored your unsaved words.')
+      }
+    } catch { /* fresh start */ }
+    watch([tagline, story, promise], () => {
+      window.localStorage.setItem(IDENTITY_DRAFT_KEY, JSON.stringify({
+        tagline: tagline.value, story: story.value, promise: promise.value,
+      }))
+    })
   }
 }
 watch(businessId, (id) => { if (id) { void refreshGrid(); void loadKit() } }, { immediate: true })
@@ -98,6 +117,8 @@ async function save() {
     })
     kit.value = res
     savedAt.value = Date.now()
+    draftRestored.value = false
+    window.localStorage.removeItem(IDENTITY_DRAFT_KEY)
     announce('Saved — your store now says who you are.')
   } catch (error) {
     problem.value = (error as { data?: { detail?: string } }).data?.detail ?? 'That didn’t take — nothing was lost; try again.'
@@ -205,6 +226,8 @@ function copyStoreLink() {
               Save identity
             </DofButton>
             <DofText v-if="savedAt && !dirty" role="caption" class="text-positive">Live on your store.</DofText>
+            <DofText v-else-if="draftRestored && dirty" role="caption" tone="muted">Restored your unsaved words — kept on this device until you save.</DofText>
+            <DofText v-else-if="dirty" role="caption" tone="muted">Draft kept on this device.</DofText>
           </div>
         </section>
 
