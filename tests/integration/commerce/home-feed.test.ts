@@ -152,6 +152,24 @@ describe('the living Home (Release 0.7)', () => {
     expect((await http.request('GET', '/api/v1/public/stores/nobody-here/engagement')).status).toBe(404)
   })
 
+  it('the street pages: keyset cursor returns disjoint, strictly-older items (Increment 07)', async () => {
+    const m = await merchant()
+    // three sparks make a small street; page size 48 won't split them, so page
+    // with an explicit mid-stream cursor instead
+    for (const body of ['First.', 'Second.', 'Third.']) {
+      await http.request('POST', '/api/v1/sparks', {
+        headers: { cookie: m.cookie },
+        body: { business_id: m.businessId, store_id: m.storeId, body },
+      })
+    }
+    const page1 = await http.request('GET', '/api/v1/public/home?voice=sparks')
+    expect(page1.body.items.length).toBe(3)
+    const head = page1.body.items[0]
+    const rest = await http.request('GET', `/api/v1/public/home?voice=sparks&before=${encodeURIComponent(`${head.published_at}~${head.id}`)}`)
+    expect(rest.body.items.map((i: { text: string }) => i.text)).toEqual(['Second.', 'First.'])
+    expect(rest.body.items.some((i: { id: string }) => i.id === head.id)).toBe(false)
+  })
+
   it('voice filters narrow the blend — and survive any branch leading the union (Capability 02)', async () => {
     const m = await merchant()
     const products = await http.request('GET', `/api/v1/products?business_id=${m.businessId}&limit=1`, { headers: { cookie: m.cookie } })

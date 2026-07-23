@@ -42,9 +42,13 @@ test('S0 shows the shipped essentials; raising the level reveals more', async ({
 
 test('ask bar: mod+k opens, narrows, Enter navigates; recents recorded', async ({ page }) => {
   await gotoFresh(page)
-  await page.keyboard.press('ControlOrMeta+k')
   const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
+  // the shortcut listener attaches on hydration — retry the press until it lands
+  // (this exact race flaked twice in CI history)
+  await expect(async () => {
+    await page.keyboard.press('ControlOrMeta+k')
+    await expect(dialog).toBeVisible({ timeout: 700 })
+  }).toPass({ timeout: 10000 })
   await page.keyboard.type('orders')
   await expect(dialog.getByRole('option', { name: /Go to Orders/ })).toBeVisible()
   await expect(dialog.getByRole('option', { name: /Go to Products/ })).toBeHidden()
@@ -53,7 +57,10 @@ test('ask bar: mod+k opens, narrows, Enter navigates; recents recorded', async (
   await expect(page.getByText('A short to-do list with money attached.')).toBeVisible()
 
   // the term was recorded as a recent
-  await page.keyboard.press('ControlOrMeta+k')
+  await expect(async () => {
+    await page.keyboard.press('ControlOrMeta+k')
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 700 })
+  }).toPass({ timeout: 10000 })
   await expect(page.getByRole('dialog').getByText('Recent')).toBeVisible()
   await expect(page.getByRole('dialog').getByRole('option', { name: 'orders', exact: true })).toBeVisible()
 })
