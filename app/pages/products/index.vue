@@ -14,10 +14,10 @@ import {
   DofMediaSlot, DofReadinessSummary, DofEmptyState, DofSkeleton, DofMoney, DofProblem,
   announce, type SlotMedia,
 } from '@ds/index'
-import { parseLine, inferKind, suggestCategory, draftDescription, type AuthoringKind } from '../composables/authoring-intelligence'
-import { productReadiness } from '../composables/product-readiness'
-import { useCopyFeedback } from '../composables/use-copy'
-import { useDevHeaders } from '../composables/dev-headers'
+import { parseLine, inferKind, suggestCategory, draftDescription, type AuthoringKind } from '../../composables/authoring-intelligence'
+import { productReadiness } from '../../composables/product-readiness'
+import { useCopyFeedback } from '../../composables/use-copy'
+import { useDevHeaders } from '../../composables/dev-headers'
 
 definePageMeta({ middleware: 'auth' })
 useHead({ title: 'Products — DOF' })
@@ -32,12 +32,71 @@ const storeId = computed(() => workspace.value?.businesses[0]?.stores[0]?.store_
 const storeHandle = computed(() => workspace.value?.businesses[0]?.stores[0]?.handle ?? null)
 
 // ——— the grid
-interface GridRow { id: string; title: string; status: string; min_price_amount: number | null; price_currency: string | null; on_store: boolean; image_url: string | null; image_alt: string | null }
+interface GridRow { id: string; title: string; status: string; updated_at: string; min_price_amount: number | null; price_currency: string | null; on_store: boolean; image_url: string | null; image_alt: string | null }
+// ——— managing the shelf (Capability 01): search is a server filter (q), archived is
+// an explicit opt-in, sort and shelf-filters are client-side over the loaded page
+const search = ref('')
+const searchDebounced = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(search, (v) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => (searchDebounced.value = v.trim()), 250)
+})
+type ShelfFilter = 'all' | 'on_store' | 'hidden' | 'archived'
+const shelfFilter = ref<ShelfFilter>('all')
+type ShelfSort = 'newest' | 'title' | 'price'
+const shelfSort = ref<ShelfSort>('newest')
+
 const { data: grid, refresh: refreshGrid, pending: gridPending } = useFetch<{ items: GridRow[] }>(
-  () => `/api/v1/products?business_id=${businessId.value}&limit=24${storeId.value ? `&channel_id=${storeId.value}` : ''}`,
-  { lazy: true, server: false, headers, immediate: false },
+  () => `/api/v1/products?business_id=${businessId.value}&limit=100${storeId.value ? `&channel_id=${storeId.value}` : ''}${searchDebounced.value ? `&q=${encodeURIComponent(searchDebounced.value)}` : ''}${shelfFilter.value === 'archived' ? '&show_archived=true&status=archived' : ''}`,
+  { lazy: true, server: false, headers, immediate: false, watch: [searchDebounced, shelfFilter] },
 )
 watch(businessId, (id) => { if (id) void refreshGrid() }, { immediate: true })
+
+const shelf = computed(() => {
+  let items = grid.value?.items ?? []
+  if (shelfFilter.value === 'on_store') items = items.filter((p) => p.on_store)
+  if (shelfFilter.value === 'hidden') items = items.filter((p) => !p.on_store && p.status !== 'archived')
+  const sorted = [...items]
+  if (shelfSort.value === 'title') sorted.sort((a, b) => a.title.localeCompare(b.title))
+  else if (shelfSort.value === 'price') sorted.sort((a, b) => (a.min_price_amount ?? 0) - (b.min_price_amount ?? 0))
+  else sorted.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  return sorted
+})
+
+// ——— bulk operations: select, then act with existing per-product endpoints
+const selecting = ref(false)
+const selected = ref<Set<string>>(new Set())
+function toggleSelect(id: string) {
+  const next = new Set(selected.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selected.value = next
+}
+const bulkBusy = ref(false)
+async function bulkAct(kind: 'publish' | 'unpublish' | 'archive') {
+  if (bulkBusy.value || selected.value.size === 0 || !storeId.value || !businessId.value) return
+  bulkBusy.value = true
+  let done = 0
+  try {
+    for (const id of selected.value) {
+      const path = kind === 'archive'
+        ? `/api/v1/products/${id}/archive`
+        : `/api/v1/products/${id}/${kind === 'publish' ? 'publish-to-store' : 'unpublish-from-store'}`
+      await $fetch(path, {
+        method: 'POST',
+        headers: { ...headers, 'idempotency-key': crypto.randomUUID() },
+        ...(kind !== 'archive' ? { body: { store_id: storeId.value } } : {}),
+      }).then(() => { done += 1 }).catch(() => { /* per-item failure: count stays honest */ })
+    }
+    announce(`${done} of ${selected.value.size} products ${kind === 'publish' ? 'put on your store' : kind === 'unpublish' ? 'hidden' : 'archived'}.`)
+    selected.value = new Set()
+    selecting.value = false
+    await refreshGrid()
+  } finally {
+    bulkBusy.value = false
+  }
+}
 
 // ——— the composer state (autosaved locally — work is never lost)
 const DRAFT_KEY = 'dof.product-composer'
@@ -288,13 +347,50 @@ function resetComposer() {
 
     <!-- ——— the shelf -->
     <section aria-label="your products" class="flex flex-col gap-3">
-      <DofText role="emphasis" as="h2">On the shelf</DofText>
-      <div v-if="gridPending && businessId" class="grid grid-cols-2 gap-3 regular:grid-cols-3" aria-hidden="true">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <DofText role="emphasis" as="h2">On the shelf</DofText>
+        <DofButton size="sm" variant="ghost" tone="neutral" @click="selecting = !selecting; selected = new Set()">
+          {{ selecting ? 'Done selecting' : 'Select' }}
+        </DofButton>
+      </div>
+
+      <!-- manage: search · filter · sort (Capability 01) -->
+      <div class="flex flex-wrap items-center gap-2">
+        <DofInput v-model="search" label="Search your products" placeholder="Search by title…" class="min-w-48 flex-1" />
+      </div>
+      <div class="flex flex-wrap items-center gap-2" role="group" aria-label="filter the shelf">
+        <DofChip v-for="f in ([['all','All'],['on_store','On your store'],['hidden','Hidden'],['archived','Archived']] as const)" :key="f[0]"
+          :label="f[1]" :selected="shelfFilter === f[0]" selectable @toggle="shelfFilter = f[0]" />
+        <span class="mx-1 h-4 w-px bg-line" aria-hidden="true" />
+        <DofChip v-for="o in ([['newest','Newest'],['title','A–Z'],['price','Price']] as const)" :key="o[0]"
+          :label="o[1]" :selected="shelfSort === o[0]" selectable @toggle="shelfSort = o[0]" />
+      </div>
+
+      <!-- bulk bar -->
+      <div v-if="selecting && selected.size > 0" class="flex flex-wrap items-center gap-2 rounded-large border border-accent/30 bg-accent/5 p-3" aria-live="polite">
+        <DofText role="body" class="flex-1">{{ selected.size }} selected</DofText>
+        <DofButton size="sm" tone="accent" icon="store" :loading="bulkBusy" @click="bulkAct('publish')">Put on store</DofButton>
+        <DofButton size="sm" variant="soft" tone="neutral" icon="eye-off" :loading="bulkBusy" @click="bulkAct('unpublish')">Hide</DofButton>
+        <DofButton size="sm" variant="soft" tone="neutral" icon="archive" :loading="bulkBusy" @click="bulkAct('archive')">Archive</DofButton>
+      </div>
+
+      <div v-if="gridPending && businessId && shelf.length === 0" class="grid grid-cols-2 gap-3 regular:grid-cols-3" aria-hidden="true">
         <DofSkeleton v-for="n in 3" :key="n" class="h-24 rounded-large" />
       </div>
-      <ul v-else-if="grid && grid.items.length > 0" class="grid list-none grid-cols-2 gap-3 p-0 regular:grid-cols-3">
-        <li v-for="p in grid.items" :key="p.id" class="flex flex-col gap-1.5 rounded-large border border-line p-3">
-          <PublicImg v-if="p.image_url" :src="p.image_url" :alt="p.image_alt ?? p.title" img-class="h-20 w-full rounded-medium object-cover" />
+      <ul v-else-if="shelf.length > 0" :class="gridPending && 'opacity-60'" class="grid list-none grid-cols-2 gap-3 p-0 transition-opacity tempo-quick regular:grid-cols-3">
+        <li v-for="p in shelf" :key="p.id" class="relative flex flex-col gap-1.5 rounded-large border p-3" :class="selected.has(p.id) ? 'border-accent bg-accent/5' : 'border-line'">
+          <button
+            v-if="selecting"
+            type="button"
+            class="dof-interactive absolute inset-0 layer-base rounded-large focus-visible:focus-ring"
+            :aria-pressed="selected.has(p.id)"
+            :aria-label="`${selected.has(p.id) ? 'Deselect' : 'Select'} ${p.title}`"
+            @click="toggleSelect(p.id)"
+          />
+          <NuxtLink :to="`/products/${p.id}`" class="dof-interactive block rounded-medium focus-visible:focus-ring">
+            <PublicImg v-if="p.image_url" :src="p.image_url" :alt="p.image_alt ?? p.title" img-class="h-20 w-full rounded-medium object-cover" />
+            <div v-else class="flex h-20 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/50" aria-hidden="true">no photo yet</div>
+          </NuxtLink>
           <DofText role="body" class="truncate font-medium">{{ p.title }}</DofText>
           <DofMoney v-if="p.min_price_amount" :amount="p.min_price_amount" :currency="p.price_currency ?? 'EUR'" class="text-caption text-muted-foreground" />
           <DofText role="caption" :tone="p.on_store ? undefined : 'muted'" :class="p.on_store && 'text-positive'">
@@ -314,6 +410,12 @@ function resetComposer() {
           </div>
         </li>
       </ul>
+      <DofEmptyState
+        v-else-if="searchDebounced || shelfFilter !== 'all'"
+        icon="search"
+        title="Nothing matches"
+        why="Try a different search or filter — nothing has been lost."
+      />
       <DofEmptyState
         v-else
         icon="package"

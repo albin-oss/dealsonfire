@@ -215,7 +215,7 @@ function copyStoreLink() {
               <DofChip
                 v-for="p in promiseDrafts" :key="p"
                 :label="p"
-                @click="promise = p"
+                selectable @toggle="promise = p"
               />
             </div>
           </div>

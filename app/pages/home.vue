@@ -124,7 +124,7 @@ function jumpToUnread() {
           v-for="f in FILTERS" :key="f.value"
           :label="f.value === 'following' && newCount > 0 ? `${f.label} · ${newCount} new` : f.label"
           :selected="filter === f.value"
-          @click="filter = f.value"
+          selectable @toggle="filter = f.value"
         />
       </div>
 
