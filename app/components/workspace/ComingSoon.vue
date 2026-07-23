@@ -6,6 +6,7 @@
  */
 import { DofEmptyState, DofBadge, DofButton, DofText } from '@ds/index'
 import { moduleByPath } from '../../composables/workspace-nav'
+import ComingSoonPreview from './ComingSoonPreview.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,5 +34,8 @@ useHead({ title: () => `${module_.value?.label ?? 'DOF'} — DOF` })
         </div>
       </template>
     </DofEmptyState>
+
+    <!-- a labeled example of the module WITH content — UX understanding before shipping -->
+    <ComingSoonPreview v-if="module_" :module-id="module_.id" />
   </div>
 </template>
