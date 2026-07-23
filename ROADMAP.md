@@ -1,4 +1,40 @@
-# UI Advancement Roadmap (Stream B — Delivery)
+# DOF Roadmap — Parallel Product Evolution
+
+Two continuous streams (Founder decision, Option D). Stream A items move ONLY
+on real-world evidence; Stream B proceeds autonomously unless a gate fires
+(observable-behavior or strategy change).
+
+## Stream A — Product Discovery (Founder-owned, evidence-gated)
+
+| Initiative | Owner | Depends on | Gate | Effort | Risk | User impact |
+|---|---|---|---|---|---|---|
+| Deployment + first cohort (First Light) | Founder | DEPLOYMENT.md, playbook | — | days | low | unlocks everything |
+| Weekly Corner Note (email) | Founder→eng | claim-rate evidence, email infra | YES | 3–5d | med | high (customer) |
+| Deal momentum parity (nudge) | Founder→eng | E1/E2 evidence | YES | 0.5d | low | med (merchant) |
+| Maker face/logo surfaces | Founder→eng | identity-emotion decision | YES | 1–2d | low | high (emotional) |
+| Orders / "how do I buy?" | Founder→eng | the verbatim, ADR-007 | YES | weeks | high | decisive |
+| Durable notifications backend | Founder→eng | evidence of need | YES | 3–5d | med | med |
+| Server-side visit persistence | Founder→eng | measurement decision | YES | 1–2d | low | (learning) |
+| Entity-card consolidation | eng | observed card convergence | no | 1–2d | low | none (velocity) |
+
+## Stream B — Platform Evolution (Engineering-owned, autonomous)
+
+| Initiative | Depends on | Gate | Effort | Risk | User impact |
+|---|---|---|---|---|---|
+| Public street search (Cap-02 authorized, deferred) | — | no | 1–2d | low | high — NOW BUILDING |
+| Variants & options UI on product detail | Cap-01 endpoints (exist) | no | 1–2d | low | med (merchant) |
+| Cold-boot e2e race | — | no | 0.5d | none | (reliability) |
+| Dark-mode audit on brand pages (#23) | — | no | 1d | low | low-med |
+| Focus-visible audit (#24) + axe totality (#25) | — | no | 1d | none | med (a11y) |
+| Responsive images srcset (#16) + aspect audit (#17) | — | no | 1d | low | low (perf) |
+| Lighthouse pass (#28) | — | no | 1–2d | med | low (perf) |
+| Grid virtualization (1000+ products) | real catalogs that size | no | 2d | med | future |
+
+Numbered items reference the original Stream-B inventory below (kept for history).
+
+---
+
+# UI Advancement Roadmap (original Stream B inventory)
 
 Polish that is independent of customer validation: every item below stays
 valuable no matter what the interviews change. No new workflows, no commerce
