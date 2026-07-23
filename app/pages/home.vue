@@ -16,7 +16,7 @@ definePageMeta({ layout: false })
 const origin = useRequestURL().origin
 useHead({
   title: 'Today on DOF',
-  htmlAttrs: { 'data-scope': 'storefront' },
+  htmlAttrs: { 'data-scope': 'marketplace' },
   link: [{ rel: 'canonical', href: `${origin}/home` }],
 })
 useSeoMeta({

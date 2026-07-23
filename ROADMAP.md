@@ -21,10 +21,10 @@ on real-world evidence; Stream B proceeds autonomously unless a gate fires
 
 | Initiative | Depends on | Gate | Effort | Risk | User impact |
 |---|---|---|---|---|---|
-| Public street search (Cap-02 authorized, deferred) | — | no | 1–2d | low | high — NOW BUILDING |
-| Variants & options UI on product detail | Cap-01 endpoints (exist) | no | 1–2d | low | med (merchant) |
-| Cold-boot e2e race | — | no | 0.5d | none | (reliability) |
-| Dark-mode audit on brand pages (#23) | — | no | 1d | low | low-med |
+| Public street search (Cap-02 authorized, deferred) | — | no | 1–2d | low | ✅ shipped v1.19.0 |
+| Variants & options UI on product detail | Cap-01 endpoints (exist) | no | 1–2d | low | ✅ shipped v1.20.0 |
+| Cold-boot e2e race | — | no | 0.5d | none | ✅ shipped v1.20.0 |
+| Dark-mode audit on brand pages (#23) | — | no | 1d | low | ✅ shipped v1.21.0 — street pages moved to marketplace scope (dark-capable); storefronts pinned light by design |
 | Focus-visible audit (#24) + axe totality (#25) | — | no | 1d | none | med (a11y) |
 | Responsive images srcset (#16) + aspect audit (#17) | — | no | 1d | low | low (perf) |
 | Lighthouse pass (#28) | — | no | 1–2d | med | low (perf) |

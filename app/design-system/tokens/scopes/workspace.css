@@ -7,6 +7,7 @@
 
 :root,
 [data-scope='workspace'] {
+  color-scheme: light;
   --dof-sys-color-surface: var(--dof-ref-neutral-50);
   --dof-sys-color-surface-raised: var(--dof-ref-neutral-0);
   --dof-sys-color-surface-sunken: var(--dof-ref-neutral-100);
@@ -35,6 +36,7 @@
 }
 
 [data-mode='dark'] {
+  color-scheme: dark;
   --dof-sys-color-surface: var(--dof-ref-neutral-950);
   --dof-sys-color-surface-raised: var(--dof-ref-neutral-900);
   --dof-sys-color-surface-sunken: oklch(12.5% 0.006 84);
