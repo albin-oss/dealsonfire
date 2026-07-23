@@ -30,6 +30,11 @@ const DB_URL = `postgres://postgres:postgres@127.0.0.1:${PG_PORT}/dof_dev`
 export const DEMO_MERCHANT_USER = '11111111-1111-4111-8111-111111111111'
 const EMBER_USER = '22222222-2222-4222-8222-222222222222'
 const PIXEL_USER = '33333333-3333-4333-8333-333333333333'
+const BAKERY_USER = '44444444-4444-4444-8444-444444444444'
+const COFFEE_USER = '55555555-5555-4555-8555-555555555555'
+const FURNITURE_USER = '66666666-6666-4666-8666-666666666666'
+const FITNESS_USER = '77777777-7777-4777-8777-777777777777'
+const CLEANING_USER = '88888888-8888-4888-8888-888888888888' 
 
 // ————————————————————————————————————————————— infrastructure
 
@@ -112,8 +117,8 @@ interface MerchantSpec {
   story: string
   promise: string
   photoSeed: string
-  products: Array<{ title: string; price: number; description: string; onStore?: boolean }>
-  deals: Array<{ product: string; headline: string; story: string }>
+  products: Array<{ title: string; price: number; description: string; onStore?: boolean; kind?: 'physical' | 'digital' | 'service' }>
+  deals: Array<{ product: string; headline: string; story: string; daysAgo?: number }>
   sparks: Array<{ body: string; product?: string; photo?: boolean; daysAgo?: number }>
 }
 
@@ -177,6 +182,101 @@ const WORLD: MerchantSpec[] = [
       { body: 'Ink update for the curious: we mix our teal from leftover blue + yellow drums. Zero-waste-ish, and no two editions are quite the same.', daysAgo: 2 },
     ],
   },
+  {
+    userId: BAKERY_USER, displayName: 'Amira', storeName: 'Grain & Crumb', handle: 'grain-and-crumb',
+    palette: '#9a6b3f', tagline: 'Bread with a backbone.',
+    story: 'Grain & Crumb is a two-oven bakery above a bike shop. We mill half our flour ourselves, ferment everything slowly, and sell out most days by noon — which we consider a feature, not a bug.',
+    promise: 'Baked the morning you buy it. Never the day before.',
+    photoSeed: 'bread',
+    products: [
+      { title: 'Friday Sourdough', price: 650, description: 'A 900g country loaf: 36-hour ferment, dark bake, crackling crust. The one we get texts about.' },
+      { title: 'Rye & Raisin', price: 550, description: 'Dense, honest rye with soaked raisins. Toast it; thank us later.' },
+      { title: 'Cardamom Knots (box of 4)', price: 800, description: 'Swedish-style, hand-tied, unreasonably fragrant. Warning: a box of four serves one.' },
+    ],
+    deals: [
+      { product: 'Cardamom Knots (box of 4)', headline: 'Saturday only: knots at 6am, warm', story: 'The first batch leaves the oven at 5:40. Order tonight, collect warm at six, be insufferably smug by seven.', daysAgo: 1 },
+    ],
+    sparks: [
+      { body: 'The new mill arrived. The whole street smells like toasted grain and the neighbours have stopped complaining and started queueing.', photo: true, daysAgo: 0 },
+      { body: 'Sold out by 11:15 today — a record. Tomorrow we bake forty extra loaves. Tell your grandmother.', daysAgo: 3 },
+    ],
+  },
+  {
+    userId: COFFEE_USER, displayName: 'Tomás', storeName: 'Kettle Mountain', handle: 'kettle-mountain',
+    palette: '#215c46', tagline: 'Small-lot coffee, roasted Tuesdays.',
+    story: 'Kettle Mountain roasts single-farm lots in a garage on an actual hill. One roast day a week, everything shipped within 48 hours of the drum, farm names on every bag because they earned it.',
+    promise: 'Roasted this week or we don\u2019t ship it.',
+    photoSeed: 'coffee',
+    products: [
+      { title: 'Finca La Loma — washed', price: 1450, description: 'Huila, Colombia. Red apple, panela, a long clean finish. Our house benchmark.' },
+      { title: 'Sítio Bela Vista — natural', price: 1550, description: 'Minas Gerais, Brazil. Strawberry jam in a cup. Divisive, beloved.' },
+      { title: 'Subscription — one bag, monthly', price: 1400, description: 'The current roast, every month, no decisions required. Pause anytime.', kind: 'digital' },
+    ],
+    deals: [
+      { product: 'Sítio Bela Vista — natural', headline: 'Last 12 bags of the Bela Vista lot', story: 'When a lot is gone it is gone — that is the whole point of small lots. Twelve bags left, then we wait a year.', daysAgo: 0 },
+    ],
+    sparks: [
+      { body: 'Roast day. 62 kilos, four lots, one very hot garage. The Bela Vista naturals are the best we have ever had from this farm.', photo: true, daysAgo: 2 },
+      { body: 'A customer emailed to say our coffee ruined hotel breakfast for them forever. Genuinely the nicest thing anyone has said about our work.', daysAgo: 4 },
+    ],
+  },
+  {
+    userId: FURNITURE_USER, displayName: 'Henrik', storeName: 'Oak & Understory', handle: 'oak-and-understory',
+    palette: '#5b4a3f', tagline: 'Furniture your grandchildren will argue over.',
+    story: 'Oak & Understory builds solid-wood furniture from storm-felled city trees. Every piece is numbered, photographed with the tree it came from, and built to be repaired, not replaced.',
+    promise: 'Solid wood, visible joinery, lifetime repairs.',
+    photoSeed: 'wood',
+    products: [
+      { title: 'Understory Bench No. 14', price: 68000, description: 'From the linden that came down on Parkstrasse in the March storm. 140cm, hand-cut dovetails, oil finish.' },
+      { title: 'Shaker Peg Rail (1m)', price: 9500, description: 'The most useful metre of wood you will ever own. Oak, six pegs, ready to hang.' },
+      { title: 'Board & Butter — cutting board', price: 5400, description: 'End-grain oak, wide as a good argument. Comes with our board butter and sharpening advice.' },
+    ],
+    deals: [
+      { product: 'Board & Butter — cutting board', headline: 'Workshop seconds: boards with stories, 30% off', story: 'Three boards came out with knots too beautiful to hide and too irregular to sell at full price. Their loss is your kitchen\u2019s gain.', daysAgo: 2 },
+    ],
+    sparks: [
+      { body: 'Bench No. 14 is finished. The linden it came from shaded a bus stop for sixty years — the grain kept the shade\u2019s softness. Photos do not do it justice, come see it.', product: 'Understory Bench No. 14', photo: true, daysAgo: 1 },
+      { body: 'Repair day: a customer brought back a table we built in 2019 after a house move went badly. One hour, two clamps, good as new. This is the whole business model.', daysAgo: 5 },
+    ],
+  },
+  {
+    userId: FITNESS_USER, displayName: 'Dana', storeName: 'Second Wind', handle: 'second-wind',
+    palette: '#b3452c', tagline: 'Strength coaching for people who hated gym class.',
+    story: 'Second Wind is one coach, a small studio, and a firm belief that fitness was ruined for most people by being yelled at in school. Small groups, patient progressions, zero mirrors.',
+    promise: 'No before photos. No yelling. Ever.',
+    photoSeed: 'training',
+    products: [
+      { title: 'Foundations — 6-week small group', price: 24000, description: 'Six weeks, six people, twice a week. Learn to squat, hinge, push, pull, and actually enjoy it.', kind: 'service' },
+      { title: '1:1 Coaching session', price: 7000, description: 'One hour, your goals, no judgement. First session includes a movement check-in.', kind: 'service' },
+      { title: 'Kitchen Basics — nutrition guide', price: 1900, description: 'A 40-page PDF of real food for real schedules. No powders were harmed.', kind: 'digital' },
+    ],
+    deals: [
+      { product: 'Foundations — 6-week small group', headline: 'Evening group: two spots left', story: 'The 6pm Foundations group starts Monday. Two spots left, and the 7am group is already full — which still surprises me.', daysAgo: 0 },
+    ],
+    sparks: [
+      { body: 'Milestone in the studio today: a member deadlifted her bodyweight eight months after telling me she was "not a gym person". There is no such thing as not a gym person.', daysAgo: 0 },
+      { body: 'New rule after a vote: the studio playlist is now member-curated. I have lost control and morale has never been higher.', daysAgo: 3 },
+    ],
+  },
+  {
+    userId: CLEANING_USER, displayName: 'Marta', storeName: 'Clean Slate', handle: 'clean-slate',
+    palette: '#3d6b8f', tagline: 'Homes reset, not just cleaned.',
+    story: 'Clean Slate is a three-person crew that treats cleaning like hospitality: same team every visit, a note when we leave, and your kettle filled because you will want tea when you get home.',
+    promise: 'Same crew, every visit. Insured, vetted, kind.',
+    photoSeed: 'home',
+    products: [
+      { title: 'The Reset — full home clean', price: 12000, description: 'Three hours, three of us, every room. The apartment equivalent of a deep breath.', kind: 'service' },
+      { title: 'Fortnightly Standing Clean', price: 8500, description: 'Every other week, same crew, standing slot. The most cancelled-then-rebooked-within-a-day service we offer.', kind: 'service' },
+      { title: 'Moving-Out Certificate Clean', price: 19000, description: 'Deposit-back standard, with a checklist your landlord can argue with (they won\u2019t).', kind: 'service' },
+    ],
+    deals: [
+      { product: 'The Reset — full home clean', headline: 'New-client Reset: 20% off this month', story: 'Our Tuesday slot opened up for the first time in a year. One new household gets it — and the first Reset is 20% off while we get to know your home.', daysAgo: 1 },
+    ],
+    sparks: [
+      { body: 'Today a client\u2019s note said "it smells like my childhood in here, in a good way". We use unscented products. That smell is just CLEAN. Case closed.', daysAgo: 0 },
+      { body: 'Five years of Clean Slate this week. Same three of us as day one. Thank you to the 60 households who trust us with their keys.', photo: true, daysAgo: 4 },
+    ],
+  },
 ]
 
 /**
@@ -201,13 +301,7 @@ async function seedIdentities(): Promise<void> {
 }
 
 async function seedWorld(): Promise<void> {
-  // idempotency probe: Rosa already has a business → the world exists
-  const probe = await api(DEMO_MERCHANT_USER, 'GET', '/api/v1/workspace')
-  if (probe.businesses.length > 0) {
-    console.log('✓ demo world already seeded — leaving it alone')
-    return
-  }
-  console.log('… seeding the demo world through the real API')
+  console.log('… seeding the demo world through the real API (per-merchant idempotent)')
 
   const db = new pg.Client({ connectionString: DB_URL })
   await db.connect()
@@ -215,6 +309,9 @@ async function seedWorld(): Promise<void> {
 
   try {
     for (const m of WORLD) {
+      // idempotent per merchant: an existing business means this persona is seeded
+      const probe = await api(m.userId, 'GET', '/api/v1/workspace')
+      if (probe.businesses.length > 0) { storeHandles[m.storeName] = m.handle; continue }
       const biz = await api(m.userId, 'POST', '/api/v1/businesses', { business_type: 'individual', display_name: m.displayName })
       const businessId = biz.business_id as string
       const store = await api(m.userId, 'POST', `/api/v1/businesses/${businessId}/stores`, { name: m.storeName, handle: m.handle })
@@ -233,7 +330,7 @@ async function seedWorld(): Promise<void> {
         const created = await api(m.userId, 'POST', '/api/v1/products', {
           business_id: businessId,
           title: p.title,
-          fulfillment_kind: 'physical',
+          fulfillment_kind: p.kind ?? 'physical',
           description: { format: 'plain', content: p.description },
           default_price: { amount: p.price, currency: 'EUR' },
           ...(p.onStore === false ? {} : { publish_to_store_id: storeId }),
@@ -252,9 +349,13 @@ async function seedWorld(): Promise<void> {
       await api(m.userId, 'POST', `/api/v1/stores/${storeId}/publish`)
 
       for (const d of m.deals) {
-        await api(m.userId, 'POST', '/api/v1/deals', {
+        const createdDeal = await api(m.userId, 'POST', '/api/v1/deals', {
           product_id: productIds[d.product], store_id: storeId, headline: d.headline, story: d.story,
         })
+        if (d.daysAgo) {
+          await db.query(`UPDATE deals SET published_at = now() - ($2 || ' days')::interval WHERE id = $1`,
+            [createdDeal.deal_id, String(d.daysAgo)])
+        }
       }
 
       for (const [i, sp] of m.sparks.entries()) {
@@ -279,22 +380,30 @@ async function seedWorld(): Promise<void> {
       }
     }
 
-    // ——— anonymous visitors make the counts alive (fires, saves, follows)
-    const home = await fetch(`${APP}/api/v1/public/home`).then((r) => r.json()) as {
-      items: Array<{ type: string; id: string; store_handle: string }>
-    }
-    const visitors = ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc']
-    for (const [i, item] of home.items.entries()) {
-      for (const [j, v] of visitors.entries()) {
-        if ((i + j) % 2 === 0) {
+    // ——— anonymous visitors make the counts alive (fires, saves, follows).
+    // IDEMPOTENT: reactions/saves/follows are toggles, so each visitor's feed is read
+    // with their own cookie and only not-yet-engaged items are touched. Only deals and
+    // sparks are reactable (the feed also carries store/maker/product voices).
+    const visitors = ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee']
+    for (const [j, v] of visitors.entries()) {
+      const mine = await fetch(`${APP}/api/v1/public/home`, { headers: { cookie: `dof_visitor=${v}` } })
+        .then((r) => r.json()) as { items: Array<{ type: string; id: string; store_handle: string; viewer_reacted: boolean; viewer_saved: boolean; viewer_follows: boolean }> }
+      for (const [i, item] of mine.items.entries()) {
+        const reactable = item.type === 'deal' || item.type === 'spark'
+        if (reactable && !item.viewer_reacted && (i + j) % 2 === 0) {
           await visitor(v, item.type === 'deal' ? `/api/v1/public/deals/${item.id}/react` : `/api/v1/public/sparks/${item.id}/react`)
         }
+        if (item.type === 'deal' && j === 0 && !item.viewer_saved) {
+          await visitor(v, `/api/v1/public/deals/${item.id}/save`)
+        }
       }
-      if (item.type === 'deal') await visitor(visitors[0]!, `/api/v1/public/deals/${item.id}/save`)
-    }
-    for (const handle of Object.values(storeHandles)) {
-      await visitor(visitors[0]!, `/api/v1/public/stores/${handle}/follow`)
-      await visitor(visitors[1]!, `/api/v1/public/stores/${handle}/follow`)
+      // each visitor follows a slice of the street (first two follow everyone)
+      const handles = Object.values(storeHandles)
+      for (const [k, handle] of handles.entries()) {
+        if ((j < 2 || (k + j) % 3 === 0) && !mine.items.some((it) => it.store_handle === handle && it.viewer_follows)) {
+          await visitor(v, `/api/v1/public/stores/${handle}/follow`)
+        }
+      }
     }
     console.log('✓ demo world seeded')
   } finally {
