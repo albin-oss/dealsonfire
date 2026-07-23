@@ -34,6 +34,21 @@ const posture = computed(() => derivePosture(progress.value ?? null))
 const opportunity = computed(() => selectOpportunity(progress.value ?? null))
 const journey = computed(() => journeyMoments(progress.value ?? null))
 const pulse = computed(() => pulseSentence(progress.value ?? null))
+const headers = useDevHeaders()
+const { data: workspaceData } = useFetch<{ businesses: Array<{ stores: Array<{ handle: string; status: string }> }> }>('/api/v1/workspace', {
+  lazy: true, server: false, headers,
+})
+const liveHandle = computed(() => {
+  const store = workspaceData.value?.businesses[0]?.stores[0]
+  return store && store.status === 'live' ? store.handle : null
+})
+const momentum = computed(() => progress.value?.momentum ?? null)
+
+const ACTIVITY_ICON = { spark: 'message-circle', deal: 'flame', product: 'package', follower: 'users' } as const
+function activityWhen(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
+}
 // momentum is only computed once a store exists — a zero-cost store proxy
 const hasStore = computed(() => progress.value?.momentum != null)
 // a mentor never repeats itself: the pulse keeps its sentence but yields its button
@@ -88,6 +103,27 @@ const greeting = computed(() =>
       <DofButton variant="soft" tone="neutral" icon="store" @click="router.push('/store')">See your store</DofButton>
       <DofButton variant="soft" tone="neutral" icon="tag" @click="router.push('/deals')">Plan a deal</DofButton>
       <DofButton v-if="hasStore" variant="soft" tone="neutral" icon="flame" @click="router.push('/sparks')">Write a spark</DofButton>
+      <DofButton v-if="liveHandle" variant="soft" tone="neutral" icon="external-link" @click="router.push(`/s/${liveHandle}`)">View storefront</DofButton>
+    </section>
+
+    <!-- ——— at a glance: what the merchant has built (Command Center, Increment 06) -->
+    <section v-if="hasStore && momentum" aria-label="your business at a glance" class="grid grid-cols-2 gap-3 regular:grid-cols-4">
+      <NuxtLink
+        v-for="stat in [
+          { label: 'On your store', value: momentum.products_on_store, to: '/products', icon: 'package' },
+          { label: 'Live deals', value: momentum.live_deals, to: '/deals', icon: 'flame' },
+          { label: 'Sparks', value: momentum.sparks_published, to: '/sparks', icon: 'message-circle' },
+          { label: 'Followers', value: momentum.followers, to: '/store', icon: 'users' },
+        ]" :key="stat.label"
+        :to="stat.to"
+        class="dof-interactive flex flex-col gap-1 rounded-large border border-line bg-surface-raised p-4 transition-colors hover:border-accent focus-visible:focus-ring"
+      >
+        <div class="flex items-center gap-2">
+          <DofIcon :name="stat.icon as never" size="sm" class="text-accent" />
+          <DofText role="caption" tone="muted">{{ stat.label }}</DofText>
+        </div>
+        <DofText role="headline" as="p">{{ stat.value }}</DofText>
+      </NuxtLink>
     </section>
 
     <DofCard>
@@ -123,6 +159,19 @@ const greeting = computed(() =>
         title="Nothing in progress"
         why="Drafts and half-finished work reappear here — nothing you start is ever lost."
       />
+    </DofCard>
+
+    <DofCard v-if="hasStore && momentum && momentum.recent_activity.length > 0">
+      <template #header>
+        <DofText role="emphasis" as="h2">Recent activity</DofText>
+      </template>
+      <ul class="flex list-none flex-col gap-2 p-0">
+        <li v-for="(act, i) in momentum.recent_activity" :key="i" class="flex items-center gap-3">
+          <DofIcon :name="ACTIVITY_ICON[act.kind] as never" size="sm" class="shrink-0 text-accent" />
+          <DofText role="body" class="min-w-0 flex-1 truncate">{{ act.label }}</DofText>
+          <DofText role="caption" tone="muted" class="shrink-0">{{ activityWhen(act.at) }}</DofText>
+        </li>
+      </ul>
     </DofCard>
 
     <DofCard v-if="!hasStore">

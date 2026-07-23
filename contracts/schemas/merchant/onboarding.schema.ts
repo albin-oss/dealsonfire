@@ -22,6 +22,14 @@ export const onboardingProgressResponse = z.object({
     new_followers_this_week: z.number().int(),
     hours_quiet: z.number().int().nullable(),
     unsparked_product: z.object({ id: z.string().uuid(), title: z.string() }).nullable(),
+    products_on_store: z.number().int(),
+    live_deals: z.number().int(),
+    sparks_published: z.number().int(),
+    recent_activity: z.array(z.object({
+      kind: z.enum(['spark', 'deal', 'product', 'follower']),
+      label: z.string(),
+      at: z.string(),
+    })),
   }).nullable(),
 })
 export type OnboardingProgressResponse = z.infer<typeof onboardingProgressResponse>

@@ -18,11 +18,17 @@ export interface MerchantMomentum {
   hours_quiet: number | null
   /** Newest on-store product no spark has ever pointed at (visible ones only). */
   unsparked_product: { id: string; title: string } | null
+  /** Command center (Increment 06): what the merchant has built, as counts. */
+  products_on_store: number
+  live_deals: number
+  sparks_published: number
+  /** The last few business facts, newest first — a timeline from existing data. */
+  recent_activity: Array<{ kind: 'spark' | 'deal' | 'product' | 'follower'; label: string; at: string }>
 }
 
 export async function merchantMomentum(tx: Tx, businessId: string): Promise<MerchantMomentum> {
   const client = asClient(tx)
-  const [followers, quiet, unsparked, firesWeek, followersWeek] = await Promise.all([
+  const [followers, quiet, unsparked, firesWeek, followersWeek, counts, activity] = await Promise.all([
     client.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM store_follows f
        JOIN stores s ON s.id = f.store_id
@@ -61,6 +67,29 @@ export async function merchantMomentum(tx: Tx, businessId: string): Promise<Merc
        WHERE s.business_id = $1 AND s.deleted_at IS NULL
          AND f.created_at > now() - interval '7 days'`,
       [businessId]),
+    client.query<{ products_on_store: number; live_deals: number; sparks_published: number }>(
+      `SELECT
+         (SELECT count(DISTINCT l.product_id) FROM listings l
+          JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+          WHERE l.business_id = $1 AND l.status = 'published')::int AS products_on_store,
+         (SELECT count(*) FROM deals WHERE business_id = $1 AND status = 'published')::int AS live_deals,
+         (SELECT count(*) FROM sparks WHERE business_id = $1 AND status = 'published')::int AS sparks_published`,
+      [businessId]),
+    client.query<{ kind: string; label: string; at: string }>(
+      `SELECT * FROM (
+         SELECT 'spark' AS kind, left(body, 60) AS label, published_at AS at
+         FROM sparks WHERE business_id = $1 AND status = 'published'
+         UNION ALL
+         SELECT 'deal', headline, published_at FROM deals WHERE business_id = $1 AND status = 'published'
+         UNION ALL
+         SELECT 'product', p.title, l.published_at FROM listings l
+         JOIN products p ON p.id = l.product_id
+         WHERE l.business_id = $1 AND l.status = 'published' AND l.published_at IS NOT NULL
+         UNION ALL
+         SELECT 'follower', 'Someone new followed your store', f.created_at FROM store_follows f
+         JOIN stores s ON s.id = f.store_id WHERE s.business_id = $1
+       ) acts ORDER BY at DESC LIMIT 6`,
+      [businessId]),
   ])
   return {
     followers: Number(followers.rows[0]?.n ?? 0),
@@ -68,5 +97,13 @@ export async function merchantMomentum(tx: Tx, businessId: string): Promise<Merc
     new_followers_this_week: Number(followersWeek.rows[0]?.n ?? 0),
     hours_quiet: quiet.rows[0]?.hours ?? null,
     unsparked_product: unsparked.rows[0] ?? null,
+    products_on_store: Number(counts.rows[0]?.products_on_store ?? 0),
+    live_deals: Number(counts.rows[0]?.live_deals ?? 0),
+    sparks_published: Number(counts.rows[0]?.sparks_published ?? 0),
+    recent_activity: activity.rows.map((r) => ({
+      kind: r.kind as 'spark' | 'deal' | 'product' | 'follower',
+      label: r.label,
+      at: new Date(r.at).toISOString(),
+    })),
   }
 }
