@@ -18,6 +18,11 @@ export default defineQueryEndpoint({
       productId,
     })
     if (!result.ok) return sendProblem(event, result.error)
-    return result.value
+    // display enrichment: the aggregate carries MediaRefs; the registry owns urls
+    const urls = await getContainer().media.urlsFor(result.value.media.map((m) => m.media_id))
+    return {
+      ...result.value,
+      media: result.value.media.map((m) => ({ ...m, url: urls[m.media_id] ?? null })),
+    }
   },
 })

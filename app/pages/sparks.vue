@@ -171,7 +171,7 @@ const productTitle = (id: string | null) => (id ? grid.value?.items.find((p) => 
             v-for="p in onStore" :key="p.id"
             :label="p.title"
             :selected="productId === p.id"
-            @click="productId = productId === p.id ? null : p.id"
+            selectable @toggle="productId = productId === p.id ? null : p.id"
           />
         </div>
       </div>

@@ -78,6 +78,14 @@ export class VercelBlobStorage implements MediaStorage {
 export class MediaService {
   constructor(private readonly pool: pg.Pool, private readonly storage: MediaStorage) {}
 
+  /** Registry lookup: media_id → url (display enrichment for read models). */
+  async urlsFor(mediaIds: string[]): Promise<Record<string, string>> {
+    if (mediaIds.length === 0) return {}
+    const { rows } = await this.pool.query<{ id: string; url: string }>(
+      `SELECT id, url FROM media_assets WHERE id = ANY($1)`, [mediaIds])
+    return Object.fromEntries(rows.map((r) => [r.id, r.url]))
+  }
+
   async store(upload: MediaUpload): Promise<StoredMedia> {
     if (!MEDIA_CONTENT_TYPES.includes(upload.contentType)) {
       throw new MediaValidationError(`unsupported media type ${upload.contentType} — use JPEG, PNG, or WebP`)

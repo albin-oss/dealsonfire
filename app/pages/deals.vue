@@ -137,7 +137,7 @@ async function endDeal(deal: DealItem) {
             v-for="p in onStore" :key="p.id"
             :label="p.title"
             :selected="selectedId === p.id"
-            @click="selectedId = selectedId === p.id ? null : p.id"
+            selectable @toggle="selectedId = selectedId === p.id ? null : p.id"
           />
         </div>
 
