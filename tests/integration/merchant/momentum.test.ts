@@ -67,5 +67,15 @@ describe('publishing momentum (Release 0.8)', () => {
     })
     const next = await http.request('GET', '/api/v1/workspace/progress', { headers: { cookie } })
     expect(next.body.momentum.unsparked_product).toMatchObject({ id: scarf.body.product_id, title: 'Wool scarf' })
+
+    // command center facts (Increment 06): counts + a fact-derived activity feed
+    expect(next.body.momentum.products_on_store).toBe(2)
+    expect(next.body.momentum.sparks_published).toBe(1)
+    expect(next.body.momentum.live_deals).toBe(0)
+    const kinds = next.body.momentum.recent_activity.map((a: { kind: string }) => a.kind)
+    expect(kinds).toContain('spark')
+    expect(kinds).toContain('product')
+    expect(kinds).toContain('follower')
+    expect(next.body.momentum.recent_activity[0].at >= next.body.momentum.recent_activity.at(-1).at).toBe(true)
   })
 })

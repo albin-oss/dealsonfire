@@ -64,7 +64,7 @@ describe('selectOpportunity — momentum (Release 0.8)', () => {
   const late = progressAt('first_sale')
 
   it('quiet store with followers → say good morning', () => {
-    const progress = { ...late, momentum: { followers: 14, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: 72, unsparked_product: null } }
+    const progress = { ...late, momentum: { followers: 14, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: 72, unsparked_product: null } }
     const opp = selectOpportunity(progress)
     expect(opp.id).toBe('morning-spark')
     expect(opp.reasoning).toContain('14 people follow')
@@ -72,14 +72,14 @@ describe('selectOpportunity — momentum (Release 0.8)', () => {
   })
 
   it('never-published store with followers → good morning (hours_quiet null)', () => {
-    const progress = { ...late, momentum: { followers: 1, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: null, unsparked_product: null } }
+    const progress = { ...late, momentum: { followers: 1, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: null, unsparked_product: null } }
     const opp = selectOpportunity(progress)
     expect(opp.id).toBe('morning-spark')
     expect(opp.reasoning).toContain('1 person follows')
   })
 
   it('recently active → the unsparked product gets its moment (one-click hand-off)', () => {
-    const progress = { ...late, momentum: { followers: 14, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: 3, unsparked_product: { id: 'p-1', title: 'Wool Scarf' } } }
+    const progress = { ...late, momentum: { followers: 14, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: 3, unsparked_product: { id: 'p-1', title: 'Wool Scarf' } } }
     const opp = selectOpportunity(progress)
     expect(opp.id).toBe('spark-product')
     expect(opp.title).toContain('Wool Scarf')
@@ -87,24 +87,24 @@ describe('selectOpportunity — momentum (Release 0.8)', () => {
   })
 
   it('no followers, nothing unsparked → share-store stands', () => {
-    const progress = { ...late, momentum: { followers: 0, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: null, unsparked_product: null } }
+    const progress = { ...late, momentum: { followers: 0, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: null, unsparked_product: null } }
     expect(selectOpportunity(progress).id).toBe('share-store')
   })
 
   it('outranks the parked ladder: first_product + real momentum facts → spark, not "add a product"', () => {
-    const progress = { ...progressAt('first_product'), momentum: { followers: 2, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: 1, unsparked_product: { id: 'p-9', title: 'Pen' } } }
+    const progress = { ...progressAt('first_product'), momentum: { followers: 2, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: 1, unsparked_product: { id: 'p-9', title: 'Pen' } } }
     const opp = selectOpportunity(progress)
     expect(opp.id).toBe('spark-product')
     expect(opp.to).toBe('/sparks?about=p-9')
   })
 
   it('first_product with NO momentum facts keeps the shelf prompt', () => {
-    const progress = { ...progressAt('first_product'), momentum: { followers: 0, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: null, unsparked_product: null } }
+    const progress = { ...progressAt('first_product'), momentum: { followers: 0, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: null, unsparked_product: null } }
     expect(selectOpportunity(progress).id).toBe('first-product')
   })
 
   it('quiet beats unsparked: the audience waits first', () => {
-    const progress = { ...late, momentum: { followers: 5, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: 96, unsparked_product: { id: 'p-1', title: 'Wool Scarf' } } }
+    const progress = { ...late, momentum: { followers: 5, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: 96, unsparked_product: { id: 'p-1', title: 'Wool Scarf' } } }
     expect(selectOpportunity(progress).id).toBe('morning-spark')
   })
 })
@@ -113,7 +113,7 @@ describe('pulseSentence — the feedback loop (Release 1.2)', () => {
   const base = progressAt('first_sale')
   const withMomentum = (m: Partial<NonNullable<OnboardingProgressResponse['momentum']>>) => ({
     ...base,
-    momentum: { followers: 0, fires_this_week: 0, new_followers_this_week: 0, hours_quiet: null, unsparked_product: null, ...m },
+    momentum: { followers: 0, fires_this_week: 0, new_followers_this_week: 0, products_on_store: 0, live_deals: 0, sparks_published: 0, recent_activity: [], hours_quiet: null, unsparked_product: null, ...m },
   })
 
   it('fires + new followers → the full "your words are working" sentence', () => {
