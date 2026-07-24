@@ -6,8 +6,8 @@
  * anything hidden is an indistinguishable 404 (V6). This page is the First Customer's
  * first impression — calm, honest, no dead ends.
  */
-import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, DofTime, announce } from '@ds/index'
+import { computed } from 'vue'
+import { useBrandKit, DofText, DofMoney, DofButton, DofTime } from '@ds/index'
 import type { PublicProductResponse, PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { productMeta, productJsonLd, productCanonical } from '../../../../composables/public-seo'
 
@@ -48,17 +48,14 @@ useHead({
 })
 useSeoMeta(productMeta(seoFacts.value))
 
-// ——— share: the customer-side loop (native sheet on mobile, copy elsewhere)
-const shared = ref(false)
-async function share() {
-  const url = productCanonical(seoFacts.value)
-  const payload = { title: product.value.title, text: `${product.value.title} — ${store.value.name}`, url }
-  try {
-    if (navigator.share) { await navigator.share(payload) }
-    else { await navigator.clipboard.writeText(url); shared.value = true; setTimeout(() => (shared.value = false), 2000) }
-    announce('Link ready to share.')
-  } catch { /* user dismissed the sheet — nothing to do */ }
-}
+// ——— share: the one street-wide idiom (native sheet on mobile, copy elsewhere)
+import { useShare } from '../../../../composables/use-share'
+const { sharedId, share: shareLink } = useShare()
+const share = () => shareLink('product', {
+  title: product.value.title,
+  text: `${product.value.title} — ${store.value.name}`,
+  url: productCanonical(seoFacts.value),
+})
 
 // ——— more from this store (reuse the cached shelf read — zero new backend)
 const { data: shelf } = useFetch<PublicStorefrontResponse>(
@@ -92,12 +89,13 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
     <StoreShell :store-name="store.name" :handle="store.handle" width="wide">
 
     <main class="mx-auto flex max-w-4xl flex-col gap-8 px-4 py-10 regular:flex-row regular:gap-12">
-      <img
+      <PublicImg
         v-if="product.image_url"
         :src="product.image_url"
         :alt="product.image_alt ?? product.title"
-        class="h-72 flex-1 rounded-large object-cover"
-      >
+        img-class="h-72 flex-1 rounded-large object-cover"
+        eager
+      />
       <div v-else class="flex h-72 flex-1 items-center justify-center rounded-large bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
         {{ store.name }}
       </div>
@@ -129,7 +127,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
               <DofButton tone="accent" size="lg" icon="store">See everything from {{ store.name }}</DofButton>
             </NuxtLink>
             <DofButton variant="soft" tone="neutral" size="lg" icon="share-2" @click="share">
-              {{ shared ? 'Link copied' : 'Share' }}
+              {{ sharedId === 'product' ? 'Link copied' : 'Share' }}
             </DofButton>
           </div>
           <DofText role="caption" class="text-foreground/60">
@@ -149,7 +147,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
               :to="`/s/${store.handle}/p/${item.id}`"
               class="dof-interactive flex flex-col gap-2 rounded-large border border-foreground/10 bg-foreground/[0.03] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
             >
-              <img v-if="item.image_url" :src="item.image_url" :alt="item.image_alt ?? item.title" class="h-20 w-full rounded-medium object-cover" loading="lazy">
+              <PublicImg v-if="item.image_url" :src="item.image_url" :alt="item.image_alt ?? item.title" img-class="h-20 w-full rounded-medium object-cover" />
               <div v-else class="flex h-20 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">{{ store.name }}</div>
               <DofText role="caption" class="truncate font-medium text-foreground">{{ item.title }}</DofText>
               <DofMoney v-if="item.price_minor !== null" :amount="item.price_minor" :currency="item.currency ?? 'EUR'" class="text-caption" />

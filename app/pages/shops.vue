@@ -67,7 +67,7 @@ const shops = computed(() => data.value?.items ?? [])
             <div class="flex items-baseline justify-between gap-2">
               <DofText role="title" as="h2" class="truncate">{{ shop.name }}</DofText>
               <DofText v-if="shop.followers > 0" role="caption" class="shrink-0 text-foreground/60">
-                {{ shop.followers }} {{ shop.followers === 1 ? 'follower' : 'followers' }}
+                {{ shop.followers === 1 ? '1 person follows' : `${shop.followers} people follow` }}
               </DofText>
             </div>
             <DofText v-if="shop.tagline" role="emphasis" as="p" class="text-foreground/90">{{ shop.tagline }}</DofText>

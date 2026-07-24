@@ -6,8 +6,8 @@
  * the shelf shows active products, and nothing else exists. SSR so the first paint IS the
  * store (LCP budget), and links unfurl with the merchant's name.
  */
-import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, DofEmptyState, DofTime, announce } from '@ds/index'
+import { computed } from 'vue'
+import { useBrandKit, DofText, DofMoney, DofButton, DofEmptyState, DofTime } from '@ds/index'
 import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { storeMeta } from '../../../composables/public-seo'
 
@@ -45,22 +45,14 @@ useSeoMeta(storeMeta({
   imageUrl: products.value[0]?.image_url ?? null,
 }))
 
-// The merchant's palette becomes the page's tokens (falls back to system tokens per key).
-// ——— share this shop (Release 1.1): the story leads, the same share idiom as everywhere
-const shared = ref(false)
-async function shareShop() {
-  const url = `${origin}/s/${store.value.handle}`
-  const payload = {
-    title: brand.value?.tagline ? `${store.value.name} — ${brand.value.tagline}` : store.value.name,
-    text: brand.value?.story?.slice(0, 120) ?? brand.value?.tagline ?? `${store.value.name} on DOF`,
-    url,
-  }
-  try {
-    if (navigator.share) { await navigator.share(payload) }
-    else { await navigator.clipboard.writeText(url); shared.value = true; setTimeout(() => (shared.value = false), 2000) }
-    announce('Link ready to share.')
-  } catch { /* user dismissed the sheet — nothing to do */ }
-}
+// ——— share this shop (Release 1.1): the one street-wide idiom
+import { useShare } from '../../../composables/use-share'
+const { sharedId, share: shareLink } = useShare()
+const shareShop = () => shareLink('shop', {
+  title: brand.value?.tagline ? `${store.value.name} — ${brand.value.tagline}` : store.value.name,
+  text: brand.value?.story?.slice(0, 120) ?? brand.value?.tagline ?? `${store.value.name} on DOF`,
+  url: `${origin}/s/${store.value.handle}`,
+})
 
 // ——— follow (Release 1.0): per-visitor snapshot, client-side — the storefront read stays cacheable
 const { data: engagement } = useFetch<{ followers: number; viewer_follows: boolean }>(
@@ -103,7 +95,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
             variant="full"
           />
           <DofButton variant="soft" tone="neutral" size="sm" icon="share-2" @click="shareShop">
-            {{ shared ? 'Link copied' : 'Share this shop' }}
+            {{ sharedId === 'shop' ? 'Link copied' : 'Share this shop' }}
           </DofButton>
           <DofText v-if="(engagement?.followers ?? 0) > 0" role="caption" class="text-foreground/70">
             {{ engagement!.followers === 1 ? '1 person follows' : `${engagement!.followers} people follow` }} this store

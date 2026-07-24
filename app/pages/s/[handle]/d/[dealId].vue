@@ -5,8 +5,9 @@
  * card and the store. SSR (unfurls carry the headline + photo); visible iff the deal AND
  * its product pass the conjunction (V6: anything else is an indistinguishable 404).
  */
-import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, DofTime, announce } from '@ds/index'
+import { computed } from 'vue'
+import { useBrandKit, DofText, DofMoney, DofButton, DofTime } from '@ds/index'
+import { useShare } from '../../../../composables/use-share'
 import type { PublicDealResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { dealMeta, dealCanonical, productJsonLd } from '../../../../composables/public-seo'
 
@@ -60,17 +61,13 @@ useHead({
 })
 useSeoMeta(dealMeta(seoFacts.value))
 
-// ——— share (same idiom as the product page)
-const shared = ref(false)
-async function share() {
-  const url = dealCanonical(seoFacts.value)
-  const payload = { title: deal.value.headline, text: `${deal.value.headline} — ${store.value.name}`, url }
-  try {
-    if (navigator.share) { await navigator.share(payload) }
-    else { await navigator.clipboard.writeText(url); shared.value = true; setTimeout(() => (shared.value = false), 2000) }
-    announce('Link ready to share.')
-  } catch { /* user dismissed the sheet — nothing to do */ }
-}
+// ——— share: the one street-wide idiom
+const { sharedId, share: shareLink } = useShare()
+const share = () => shareLink('deal', {
+  title: deal.value.headline,
+  text: `${deal.value.headline} — ${store.value.name}`,
+  url: dealCanonical(seoFacts.value),
+})
 
 // ——— engagement (Release 0.4): per-visitor snapshot, fetched client-side so the deal
 // read itself stays shared-cacheable
@@ -112,12 +109,13 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         class="dof-interactive mx-auto flex w-full max-w-lg flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.03] p-4 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
         :aria-label="`See ${product.title}`"
       >
-        <img
+        <PublicImg
           v-if="product.image_url"
           :src="product.image_url"
           :alt="product.image_alt ?? product.title"
-          class="h-64 w-full rounded-medium object-cover"
-        >
+          img-class="h-64 w-full rounded-medium object-cover"
+          eager
+        />
         <div v-else class="flex h-64 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
           {{ store.name }}
         </div>
@@ -140,7 +138,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
           <DofButton tone="accent" size="lg" icon="package">See the product</DofButton>
         </NuxtLink>
         <DofButton variant="soft" tone="neutral" size="lg" icon="share-2" @click="share">
-          {{ shared ? 'Link copied' : 'Share this deal' }}
+          {{ sharedId === 'deal' ? 'Link copied' : 'Share this deal' }}
         </DofButton>
       </div>
 
