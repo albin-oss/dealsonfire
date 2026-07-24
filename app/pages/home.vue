@@ -8,7 +8,7 @@
  * badge on the Following filter. SSR, public. /discover 301s here.
  */
 import { computed, ref } from 'vue'
-import { DofText, DofMoney, DofChip, DofEmptyState, DofSkeleton, DofInput, DofButton, announce } from '@ds/index'
+import { DofText, DofMoney, DofChip, DofEmptyState, DofSkeleton, DofInput, DofButton, DofTime, announce } from '@ds/index'
 import type { HomeFeedItem } from '../../server/utils/deals-feed'
 
 definePageMeta({ layout: false })
@@ -286,9 +286,15 @@ function jumpToUnread() {
 
           <li class="flex flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-4">
             <div class="flex items-baseline justify-between gap-2">
-              <NuxtLink :to="`/s/${item.store_handle}`" class="dof-interactive rounded-small text-caption font-medium text-foreground/70 hover:text-foreground focus-visible:focus-ring">
-                {{ item.store_name }}
-              </NuxtLink>
+              <div class="flex min-w-0 items-baseline gap-2">
+                <NuxtLink :to="`/s/${item.store_handle}`" class="dof-interactive shrink-0 rounded-small text-caption font-medium text-foreground/70 hover:text-foreground focus-visible:focus-ring">
+                  {{ item.store_name }}
+                </NuxtLink>
+                <!-- the street tells time (Increment 11): every card says when — real timestamps, nothing manufactured -->
+                <DofText role="caption" class="truncate text-foreground/50">
+                  · <DofTime :value="item.published_at" mode="relative" />
+                </DofText>
+              </div>
               <DofText v-if="item.is_new" role="caption" class="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-accent">New</DofText>
             </div>
 

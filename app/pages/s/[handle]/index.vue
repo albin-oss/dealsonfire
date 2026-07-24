@@ -7,7 +7,7 @@
  * store (LCP budget), and links unfurl with the merchant's name.
  */
 import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, DofEmptyState, announce } from '@ds/index'
+import { useBrandKit, DofText, DofMoney, DofButton, DofEmptyState, DofTime, announce } from '@ds/index'
 import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { storeMeta } from '../../../composables/public-seo'
 
@@ -25,6 +25,10 @@ if (error.value || !data.value) {
 const store = computed(() => data.value!.store)
 const brand = computed(() => data.value!.brand)
 const products = computed(() => data.value!.products)
+// honest freshness (Increment 11): a rolling 7-day window — never calendar days,
+// so the server render and the visitor's clock agree
+const isFresh = (publishedAt: string | null) =>
+  publishedAt !== null && Date.now() - new Date(publishedAt).getTime() < 7 * 86_400_000
 
 const origin = useRequestURL().origin
 useHead({
@@ -130,7 +134,10 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
                 <div v-else class="flex h-28 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">
                   {{ store.name }}
                 </div>
-                <DofText role="body" as="h2" class="truncate font-medium">{{ product.title }}</DofText>
+                <div class="flex items-baseline justify-between gap-2">
+                  <DofText role="body" as="h2" class="truncate font-medium">{{ product.title }}</DofText>
+                  <DofText v-if="isFresh(product.published_at)" role="caption" class="shrink-0 text-accent">New this week</DofText>
+                </div>
                 <DofMoney v-if="product.price_minor !== null" :amount="product.price_minor" :currency="product.currency ?? 'EUR'" class="text-body" />
               </NuxtLink>
             </li>
@@ -154,7 +161,10 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
               class="dof-interactive flex items-start gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
             >
               <PublicImg v-if="sp.image_url" :src="sp.image_url" alt="" img-class="size-14 shrink-0 rounded-medium object-cover" />
-              <DofText role="body" class="line-clamp-2 text-foreground/90">{{ sp.body }}</DofText>
+              <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <DofText role="body" class="line-clamp-2 text-foreground/90">{{ sp.body }}</DofText>
+                <DofText role="caption" class="text-foreground/60"><DofTime :value="sp.published_at" mode="relative" /></DofText>
+              </div>
             </NuxtLink>
           </li>
         </ul>

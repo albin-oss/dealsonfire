@@ -6,7 +6,7 @@
  * its product pass the conjunction (V6: anything else is an indistinguishable 404).
  */
 import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, announce } from '@ds/index'
+import { useBrandKit, DofText, DofMoney, DofButton, DofTime, announce } from '@ds/index'
 import type { PublicDealResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { dealMeta, dealCanonical, productJsonLd } from '../../../../composables/public-seo'
 
@@ -99,6 +99,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       <section class="flex flex-col gap-3 text-center">
         <DofText role="caption" class="uppercase tracking-widest text-accent">A deal from {{ store.name }}</DofText>
         <DofText role="headline" as="h1">{{ deal.headline }}</DofText>
+        <DofText role="caption" class="text-foreground/60">Live now · started <DofTime :value="deal.published_at" mode="relative" /></DofText>
         <DofText v-if="deal.story" role="body" class="mx-auto max-w-prose text-foreground/90" reading>
           {{ deal.story }}
         </DofText>

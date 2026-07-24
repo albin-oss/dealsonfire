@@ -5,11 +5,21 @@
  * MERCHANTS rather than moments.
  */
 import { computed } from 'vue'
-import { DofText, DofSkeleton, DofEmptyState } from '@ds/index'
+import { DofText, DofSkeleton, DofEmptyState, DofTime } from '@ds/index'
 
 definePageMeta({ layout: false })
 
-interface Shop { handle: string; name: string; tagline: string | null; story: string | null; promise: string | null; followers: number; products_on_store: number; opened_at: string }
+interface Shop { handle: string; name: string; tagline: string | null; story: string | null; promise: string | null; followers: number; products_on_store: number; opened_at: string; last_activity_at: string | null }
+
+// Honest freshness (Increment 11): rolling windows (never calendar days — SSR and the
+// visitor's clock must agree), from real publish timestamps. No activity = say nothing.
+function activityLabel(shop: Shop): { text: string; live: boolean } | null {
+  if (!shop.last_activity_at) return null
+  const age = Date.now() - new Date(shop.last_activity_at).getTime()
+  if (age < 86_400_000) return { text: 'Active today', live: true }
+  if (age < 7 * 86_400_000) return { text: 'Active this week', live: false }
+  return null
+}
 
 const origin = useRequestURL().origin
 useHead({
@@ -62,8 +72,14 @@ const shops = computed(() => data.value?.items ?? [])
             </div>
             <DofText v-if="shop.tagline" role="emphasis" as="p" class="text-foreground/90">{{ shop.tagline }}</DofText>
             <DofText v-if="shop.story" role="caption" class="line-clamp-2 text-foreground/70" reading>{{ shop.story }}</DofText>
-            <div class="mt-auto flex items-center justify-between pt-2">
-              <DofText v-if="shop.promise" role="caption" class="truncate text-positive">✓ {{ shop.promise }}</DofText>
+            <DofText v-if="shop.promise" role="caption" class="truncate text-positive">✓ {{ shop.promise }}</DofText>
+            <div class="mt-auto flex items-center justify-between gap-2 pt-2">
+              <DofText v-if="activityLabel(shop)" role="caption" :class="activityLabel(shop)!.live ? 'text-positive' : 'text-foreground/60'">
+                <span v-if="activityLabel(shop)!.live" class="me-1 inline-block size-1.5 rounded-full bg-positive align-middle" aria-hidden="true" />{{ activityLabel(shop)!.text }}
+              </DofText>
+              <DofText v-else role="caption" class="text-foreground/60">
+                Opened <DofTime :value="shop.opened_at" mode="relative" />
+              </DofText>
               <DofText role="caption" class="shrink-0 text-foreground/60">
                 {{ shop.products_on_store }} {{ shop.products_on_store === 1 ? 'thing' : 'things' }} on the shelf
               </DofText>
