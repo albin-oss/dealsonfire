@@ -7,7 +7,7 @@
  * first impression — calm, honest, no dead ends.
  */
 import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, announce } from '@ds/index'
+import { useBrandKit, DofText, DofMoney, DofButton, DofTime, announce } from '@ds/index'
 import type { PublicProductResponse, PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { productMeta, productJsonLd, productCanonical } from '../../../../composables/public-seo'
 
@@ -67,6 +67,10 @@ const { data: shelf } = useFetch<PublicStorefrontResponse>(
 )
 const related = computed(() =>
   (shelf.value?.products ?? []).filter((p) => p.id !== product.value.id).slice(0, 3))
+// when this product reached the shelf — from the same cached read (client-side, so the
+// relative text never has to survive hydration)
+const addedAt = computed(() =>
+  shelf.value?.products.find((p) => p.id === product.value.id)?.published_at ?? null)
 
 import { useRecentlyViewed } from '../../../../composables/use-recently-viewed'
 const { record } = useRecentlyViewed()
@@ -113,7 +117,9 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         </DofText>
         <DofText v-else-if="brand?.tagline" role="body" tone="muted">{{ brand.tagline }}</DofText>
 
-        <DofText role="caption" class="text-positive">Available now</DofText>
+        <DofText role="caption" class="text-positive">
+          Available now<template v-if="addedAt"> · added <DofTime :value="addedAt" mode="relative" /></template>
+        </DofText>
         <DofText v-if="brand?.promise" role="caption" class="text-foreground/80">✓ {{ brand.promise }}</DofText>
 
         <!-- Orders arrive in the next journey; until then the honest action is the store itself -->

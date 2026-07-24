@@ -509,7 +509,7 @@ export function buildContainer(databaseUrl: string): Container {
             sparks,
             products: products.map((p) => ({
               id: p.id, title: p.title, price_minor: p.min_price_amount, currency: p.price_currency,
-              image_url: p.image_url, image_alt: p.image_alt,
+              image_url: p.image_url, image_alt: p.image_alt, published_at: p.published_at,
             })),
           }
         })

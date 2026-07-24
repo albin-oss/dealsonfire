@@ -104,11 +104,12 @@ export class PgProductReadDao extends PgRepositoryBase {
    */
   async listPublicShelf(tx: Tx, businessId: BusinessId, channelId: string, limit = 12): Promise<Array<{
     id: string; title: string; min_price_amount: number | null; price_currency: string | null
-    image_url: string | null; image_alt: string | null
+    image_url: string | null; image_alt: string | null; published_at: string | null
   }>> {
     return this.many(
       tx,
       `SELECT p.id, p.title, img.url AS image_url, img.alt_text AS image_alt,
+              l.published_at::text AS published_at,
               (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency
        FROM listings l

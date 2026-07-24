@@ -442,11 +442,11 @@ export async function isCornerKept(tx: Tx, visitorId: string): Promise<boolean> 
  * (honest recency, no ranking), with the brand voice and true counts. */
 export async function listLiveShops(tx: Tx): Promise<Array<{
   handle: string; name: string; tagline: string | null; story: string | null; promise: string | null
-  followers: number; products_on_store: number; opened_at: string
+  followers: number; products_on_store: number; opened_at: string; last_activity_at: string | null
 }>> {
   const { rows } = await asClient(tx).query<{
     handle: string; name: string; tagline: string | null; story: string | null; promise: string | null
-    followers: number; products_on_store: number; opened_at: string
+    followers: number; products_on_store: number; opened_at: string; last_activity_at: string | null
   }>(
     `SELECT s.handle, s.name,
             b.voice->>'tone' AS tagline, b.voice->>'story' AS story, b.voice->>'promise' AS promise,
@@ -454,7 +454,17 @@ export async function listLiveShops(tx: Tx): Promise<Array<{
             (SELECT count(DISTINCT l.product_id)::int FROM listings l
              JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
              WHERE l.channel_id = s.id AND l.status = 'published') AS products_on_store,
-            s.published_at::text AS opened_at
+            s.published_at::text AS opened_at,
+            GREATEST(
+              (SELECT max(sp.published_at) FROM sparks sp
+               WHERE sp.channel_id = s.id AND sp.status = 'published'),
+              (SELECT max(d.published_at) FROM deals d
+               JOIN products p ON p.id = d.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+               WHERE d.channel_id = s.id AND d.status = 'published'),
+              (SELECT max(l.published_at) FROM listings l
+               JOIN products p ON p.id = l.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
+               WHERE l.channel_id = s.id AND l.status = 'published')
+            )::text AS last_activity_at
      FROM stores s
      LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
      WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL

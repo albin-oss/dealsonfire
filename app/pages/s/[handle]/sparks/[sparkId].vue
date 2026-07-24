@@ -6,8 +6,8 @@
  * store, follow, share). SSR; V6 404-masked.
  */
 import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, announce } from '@ds/index'
-import type { PublicSparkResponse } from '@contracts/schemas/merchant/public-storefront.schema'
+import { useBrandKit, DofText, DofMoney, DofButton, DofTime, announce } from '@ds/index'
+import type { PublicSparkResponse, PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { sparkMeta, sparkCanonical } from '../../../../composables/public-seo'
 
 definePageMeta({ layout: false })
@@ -71,7 +71,14 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
   textMuted: brand.value?.palette.text,
 })))
 
-const publishedNice = computed(() => new Date(spark.value.published_at).toLocaleDateString(undefined, { month: 'long', day: 'numeric' }))
+// ——— more from this store (Increment 11): the cached shelf read carries the latest
+// sparks — the page never dead-ends on one update. Client-side, zero new backend.
+const { data: shelf } = useFetch<PublicStorefrontResponse>(
+  () => `/api/v1/public/stores/${encodeURIComponent(handle.value)}`,
+  { lazy: true, server: false },
+)
+const moreSparks = computed(() =>
+  (shelf.value?.sparks ?? []).filter((sp) => sp.id !== spark.value.id).slice(0, 3))
 </script>
 
 <template>
@@ -82,7 +89,7 @@ const publishedNice = computed(() => new Date(spark.value.published_at).toLocale
       <article class="flex flex-col gap-4" :aria-label="`update from ${store.name}`">
         <div class="flex items-baseline justify-between gap-2">
           <DofText role="caption" class="uppercase tracking-widest text-accent">{{ store.name }}</DofText>
-          <DofText role="caption" class="text-foreground/60">{{ publishedNice }}</DofText>
+          <DofText role="caption" class="text-foreground/60"><DofTime :value="spark.published_at" mode="relative" /></DofText>
         </div>
         <DofText role="title" as="h1" class="whitespace-pre-line" reading>{{ spark.body }}</DofText>
         <img
@@ -124,6 +131,25 @@ const publishedNice = computed(() => new Date(spark.value.published_at).toLocale
           {{ shared ? 'Link copied' : 'Share' }}
         </DofButton>
       </div>
+
+      <!-- ——— more from this store: the conversation continues (Increment 11) -->
+      <section v-if="moreSparks.length > 0" aria-label="more from this store" class="flex flex-col gap-2 border-t border-foreground/10 pt-4">
+        <DofText role="emphasis" as="h2">More from {{ store.name }}</DofText>
+        <ul class="flex list-none flex-col gap-2 p-0">
+          <li v-for="sp in moreSparks" :key="sp.id">
+            <NuxtLink
+              :to="`/s/${store.handle}/sparks/${sp.id}`"
+              class="dof-interactive flex items-start gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
+            >
+              <img v-if="sp.image_url" :src="sp.image_url" alt="" class="size-12 shrink-0 rounded-medium object-cover">
+              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <DofText role="body" class="line-clamp-2 text-foreground/90">{{ sp.body }}</DofText>
+                <DofText role="caption" class="text-foreground/60"><DofTime :value="sp.published_at" mode="relative" /></DofText>
+              </div>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
 
       <div class="flex flex-col gap-2 border-t border-foreground/10 pt-4">
         <NuxtLink :to="`/s/${store.handle}`" class="contents">

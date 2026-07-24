@@ -25,6 +25,8 @@ export const publicStorefrontResponse = z.object({
     currency: z.string().nullable(),
     image_url: z.string().nullable(),
     image_alt: z.string().nullable(),
+    /** When it reached this shelf (Increment 11) — the street shows honest freshness. */
+    published_at: z.string().nullable(),
   })),
   /** Latest sparks (Release 0.6) — the store's voice, newest first. */
   sparks: z.array(z.object({
