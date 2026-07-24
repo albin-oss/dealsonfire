@@ -167,7 +167,7 @@ function jumpToUnread() {
     <main id="stream" class="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-6">
       <!-- first visit: what this place IS (dismissed once, never again) -->
       <section v-if="!introDismissed" class="flex flex-wrap items-center gap-3 rounded-large border border-accent/30 bg-accent/5 p-4">
-        <DofText role="body" class="flex-1" reading>
+        <DofText role="body" class="min-w-64 flex-1" reading>
           DOF is a street of independent shops — their deals, updates, and stories, newest first. No algorithm; just today.
         </DofText>
         <NuxtLink to="/shops" class="contents"><DofButton size="sm" tone="accent" icon="store">Meet the shops</DofButton></NuxtLink>

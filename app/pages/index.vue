@@ -10,7 +10,7 @@
 import { computed, ref, watch } from 'vue'
 import {
   DofText, DofCard, DofEmptyState, DofButton, DofFeedLayout, DofIcon, DofSkeleton,
-  DofOpportunityCard, DofJourneyCard,
+  DofOpportunityCard, DofJourneyCard, DofTime,
 } from '@ds/index'
 import type { OnboardingProgressResponse } from '@contracts/schemas/merchant/onboarding.schema'
 import { useDevHeaders } from '../composables/dev-headers'
@@ -45,10 +45,6 @@ const liveHandle = computed(() => {
 const momentum = computed(() => progress.value?.momentum ?? null)
 
 const ACTIVITY_ICON = { spark: 'message-circle', deal: 'flame', product: 'package', follower: 'users' } as const
-function activityWhen(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
-  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`
-}
 // momentum is only computed once a store exists — a zero-cost store proxy
 const hasStore = computed(() => progress.value?.momentum != null)
 // a mentor never repeats itself: the pulse keeps its sentence but yields its button
@@ -169,7 +165,7 @@ const greeting = computed(() =>
         <li v-for="(act, i) in momentum.recent_activity" :key="i" class="flex items-center gap-3">
           <DofIcon :name="ACTIVITY_ICON[act.kind] as never" size="sm" class="shrink-0 text-accent" />
           <DofText role="body" class="min-w-0 flex-1 truncate">{{ act.label }}</DofText>
-          <DofText role="caption" tone="muted" class="shrink-0">{{ activityWhen(act.at) }}</DofText>
+          <DofText role="caption" tone="muted" class="shrink-0"><DofTime :value="act.at" mode="relative" /></DofText>
         </li>
       </ul>
     </DofCard>

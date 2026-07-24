@@ -5,8 +5,9 @@
  * only while the product is visible, and every path continues the journey (product,
  * store, follow, share). SSR; V6 404-masked.
  */
-import { computed, ref } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, DofTime, announce } from '@ds/index'
+import { computed } from 'vue'
+import { useBrandKit, DofText, DofMoney, DofButton, DofTime } from '@ds/index'
+import { useShare } from '../../../../composables/use-share'
 import type { PublicSparkResponse, PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { sparkMeta, sparkCanonical } from '../../../../composables/public-seo'
 
@@ -44,17 +45,13 @@ useHead({
 })
 useSeoMeta(sparkMeta(seoFacts.value))
 
-// ——— share (the public-page idiom)
-const shared = ref(false)
-async function share() {
-  const url = sparkCanonical(seoFacts.value)
-  const payload = { title: `${store.value.name} on DOF`, text: spark.value.body.slice(0, 120), url }
-  try {
-    if (navigator.share) { await navigator.share(payload) }
-    else { await navigator.clipboard.writeText(url); shared.value = true; setTimeout(() => (shared.value = false), 2000) }
-    announce('Link ready to share.')
-  } catch { /* user dismissed the sheet — nothing to do */ }
-}
+// ——— share: the one street-wide idiom
+const { sharedId, share: shareLink } = useShare()
+const share = () => shareLink('spark', {
+  title: `${store.value.name} on DOF`,
+  text: spark.value.body.slice(0, 120),
+  url: sparkCanonical(seoFacts.value),
+})
 
 // ——— engagement (per-visitor, client-side so the spark read stays cacheable)
 const { data: engagement } = useFetch<{
@@ -92,12 +89,13 @@ const moreSparks = computed(() =>
           <DofText role="caption" class="text-foreground/60"><DofTime :value="spark.published_at" mode="relative" /></DofText>
         </div>
         <DofText role="title" as="h1" class="whitespace-pre-line" reading>{{ spark.body }}</DofText>
-        <img
+        <PublicImg
           v-if="spark.image_url"
           :src="spark.image_url"
           :alt="`photo from ${store.name}`"
-          class="max-h-96 w-full rounded-large object-cover"
-        >
+          img-class="max-h-96 w-full rounded-large object-cover"
+          eager
+        />
 
         <!-- the product it points at (rides only while visible) -->
         <NuxtLink
@@ -106,7 +104,7 @@ const moreSparks = computed(() =>
           class="dof-interactive flex items-center gap-3 rounded-large border border-foreground/10 bg-foreground/[0.03] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
           :aria-label="`See ${product.title}`"
         >
-          <img v-if="product.image_url" :src="product.image_url" :alt="product.image_alt ?? product.title" class="size-16 shrink-0 rounded-medium object-cover">
+          <PublicImg v-if="product.image_url" :src="product.image_url" :alt="product.image_alt ?? product.title" img-class="size-16 shrink-0 rounded-medium object-cover" />
           <div v-else class="flex size-16 shrink-0 items-center justify-center rounded-medium bg-accent/10 text-caption text-foreground/60" aria-hidden="true">·</div>
           <div class="flex min-w-0 flex-1 flex-col">
             <DofText role="body" class="truncate font-medium">{{ product.title }}</DofText>
@@ -128,7 +126,7 @@ const moreSparks = computed(() =>
           variant="full"
         />
         <DofButton size="sm" variant="soft" tone="neutral" icon="share-2" @click="share">
-          {{ shared ? 'Link copied' : 'Share' }}
+          {{ sharedId === 'spark' ? 'Link copied' : 'Share' }}
         </DofButton>
       </div>
 
@@ -141,7 +139,7 @@ const moreSparks = computed(() =>
               :to="`/s/${store.handle}/sparks/${sp.id}`"
               class="dof-interactive flex items-start gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-3 transition-colors hover:border-foreground/25 focus-visible:focus-ring"
             >
-              <img v-if="sp.image_url" :src="sp.image_url" alt="" class="size-12 shrink-0 rounded-medium object-cover">
+              <PublicImg v-if="sp.image_url" :src="sp.image_url" alt="" img-class="size-12 shrink-0 rounded-medium object-cover" />
               <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <DofText role="body" class="line-clamp-2 text-foreground/90">{{ sp.body }}</DofText>
                 <DofText role="caption" class="text-foreground/60"><DofTime :value="sp.published_at" mode="relative" /></DofText>
