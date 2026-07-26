@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /**
  * DealEngage (Release 0.4) — the engagement bar: 🔥 react, save, follow the store.
- * One implementation for the feed card and the public deal page. Optimistic-free by
- * design: every tap round-trips the idempotent toggle and renders the server's answer
- * (counts are social proof — they must be true). Anonymous-first: the first tap mints
- * the visitor identity server-side; no signup wall.
+ * One implementation for the feed card and the public deal page. Optimistic with
+ * server reconciliation (Increment 13): the tap lands instantly, then the rendered
+ * count converges to the server's answer within one round-trip — counts are social
+ * proof and stay true; a failed round-trip rolls the tap back and says so.
+ * Anonymous-first: the first tap mints the visitor identity server-side; no signup wall.
  */
 import { ref, watch } from 'vue'
 import { DofButton, announce } from '@ds/index'
@@ -37,24 +38,32 @@ const busy = ref<'react' | 'save' | 'follow' | null>(null)
 async function toggle(kind: 'react' | 'save' | 'follow') {
   if (busy.value) return
   busy.value = kind
+  // the tap lands NOW — the street answers at the speed of thought
+  const undo = { fires: fires.value, reacted: reacted.value, saved: saved.value, follows: follows.value }
+  if (kind === 'react') {
+    reacted.value = !reacted.value
+    fires.value += reacted.value ? 1 : -1
+    announce(reacted.value ? `You fired this ${props.kind ?? 'deal'}.` : 'Fire removed.')
+  } else if (kind === 'save') {
+    saved.value = !saved.value
+    announce(saved.value ? 'Saved — find it under Saved on the deals page.' : 'Removed from your saved deals.')
+  } else {
+    follows.value = !follows.value
+    announce(follows.value ? `Following ${props.storeName}.` : `Unfollowed ${props.storeName}.`)
+  }
   try {
     const path = kind === 'follow'
       ? `/api/v1/public/stores/${encodeURIComponent(props.storeHandle)}/follow`
       : `/api/v1/public/${props.kind === 'spark' ? 'sparks' : 'deals'}/${props.dealId}/${kind}`
+    // reconcile: the server's answer is the truth the card ends on
     const res = await $fetch<{ active: boolean; count: number }>(path, { method: 'POST' })
-    if (kind === 'react') {
-      reacted.value = res.active
-      fires.value = res.count
-      announce(res.active ? `You fired this ${props.kind ?? 'deal'}.` : 'Fire removed.')
-    } else if (kind === 'save') {
-      saved.value = res.active
-      announce(res.active ? 'Saved — find it under Saved on the deals page.' : 'Removed from your saved deals.')
-    } else {
-      follows.value = res.active
-      announce(res.active ? `Following ${props.storeName}.` : `Unfollowed ${props.storeName}.`)
-    }
+    if (kind === 'react') { reacted.value = res.active; fires.value = res.count }
+    else if (kind === 'save') { saved.value = res.active }
+    else { follows.value = res.active }
   } catch {
-    announce('That didn’t take — try again.')
+    fires.value = undo.fires; reacted.value = undo.reacted
+    saved.value = undo.saved; follows.value = undo.follows
+    announce('That didn’t take — nothing was changed; try again.')
   } finally {
     busy.value = null
   }
@@ -69,7 +78,6 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
       :variant="reacted ? 'soft' : 'ghost'"
       :tone="reacted ? 'accent' : 'neutral'"
       icon="flame"
-      :loading="busy === 'react'"
       :aria-pressed="reacted"
       @click="toggle('react')"
     >
@@ -81,7 +89,6 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
       :variant="saved ? 'soft' : 'ghost'"
       :tone="saved ? 'accent' : 'neutral'"
       icon="bookmark"
-      :loading="busy === 'save'"
       :aria-pressed="saved"
       @click="toggle('save')"
     >
@@ -92,7 +99,6 @@ async function toggle(kind: 'react' | 'save' | 'follow') {
       :variant="follows ? 'soft' : 'ghost'"
       :tone="follows ? 'accent' : 'neutral'"
       icon="users"
-      :loading="busy === 'follow'"
       :aria-pressed="follows"
       @click="toggle('follow')"
     >

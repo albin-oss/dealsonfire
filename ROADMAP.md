@@ -25,7 +25,7 @@ on real-world evidence; Stream B proceeds autonomously unless a gate fires
 | Variants & options UI on product detail | Cap-01 endpoints (exist) | no | 1–2d | low | ✅ shipped v1.20.0 |
 | Cold-boot e2e race | — | no | 0.5d | none | ✅ shipped v1.20.0 |
 | Dark-mode audit on brand pages (#23) | — | no | 1d | low | ✅ shipped v1.21.0 — street pages moved to marketplace scope (dark-capable); storefronts pinned light by design |
-| Focus-visible audit (#24) + axe totality (#25) | — | no | 1d | none | med (a11y) |
+| Focus-visible audit (#24) + axe totality (#25) | — | no | 1d | none | #24 ✅ v1.24.0 (all surfaces probed clean + street e2e guard); #25 partial — /home + /shops axe e2e added; populated storefront axe still open (needs DB in e2e) |
 | Responsive images srcset (#16) + aspect audit (#17) | — | no | 1d | low | low (perf) |
 | Lighthouse pass (#28) | — | no | 1–2d | med | low (perf) |
 | Grid virtualization (1000+ products) | real catalogs that size | no | 2d | med | future |

@@ -100,7 +100,7 @@ function onBlur() {
     </div>
 
     <div
-      v-if="open && (options.length > 0 || empty || (q.trim().length < 2 && recent.length > 0))"
+      v-if="open && (options.length > 0 || empty || (searching && results === null) || (q.trim().length < 2 && recent.length > 0))"
       id="street-search-results"
       class="absolute inset-x-0 top-full layer-overlay mt-1 max-h-96 overflow-y-auto rounded-large border border-line bg-surface p-2 shadow-raised"
     >
@@ -140,6 +140,11 @@ function onBlur() {
           </li>
         </template>
       </ul>
+
+      <!-- the street is looking (quiet status — never an uncertain silence) -->
+      <div v-else-if="searching" class="px-2 py-3" aria-live="polite">
+        <DofText role="caption" tone="muted">Searching the street…</DofText>
+      </div>
 
       <!-- honest empty guidance -->
       <div v-else-if="empty" class="flex flex-col gap-1 px-2 py-3">
