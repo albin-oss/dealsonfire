@@ -97,6 +97,8 @@ import { SessionService } from '@domains/identity/application/session-service'
 import { GuestClaimService } from '@domains/identity/application/guest-claim-service'
 import { merchantAccessAdapter } from './merchant-access'
 import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
+import { PgCartRepository } from '@domains/orders/cart/application/carts'
+import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { getServerConfig } from './config'
 
 export interface Container {
@@ -178,6 +180,10 @@ export interface Container {
     queries: {
       listLocations: ReturnType<typeof listLocationsQuery>
     }
+  }
+  orders: {
+    dispatcher: OutboxDispatcher
+    carts: PgCartRepository
   }
   commands: {
     createBusiness: ReturnType<typeof createBusinessCommand>
@@ -352,6 +358,29 @@ export function buildContainer(databaseUrl: string): Container {
     { logError: (message) => logger.error(message, { component: 'operations-outbox' }) },
   )
 
+  // ————— Orders (Commerce Foundation C1): own machinery instances (D-22). The domain
+  // begins with its smallest citizen — the Cart — and the quartet it will grow into.
+  const ordersEventStore = new PgEventStore({
+    eventsTable: 'orders_domain_events',
+    outboxTable: 'orders_outbox_events',
+    orderingScope: ordersOrderingScopeOf,
+  })
+  const ordersDispatcher = new OutboxDispatcher(
+    pool,
+    {
+      outboxTable: 'orders_outbox_events',
+      eventsTable: 'orders_domain_events',
+      deliveriesTable: 'orders_event_deliveries',
+      housekeepingSql: [
+        "SELECT orders_audit_logs_ensure_partition((date_trunc('month', now()) + interval '1 month')::date)",
+      ],
+    },
+    [], // consumers arrive with C3 (attempt/order policies)
+    {},
+    { logError: (message) => logger.error(message, { component: 'orders-outbox' }) },
+  )
+  const cartRepository = new PgCartRepository(ordersEventStore)
+
   // ————— Identity (WP-R1-B1): own machinery instances (D-22); the session adapter's backend.
   const { appBaseUrl, webauthnRpId, webauthnOrigin, isProduction: identityProd } = getServerConfig()
   const identityAudit = new PgAuditLog(pool, { auditTable: 'identity_audit_logs' })
@@ -483,6 +512,10 @@ export function buildContainer(databaseUrl: string): Container {
         listLocations: listLocationsQuery(operationsDeps),
       },
     },
+    orders: {
+      dispatcher: ordersDispatcher,
+      carts: cartRepository,
+    },
     commands: {
       createBusiness: createBusinessCommand(deps, entitlements),
       createStore: createStoreCommand(deps, entitlements, handleService),
@@ -521,6 +554,7 @@ export function buildContainer(databaseUrl: string): Container {
           if (!front) return null
           const product = await commerceDeps.productReads.findPublicProduct(tx, asBusinessId(front.businessId), front.storeId, productId)
           if (!product) return null
+          const variants = await commerceDeps.productReads.listPublicVariants(tx, product.id)
           return {
             store: { handle: front.handle, name: front.name },
             brand: front.brand,
@@ -529,6 +563,11 @@ export function buildContainer(databaseUrl: string): Container {
               description: product.description?.content ?? null,
               price_minor: product.min_price_amount, currency: product.price_currency,
               image_url: product.image_url, image_alt: product.image_alt,
+              variants: variants.map((v) => ({
+                id: v.id,
+                label: Object.values(v.option_values ?? {}).filter(Boolean).join(' · ') || null,
+                price_minor: v.price_minor, currency: v.currency,
+              })),
             },
           }
         })

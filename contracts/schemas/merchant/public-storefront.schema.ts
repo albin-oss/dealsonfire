@@ -56,6 +56,13 @@ export const publicProductResponse = z.object({
     currency: z.string().nullable(),
     image_url: z.string().nullable(),
     image_alt: z.string().nullable(),
+    /** Buyable variants (Commerce Foundation C1) — the cart references these. */
+    variants: z.array(z.object({
+      id: z.string().uuid(),
+      label: z.string().nullable(),
+      price_minor: z.number().int(),
+      currency: z.string(),
+    })),
   }),
 })
 export type PublicProductResponse = z.infer<typeof publicProductResponse>

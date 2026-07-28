@@ -163,4 +163,30 @@ export class PgProductReadDao extends PgRepositoryBase {
     )
     return rows[0] ?? null
   }
+
+  /**
+   * The visible product's buyable variants (Commerce Foundation C1): what the public
+   * page offers to put in a cart. Caller has already resolved the product's visibility
+   * conjunction — this is the option list, position-ordered, sale-price honest.
+   */
+  async listPublicVariants(tx: Tx, productId: string): Promise<Array<{
+    id: string; option_values: Record<string, string>; price_minor: number; currency: string
+  }>> {
+    return this.many(
+      tx,
+      `SELECT v.id, v.option_values,
+              COALESCE(
+                CASE WHEN v.sale_amount IS NOT NULL
+                      AND (v.sale_starts_at IS NULL OR v.sale_starts_at <= now())
+                      AND (v.sale_ends_at IS NULL OR v.sale_ends_at > now())
+                     THEN v.sale_amount END,
+                v.price_amount)::int AS price_minor,
+              v.price_currency AS currency
+       FROM product_variants v
+       WHERE v.product_id = $1 AND v.price_amount > 0
+       ORDER BY v.position ASC, v.created_at ASC
+       LIMIT 100`,
+      [productId],
+    )
+  }
 }

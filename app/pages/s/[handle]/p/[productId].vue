@@ -6,8 +6,8 @@
  * anything hidden is an indistinguishable 404 (V6). This page is the First Customer's
  * first impression — calm, honest, no dead ends.
  */
-import { computed } from 'vue'
-import { useBrandKit, DofText, DofMoney, DofButton, DofTime } from '@ds/index'
+import { computed, ref, watch } from 'vue'
+import { useBrandKit, DofText, DofMoney, DofButton, DofChip, DofTime, announce } from '@ds/index'
 import type { PublicProductResponse, PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
 import { productMeta, productJsonLd, productCanonical } from '../../../../composables/public-seo'
 
@@ -47,6 +47,37 @@ useHead({
   script: [{ type: 'application/ld+json', innerHTML: productJsonLd(seoFacts.value) }],
 })
 useSeoMeta(productMeta(seoFacts.value))
+
+// ——— the cart (Commerce Foundation C1): pick a size or color when there's a choice,
+// then one tap puts it in the basket — anonymous-first, the visitor identity mints on add
+const variants = computed(() => product.value.variants)
+const selectedVariantId = ref<string | null>(null)
+watch(variants, (list) => {
+  if (list.length === 1 && list[0]) selectedVariantId.value = list[0].id
+  else if (!list.some((v) => v.id === selectedVariantId.value)) selectedVariantId.value = null
+}, { immediate: true })
+const selectedVariant = computed(() => variants.value.find((v) => v.id === selectedVariantId.value) ?? null)
+const shownPrice = computed(() => selectedVariant.value?.price_minor ?? product.value.price_minor)
+const shownCurrency = computed(() => selectedVariant.value?.currency ?? product.value.currency ?? 'EUR')
+
+const addingToCart = ref(false)
+const inCart = ref(false)
+async function addToCart() {
+  if (!selectedVariantId.value || addingToCart.value) return
+  addingToCart.value = true
+  try {
+    await $fetch('/api/v1/public/cart/lines', {
+      method: 'POST',
+      body: { variant_id: selectedVariantId.value, quantity: 1 },
+    })
+    inCart.value = true
+    announce(`${product.value.title} is in your cart.`)
+  } catch {
+    announce('That didn’t take — try again.')
+  } finally {
+    addingToCart.value = false
+  }
+}
 
 // ——— share: the one street-wide idiom (native sheet on mobile, copy elsewhere)
 import { useShare } from '../../../../composables/use-share'
@@ -104,9 +135,9 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         <div class="flex flex-col gap-2">
           <DofText role="headline" as="h1">{{ product.title }}</DofText>
           <DofMoney
-            v-if="product.price_minor !== null"
-            :amount="product.price_minor"
-            :currency="product.currency ?? 'EUR'"
+            v-if="shownPrice !== null"
+            :amount="shownPrice"
+            :currency="shownCurrency"
             class="text-title font-semibold"
           />
         </div>
@@ -120,18 +151,41 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         </DofText>
         <DofText v-if="brand?.promise" role="caption" class="text-foreground/80">✓ {{ brand.promise }}</DofText>
 
-        <!-- Orders arrive in the next journey; until then the honest action is the store itself -->
+        <!-- sizes & colors: the same words the merchant chose (Commerce Foundation C1) -->
+        <div v-if="variants.length > 1" class="flex flex-col gap-1.5 pt-1" role="group" aria-label="choose an option">
+          <DofText role="caption" class="text-foreground/70">Choose one:</DofText>
+          <div class="flex flex-wrap gap-2">
+            <DofChip
+              v-for="v in variants" :key="v.id"
+              :label="v.label ?? 'Standard'"
+              :selected="selectedVariantId === v.id"
+              selectable @toggle="selectedVariantId = v.id"
+            />
+          </div>
+        </div>
+
         <div class="flex flex-col gap-2 pt-2">
           <div class="flex flex-wrap gap-2">
+            <NuxtLink v-if="inCart" to="/cart" class="contents">
+              <DofButton tone="accent" size="lg" icon="check">In your cart — view</DofButton>
+            </NuxtLink>
+            <DofButton
+              v-else-if="variants.length > 0"
+              tone="accent" size="lg" icon="package"
+              :disabled="!selectedVariantId" :loading="addingToCart"
+              @click="addToCart"
+            >
+              {{ selectedVariantId || variants.length === 1 ? 'Add to cart' : 'Choose an option first' }}
+            </DofButton>
             <NuxtLink :to="`/s/${store.handle}`" class="contents">
-              <DofButton tone="accent" size="lg" icon="store">See everything from {{ store.name }}</DofButton>
+              <DofButton variant="soft" tone="neutral" size="lg" icon="store">Everything from {{ store.name }}</DofButton>
             </NuxtLink>
             <DofButton variant="soft" tone="neutral" size="lg" icon="share-2" @click="share">
               {{ sharedId === 'product' ? 'Link copied' : 'Share' }}
             </DofButton>
           </div>
           <DofText role="caption" class="text-foreground/60">
-            Ordering online is coming — for now, reach out to {{ store.name }} directly.
+            Checkout is almost here — your cart is saved and follows you when you sign in.
           </DofText>
         </div>
       </section>

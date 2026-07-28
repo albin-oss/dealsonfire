@@ -1,5 +1,5 @@
 {
-  "_comment": "ADR-004 rules 20/25 \u2014 the table manifest: the single machine-readable stewardship record. Every table has exactly one owner; migrations may only touch owned tables; CI fails on unmanifested tables. Classes: aggregate|ledger|event|read_model|operational|registry. PII tiers: P0 none, P1 pseudonymous ids, P2 personal, P3 sensitive. Delete classes: tombstone|transition|windowed|never.",
+  "_comment": "ADR-004 rules 20/25 — the table manifest: the single machine-readable stewardship record. Every table has exactly one owner; migrations may only touch owned tables; CI fails on unmanifested tables. Classes: aggregate|ledger|event|read_model|operational|registry. PII tiers: P0 none, P1 pseudonymous ids, P2 personal, P3 sensitive. Delete classes: tombstone|transition|windowed|never.",
   "tables": [
     {
       "table": "merchant_accounts",
@@ -52,7 +52,7 @@
       "pii_columns": [
         "display_name"
       ],
-      "pii_note": "sole-proprietor business names are frequently personal names \u2014 treated as P2 conservatively",
+      "pii_note": "sole-proprietor business names are frequently personal names — treated as P2 conservatively",
       "retention": "permanent",
       "delete_class": "tombstone",
       "cross_domain_refs": []
@@ -157,7 +157,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard and cannot include a partition key",
+      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard and cannot include a partition key",
       "cross_domain_refs": []
     },
     {
@@ -199,7 +199,7 @@
     {
       "table": "request_idempotency_keys",
       "owner": "platform",
-      "ownership_note": "K2 (BLUEPRINT-002 \u00a70): (key, endpoint, actor) carries no domain data; one table serves every domain",
+      "ownership_note": "K2 (BLUEPRINT-002 §0): (key, endpoint, actor) carries no domain data; one table serves every domain",
       "class": "operational",
       "tenancy_key": null,
       "scope_key": "actor_key",
@@ -229,7 +229,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
       "cross_domain_refs": []
     },
     {
@@ -275,7 +275,7 @@
       "pii_tier": "P0",
       "retention": "permanent",
       "delete_class": "tombstone",
-      "partitioning_note": "hash-partition-ready on business_id (BLUEPRINT-002 \u00a72.1); PK gains business_id at partition time",
+      "partitioning_note": "hash-partition-ready on business_id (BLUEPRINT-002 §2.1); PK gains business_id at partition time",
       "cross_domain_refs": [
         {
           "column": "business_id",
@@ -390,7 +390,9 @@
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_columns": ["visitor_id"],
+      "pii_columns": [
+        "visitor_id"
+      ],
       "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
       "retention": "permanent",
       "delete_class": "transition",
@@ -402,7 +404,9 @@
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_columns": ["visitor_id"],
+      "pii_columns": [
+        "visitor_id"
+      ],
       "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
       "retention": "permanent",
       "delete_class": "transition",
@@ -414,7 +418,9 @@
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_columns": ["visitor_id"],
+      "pii_columns": [
+        "visitor_id"
+      ],
       "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
       "retention": "permanent",
       "delete_class": "transition",
@@ -453,7 +459,9 @@
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_columns": ["visitor_id"],
+      "pii_columns": [
+        "visitor_id"
+      ],
       "pii_note": "visitor_id is a pseudonymous long-lived cookie identity (Release 0.4)",
       "retention": "permanent",
       "delete_class": "transition",
@@ -482,7 +490,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
       "cross_domain_refs": []
     },
     {
@@ -550,7 +558,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type,aggregate_id,sequence) guard",
+      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type,aggregate_id,sequence) guard",
       "cross_domain_refs": []
     },
     {
@@ -609,7 +617,7 @@
       "pii_columns": [
         "password_hash"
       ],
-      "pii_note": "argon2id hash \u2014 irreversible; finance-grade secret handling",
+      "pii_note": "argon2id hash — irreversible; finance-grade secret handling",
       "retention": "with user",
       "delete_class": "cascade-with-user (RESTRICT + app tombstone)",
       "cross_domain_refs": []
@@ -686,6 +694,105 @@
       "retention": "permanent",
       "delete_class": "never",
       "cross_domain_refs": []
+    },
+    {
+      "table": "orders_domain_events",
+      "owner": "orders",
+      "class": "event",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids; payloads are constitutionally PII-free (ADR-004 rule 19)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "orders_outbox_events",
+      "owner": "orders",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 7d after dispatch",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "orders_event_deliveries",
+      "owner": "orders",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed with outbox",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "orders_audit_logs",
+      "owner": "orders",
+      "class": "ledger",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids only; digests are PII-free by review",
+      "retention": "permanent (month-partitioned)",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "carts",
+      "owner": "orders",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "buyer_id",
+      "pii_tier": "P1",
+      "pii_note": "buyer_id is the pseudonymous visitor identity (P1 in the manifest's identity rows); no contact data exists in carts",
+      "retention": "active + 90d after abandoned/merged, then purgeable",
+      "delete_class": "purge",
+      "cross_domain_refs": [
+        {
+          "column": "store_id",
+          "target_domain": "merchant",
+          "target_concept": "store",
+          "cleanup_event": "none — carts age out via the abandonment sweep; a dead store renders lines unavailable honestly",
+          "reconciliation": "none required (read-side conjunction handles it)"
+        },
+        {
+          "column": "buyer_id",
+          "target_domain": "identity",
+          "target_concept": "visitor (claimable)",
+          "cleanup_event": "identity claim merges carts at login",
+          "reconciliation": "merge-on-login is the reconciler"
+        }
+      ]
+    },
+    {
+      "table": "cart_lines",
+      "owner": "orders",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "cart_id",
+      "pii_tier": "P0",
+      "pii_note": "display hints (title/price seen) are public catalog facts",
+      "retention": "with parent cart",
+      "delete_class": "purge",
+      "cross_domain_refs": [
+        {
+          "column": "variant_id",
+          "target_domain": "commerce",
+          "target_concept": "product_variant (by value — no FK by design)",
+          "cleanup_event": "none — the re-quoting read renders vanished variants as unavailable",
+          "reconciliation": "none required"
+        },
+        {
+          "column": "product_id",
+          "target_domain": "commerce",
+          "target_concept": "product (by value)",
+          "cleanup_event": "none",
+          "reconciliation": "none required"
+        }
+      ]
     }
   ]
 }

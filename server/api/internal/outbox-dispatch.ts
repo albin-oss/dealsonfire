@@ -29,6 +29,7 @@ export default defineEventHandler(async (event) => {
     ['commerce-outbox', container.commerce.dispatcher],
     ['identity-outbox', container.identity.dispatcher],
     ['operations-outbox', container.operations.dispatcher],
+    ['orders-outbox', container.orders.dispatcher],
   ] as const
   let dispatched = 0
   let failed = 0
