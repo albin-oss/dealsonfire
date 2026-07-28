@@ -8,8 +8,8 @@
 
 GRANT USAGE ON SCHEMA public TO {{APP_ROLE}};
 
-GRANT SELECT, INSERT ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events TO {{APP_ROLE}};
-REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events FROM {{APP_ROLE}};
+GRANT SELECT, INSERT ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger TO {{APP_ROLE}};
+REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger FROM {{APP_ROLE}};
 
 -- audit_logs partitions: direct partition access must carry the same protections.
 DO $$

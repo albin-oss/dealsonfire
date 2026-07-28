@@ -99,6 +99,7 @@ import { merchantAccessAdapter } from './merchant-access'
 import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
 import { PgCartRepository } from '@domains/orders/cart/application/carts'
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
+import { PgStockRepository } from '@domains/operations/inventory/application/stock'
 import { getServerConfig } from './config'
 
 export interface Container {
@@ -180,6 +181,8 @@ export interface Container {
     queries: {
       listLocations: ReturnType<typeof listLocationsQuery>
     }
+    /** C2 (CDC-001 §2.2): the frozen reservation contract — Orders' only stock door. */
+    stock: PgStockRepository
   }
   orders: {
     dispatcher: OutboxDispatcher
@@ -328,13 +331,20 @@ export function buildContainer(databaseUrl: string): Container {
   // MerchantAccessPort (structural typing — CDC-001 §3), honest L2 stock port until the
   // ledger lands in Batch 2 (no stock_items table exists, so no location can hold stock).
   const operationsAudit = new PgAuditLog(pool, { auditTable: 'operations_audit_logs' })
-  const noStockRecordedYet: StockAtLocationPort = {
-    async hasStock() { return false }, // replaced by the stock_items query in OPS-001 Batch 2
+  // C2 (OPS Batch 2): the honest-L2 stub is replaced by the real stock query.
+  const operationsEventStoreForStock = new PgEventStore({
+    eventsTable: 'operations_domain_events',
+    outboxTable: 'operations_outbox_events',
+    orderingScope: operationsOrderingScopeOf,
+  })
+  const stockRepository = new PgStockRepository(operationsEventStoreForStock)
+  const realStockAtLocation: StockAtLocationPort = {
+    hasStock: (tx, locationId) => stockRepository.hasStock(tx, locationId),
   }
   const operationsDeps: OperationsDeps = {
     uow: deps.uow,
     locations: new PgLocationRepository(),
-    stockAtLocation: noStockRecordedYet,
+    stockAtLocation: realStockAtLocation,
     merchantAccess: merchantAccessAdapter(deps, entitlements),
     eventStore: new PgEventStore({
       eventsTable: 'operations_domain_events',
@@ -511,6 +521,7 @@ export function buildContainer(databaseUrl: string): Container {
       queries: {
         listLocations: listLocationsQuery(operationsDeps),
       },
+      stock: stockRepository,
     },
     orders: {
       dispatcher: ordersDispatcher,

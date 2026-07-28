@@ -28,6 +28,12 @@ export const OPERATIONS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
     location_id: uuid,
     business_id: uuid,
   }).passthrough(),
+  /** C2 (CDC-001 frozen lifecycle): first emission — registered with the sprint that emits it. */
+  'operations.reservation.expired': z.object({
+    reservation_id: uuid,
+    order_line_id: uuid,
+    variant_id: uuid,
+  }).passthrough(),
 }
 
 export function operationsPayloadValidators(): Record<string, PayloadValidator> {

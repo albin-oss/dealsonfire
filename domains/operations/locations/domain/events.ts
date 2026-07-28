@@ -14,6 +14,8 @@ export const OPERATIONS_EVENT = {
   LOCATION_CREATED: 'operations.location.created',
   LOCATION_UPDATED: 'operations.location.updated',
   LOCATION_CLOSED: 'operations.location.closed',
+  /** C2 (CDC-001 frozen lifecycle): the TTL clock's answer — Orders MUST consume. */
+  RESERVATION_EXPIRED: 'operations.reservation.expired',
 } as const
 
 export type LocationCreatedPayload = {
