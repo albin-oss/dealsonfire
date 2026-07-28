@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 export const ICON_NAMES = [
   // actions
-  'plus', 'pencil', 'trash-2', 'archive', 'archive-restore', 'copy', 'check', 'x',
+  'plus', 'minus', 'pencil', 'trash-2', 'archive', 'archive-restore', 'copy', 'check', 'x',
   'undo-2', 'upload', 'download', 'send', 'share-2', 'external-link', 'refresh-cw',
   // navigation
   'chevron-down', 'chevron-up', 'chevron-left', 'chevron-right', 'arrow-left', 'arrow-right',

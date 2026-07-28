@@ -25,7 +25,15 @@ export default definePublicEndpoint({
     const claimed = await c.identity.guestClaim.findClaim(result.value.userId, 'visitor')
     const present = getVisitorId(event)
     if (claimed) {
-      if (present !== claimed) restoreVisitorId(event, claimed)
+      if (present !== claimed) {
+        // Cart merge-on-login (Commerce Foundation C1, blueprint §5.1): what this
+        // device gathered before login joins the owner's carts — line-union,
+        // quantities max, before the cookie flips underfoot.
+        if (present) {
+          await c.deps.uow.withTransaction((tx) => c.orders.carts.mergeVisitors(tx, present, claimed))
+        }
+        restoreVisitorId(event, claimed)
+      }
       cornerRestored = true
     } else if (present) {
       const claim = await c.identity.guestClaim.claim(result.value.userId, 'visitor', present)
