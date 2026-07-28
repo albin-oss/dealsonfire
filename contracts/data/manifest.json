@@ -793,6 +793,61 @@
           "reconciliation": "none required"
         }
       ]
+    },
+    {
+      "table": "stock_items",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [
+        {
+          "column": "variant_id",
+          "target_domain": "commerce",
+          "target_concept": "product_variant (by value — no FK by design)",
+          "cleanup_event": "none — orphaned stock rows are inert; a future reconciler may archive them",
+          "reconciliation": "none required at this scale"
+        }
+      ]
+    },
+    {
+      "table": "stock_ledger",
+      "owner": "operations",
+      "class": "ledger",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids only; reason-coded physical facts",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "reservations",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "terminal + 90d, then purgeable",
+      "delete_class": "purge",
+      "cross_domain_refs": [
+        {
+          "column": "order_line_id",
+          "target_domain": "orders",
+          "target_concept": "order line (the CDC-001 natural idempotency key; Orders does not exist yet — C3)",
+          "cleanup_event": "orders release/commit via the frozen commands",
+          "reconciliation": "the TTL sweep is the reconciler"
+        },
+        {
+          "column": "variant_id",
+          "target_domain": "commerce",
+          "target_concept": "product_variant (by value)",
+          "cleanup_event": "none",
+          "reconciliation": "none required"
+        }
+      ]
     }
   ]
 }
