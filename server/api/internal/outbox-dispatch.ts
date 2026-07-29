@@ -45,10 +45,17 @@ export default defineEventHandler(async (event) => {
   await container.idempotency.purgeExpired().catch(() => {})
   // Commerce Foundation clocks (C1/C2): the cart abandonment sweep and the
   // reservation TTL sweep — both idempotent, both emit through their quartets.
-  const [cartsSwept, reservationsSwept, ordersConfirmed] = await Promise.all([
+  const [cartsSwept, reservationsSwept, ordersConfirmed, cartsPurged, attemptsPurged] = await Promise.all([
     container.deps.uow.withTransaction((tx) => container.orders.carts.sweepAbandoned(tx)).catch(() => -1),
     container.deps.uow.withTransaction((tx) => container.operations.stock.sweepExpired(tx)).catch(() => -1),
     container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepUnconfirmed(tx)).catch(() => -1),
+    // PRR-M1: the manifest's PII retention promises, kept on the same clock
+    container.deps.uow.withTransaction((tx) => container.orders.carts.purgeTerminal(tx)).catch(() => -1),
+    container.deps.uow.withTransaction((tx) => container.orders.checkout.purgeTerminalAttempts(tx)).catch(() => -1),
   ])
-  return { dispatched, failed, carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed }
+  return {
+    dispatched, failed,
+    carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed,
+    carts_purged: cartsPurged, attempts_purged: attemptsPurged,
+  }
 })

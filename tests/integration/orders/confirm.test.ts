@@ -155,6 +155,61 @@ describe('placed → confirmed (the C5 ceremony)', () => {
     expect(rows[0].c).toBe(0)
   })
 
+  it('PRR-C1: 12 concurrent checkouts by 12 DISTINCT buyers — no pool deadlock, twelve orders', async () => {
+    const m = await merchant()
+    const { variantId } = await shelvedVariant(m)
+    const buyers = await Promise.all(Array.from({ length: 12 }, async () => {
+      const add = await http.request('POST', '/api/v1/public/cart/lines', { body: { variant_id: variantId, quantity: 1 } })
+      return { cookie: visitorCookie(add.headers), cartId: add.body.cart_id as string }
+    }))
+    const results = await Promise.all(buyers.map((b) =>
+      http.request('POST', '/api/v1/public/checkout', {
+        headers: { cookie: b.cookie },
+        body: { attempt_key: uuidv7(), cart_id: b.cartId, contact: CONTACT, delivery: DELIVERY },
+      })))
+    expect(results.every((r) => r.status === 200 && r.body.ok)).toBe(true)
+    const { rows } = await container.pool.query(`SELECT count(*)::int AS n FROM orders WHERE state = 'confirmed'`)
+    expect(rows[0].n).toBe(12)
+  }, 30_000)
+
+  it('PRR-H1: payment_pending caps at 24h — payment_failed, honest timeline, loud alarm', async () => {
+    const m = await merchant()
+    const { variantId } = await shelvedVariant(m)
+    const { cookie, response } = await buy([{ id: variantId, qty: 1 }])
+    const orderId = response.body.order_id as string
+    // stage a day-old stuck payment
+    await container.pool.query(
+      `UPDATE orders SET state = 'payment_pending', placed_at = now() - interval '25 hours' WHERE id = $1`, [orderId])
+
+    await inTx((tx) => container.orders.confirm.sweepUnconfirmed(tx as never))
+
+    const order = await http.request('GET', `/api/v1/public/orders/${orderId}`, { headers: { cookie } })
+    expect(order.body.order.state).toBe('payment_failed')
+    expect(order.body.lines.every((l: { line_state: string }) => l.line_state === 'cancelled')).toBe(true)
+    expect(JSON.stringify(order.body.timeline)).toMatch(/nothing more will be charged/)
+    // idempotent: sweeping again changes nothing
+    await inTx((tx) => container.orders.confirm.sweepUnconfirmed(tx as never))
+    const again = await http.request('GET', `/api/v1/public/orders/${orderId}`, { headers: { cookie } })
+    expect(again.body.order.state).toBe('payment_failed')
+  })
+
+  it('PRR-M1: the retention promises are kept — old terminal carts and attempts purge', async () => {
+    const m = await merchant()
+    const { variantId } = await shelvedVariant(m)
+    await buy([{ id: variantId, qty: 1 }]) // leaves a merged cart + a placed attempt
+    await container.pool.query(`UPDATE carts SET updated_at = now() - interval '91 days'`)
+    await container.pool.query(`UPDATE checkout_attempts SET updated_at = now() - interval '31 days'`)
+
+    const cartsPurged = await inTx((tx) => container.orders.carts.purgeTerminal(tx as never))
+    const attemptsPurged = await inTx((tx) => container.orders.checkout.purgeTerminalAttempts(tx as never))
+    expect(cartsPurged).toBeGreaterThan(0)
+    expect(attemptsPurged).toBeGreaterThan(0)
+    expect((await container.pool.query(`SELECT count(*)::int AS n FROM carts`)).rows[0].n).toBe(0)
+    expect((await container.pool.query(`SELECT count(*)::int AS n FROM checkout_attempts`)).rows[0].n).toBe(0)
+    // the immutable order record is untouched by purges (O1 — the promise record is permanent)
+    expect((await container.pool.query(`SELECT count(*)::int AS n FROM orders`)).rows[0].n).toBe(1)
+  })
+
   it('the merchant sees promises in progress; strangers see the masked nothing', async () => {
     const m = await merchant()
     const { variantId } = await shelvedVariant(m)

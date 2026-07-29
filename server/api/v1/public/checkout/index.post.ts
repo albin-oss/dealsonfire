@@ -37,7 +37,10 @@ export default definePublicEndpoint({
     if (result.ok) {
       // C5: confirmation runs immediately in its OWN transaction — the order exists
       // either way, and the cron sweep retries any straggler (placed is never a rest).
-      await c.deps.uow.withTransaction((tx) => c.orders.confirm.confirmOrder(tx, result.orderId)).catch(() => { /* sweep retries */ })
+      await c.deps.uow.withTransaction((tx) => c.orders.confirm.confirmOrder(tx, result.orderId)).catch((error) => {
+        // PRR-H2: never silent — the sweep retries, but a crashing confirm is a bug someone must see
+        c.logger.error(`inline confirm failed for order ${result.orderId}: ${(error as Error).message}`, { component: 'orders-confirm' })
+      })
       return ok({ ok: true, order_id: result.orderId, order_number: result.orderNumber })
     }
     return ok({ ok: false, code: result.code, detail: result.detail })
