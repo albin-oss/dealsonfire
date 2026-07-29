@@ -104,6 +104,8 @@ import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
 import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
+import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
+import { paymentsPayloadValidators } from '@contracts/schemas/events/payments-payloads'
 import { getServerConfig } from './config'
 
 export interface Container {
@@ -399,8 +401,8 @@ export function buildContainer(databaseUrl: string): Container {
         "SELECT orders_audit_logs_ensure_partition((date_trunc('month', now()) + interval '1 month')::date)",
       ],
     },
-    [], // consumers arrive with C3 (attempt/order policies)
-    {},
+    [], // consumers arrive with C6+ (fulfillment policies)
+    ordersPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'orders-outbox' }) },
   )
   const cartRepository = new PgCartRepository(ordersEventStore)
@@ -423,7 +425,7 @@ export function buildContainer(databaseUrl: string): Container {
       ],
     },
     [],
-    {},
+    paymentsPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'payments-outbox' }) },
   )
   const { stripeSecretKey } = getServerConfig()

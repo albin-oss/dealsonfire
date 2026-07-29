@@ -25,7 +25,8 @@
     "check:identity": "node scripts/check-identity.mjs",
     "dev:demo": "tsx scripts/dev-demo.ts",
     "learning": "tsx scripts/learning.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "sweep": "npm run build && npm run test:unit && npm run test:ui && npm run test:integration && npm run test:e2e-ui && npm run check:tokens && npm run check:boundaries && npm run check:data && npm run check:identity && npm run check:operations && npm run lint && npm run typecheck"
   },
   "dependencies": {
     "@iconify/vue": "^5.0.1",

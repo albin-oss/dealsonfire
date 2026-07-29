@@ -25,6 +25,9 @@ import { PAYMENTS_EVENT } from '../shared-kernel/events'
 
 export const STRIPE_PINNED_API_VERSION = '2026-06-24.dahlia'
 
+/** The ONE deterministic decline amount, shared by every sandbox surface (MM-5). */
+export const SANDBOX_DECLINE_AMOUNT_MINOR = 66600
+
 // ————————————————————————————————————————————— provider port (ACL — ADR-008 §6)
 
 export interface ProviderAuthorization { providerRef: string }
@@ -36,10 +39,10 @@ export interface ProviderPort {
   void(providerRef: string): Promise<void>
 }
 
-/** Deterministic twin (test law; decline parity with the C3 sandbox: 66600). */
+/** Deterministic twin (test law): declines SANDBOX_DECLINE_AMOUNT_MINOR, nothing else. */
 export class SandboxProviderTwin implements ProviderPort {
   readonly name = 'sandbox' as const
-  constructor(private readonly declineAmounts: number[] = [66600]) {}
+  constructor(private readonly declineAmounts: number[] = [SANDBOX_DECLINE_AMOUNT_MINOR]) {}
   async authorize(input: { attemptKey: string; amountMinor: number; currency: string }) {
     if (this.declineAmounts.includes(input.amountMinor)) {
       return { ok: false as const, detail: 'The payment method declined.' }
