@@ -141,6 +141,48 @@ const { data: progressData } = useFetch<{ momentum: { followers: number } | null
 })
 const followers = computed(() => progressData.value?.momentum?.followers ?? 0)
 
+// ——— C6: shipping & promises (whole-value put, the Brand Kit idiom)
+const shipHandling = ref('3')
+const shipFlat = ref('0')
+const shipFreeOver = ref('')
+const shipPickup = ref(false)
+const savingShipping = ref(false)
+const shippingSaved = ref(false)
+watch(store, async (s) => {
+  if (!s) return
+  try {
+    const terms = await $fetch<{ handling_days: number; flat_rate_minor: number; free_over_minor: number | null; pickup_enabled: boolean }>(
+      `/api/v1/public/stores/${s.handle}/shipping`)
+    shipHandling.value = String(terms.handling_days)
+    shipFlat.value = String(terms.flat_rate_minor / 100)
+    shipFreeOver.value = terms.free_over_minor === null ? '' : String(terms.free_over_minor / 100)
+    shipPickup.value = terms.pickup_enabled
+  } catch { /* defaults stand */ }
+}, { immediate: true })
+async function saveShipping() {
+  if (!store.value || savingShipping.value) return
+  savingShipping.value = true
+  shippingSaved.value = false
+  try {
+    await $fetch(`/api/v1/stores/${store.value.store_id}/shipping`, {
+      method: 'PUT',
+      headers: { ...headers, 'idempotency-key': crypto.randomUUID() },
+      body: {
+        handling_days: Math.max(0, Math.min(60, Number(shipHandling.value) || 0)),
+        flat_rate_minor: Math.round(Math.max(0, Number(shipFlat.value) || 0) * 100),
+        free_over_minor: shipFreeOver.value.trim() === '' ? null : Math.round(Math.max(0, Number(shipFreeOver.value) || 0) * 100),
+        pickup_enabled: shipPickup.value,
+      },
+    })
+    shippingSaved.value = true
+    announce('Shipping saved — new orders carry the new promise.')
+  } catch {
+    announce('That didn’t take — try again.')
+  } finally {
+    savingShipping.value = false
+  }
+}
+
 function copyStoreLink() {
   if (storeUrl.value) void copy('store', `${window.location.origin}${storeUrl.value}`)
 }
@@ -255,6 +297,24 @@ function copyStoreLink() {
           <DofText role="caption" tone="muted">This is the top of your live storefront — word for word.</DofText>
         </section>
       </div>
+
+      <!-- ——— C6: shipping & promises — the settings your ship-by promise is made of -->
+      <section aria-label="shipping and promises" class="flex flex-col gap-3 rounded-large border border-line bg-surface-raised p-4">
+        <DofText role="emphasis" as="h2">Shipping &amp; promises</DofText>
+        <DofText role="caption" tone="muted">
+          Handling days set the ship-by promise buyers see — and the automatic protection that backs it.
+        </DofText>
+        <div class="grid gap-3 regular:grid-cols-3">
+          <DofInput v-model="shipHandling" label="Handling days" hint="From confirmed to shipped." :maxlength="2" />
+          <DofInput v-model="shipFlat" label="Shipping price (€)" hint="0 = free shipping." :maxlength="6" />
+          <DofInput v-model="shipFreeOver" label="Free over (€)" hint="Blank = no threshold." :maxlength="7" />
+        </div>
+        <DofChip label="Offer pickup at the shop" :selected="shipPickup" selectable @toggle="shipPickup = !shipPickup" />
+        <div class="flex items-center gap-3">
+          <DofButton size="sm" tone="accent" icon="check" :loading="savingShipping" @click="saveShipping">Save shipping</DofButton>
+          <DofText v-if="shippingSaved" role="caption" class="text-positive">Saved — new orders promise it.</DofText>
+        </div>
+      </section>
     </template>
 
     <div v-else class="flex flex-col gap-3" aria-hidden="true">

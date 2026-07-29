@@ -324,9 +324,12 @@ export class PgCheckoutService {
       store_handle: string; store_name: string
       subtotal_minor: number; shipping_minor: number; total_minor: number; currency: string
       contact_name: string; delivery: DeliveryAddress
+      promise_ship_by: string | null; delivery_method: string
     }
     lines: Array<{ line_no: number; title: string; option_label: string | null; unit_price_minor: number; quantity: number; line_state: string; product_id: string; image_url: string | null }>
     timeline: Array<{ entry_type: string; message: Record<string, unknown>; occurred_at: string }>
+    wait_sparks: Array<{ id: string; body: string; published_at: string; image_url: string | null }>
+    maker_promise: string | null
   } | null> {
     const client = asClient(tx)
     const { rows: orders } = await client.query<{
@@ -334,11 +337,12 @@ export class PgCheckoutService {
       store_handle: string; store_name: string; store_id: string
       subtotal_minor: string; shipping_minor: string; total_minor: string; currency: string
       buyer_contact: BuyerContact; delivery: DeliveryAddress
+      promise_ship_by: string | null; delivery_method: string
     }>(
       `SELECT o.id, o.order_number, o.state, o.placed_at::text AS placed_at,
               s.handle AS store_handle, s.name AS store_name, o.store_id,
               o.subtotal_minor::text, o.shipping_minor::text, o.total_minor::text, o.currency,
-              o.buyer_contact, o.delivery
+              o.buyer_contact, o.delivery, o.promise_ship_by::text AS promise_ship_by, o.delivery_method
        FROM orders o JOIN stores s ON s.id = o.store_id
        WHERE o.id = $1 AND o.buyer_id = $2`, [orderId, buyerId])
     const order = orders[0]
@@ -355,6 +359,24 @@ export class PgCheckoutService {
        WHERE ol.order_id = $1 ORDER BY ol.line_no`, [orderId])
     const { rows: timeline } = await client.query<{ entry_type: string; message: Record<string, unknown>; occurred_at: string }>(
       `SELECT entry_type, message, occurred_at::text AS occurred_at FROM order_timeline WHERE order_id = $1 ORDER BY occurred_at ASC`, [orderId])
+
+    // C6 — the Workshop Wait (SX-1): the maker's PUBLIC sparks from the buyer's
+    // wait window, interleaved into the story. Real events only; zero merchant work.
+    const { rows: waitSparks } = await client.query<{ id: string; body: string; published_at: string; image_url: string | null }>(
+      `SELECT sp.id, sp.body, sp.published_at::text AS published_at, ma.url AS image_url
+       FROM sparks sp
+       LEFT JOIN media_assets ma ON ma.id = sp.media_id
+       JOIN orders o ON o.id = $1
+       WHERE sp.channel_id = o.store_id AND sp.status = 'published'
+         AND sp.published_at >= o.placed_at
+       ORDER BY sp.published_at ASC LIMIT 3`, [orderId])
+
+    // the maker's sign-off (SM-3): their standing promise line, in their words
+    const { rows: signoff } = await client.query<{ promise: string | null }>(
+      `SELECT b.voice->>'promise' AS promise FROM brand_kits b
+       JOIN orders o ON o.id = $1
+       WHERE b.owner_type = 'store' AND b.owner_id = o.store_id`, [orderId])
+
     return {
       order: {
         id: order.id, order_number: order.order_number, state: order.state, placed_at: order.placed_at,
@@ -362,9 +384,12 @@ export class PgCheckoutService {
         subtotal_minor: Number(order.subtotal_minor), shipping_minor: Number(order.shipping_minor),
         total_minor: Number(order.total_minor), currency: order.currency,
         contact_name: order.buyer_contact?.name ?? '', delivery: order.delivery,
+        promise_ship_by: order.promise_ship_by, delivery_method: order.delivery_method,
       },
       lines: lines.map((l) => ({ ...l, unit_price_minor: Number(l.unit_price_minor) })),
       timeline,
+      wait_sparks: waitSparks,
+      maker_promise: signoff[0]?.promise ?? null,
     }
   }
 
@@ -388,16 +413,19 @@ export class PgCheckoutService {
     id: string; order_number: string; state: string; placed_at: string
     buyer_name: string; buyer_email: string; delivery: DeliveryAddress
     total_minor: number; currency: string
+    promise_ship_by: string | null; aging_stage: number; delivery_method: string; hold_released_at: string | null
     items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
   }>> {
     const client = asClient(tx)
     const { rows } = await client.query<{
       id: string; order_number: string; state: string; placed_at: string
       buyer_contact: BuyerContact; delivery: DeliveryAddress; total_minor: string; currency: string
+      promise_ship_by: string | null; aging_stage: number; delivery_method: string; hold_released_at: string | null
     }>(
-      `SELECT id, order_number, state, placed_at::text AS placed_at, buyer_contact, delivery, total_minor::text, currency
+      `SELECT id, order_number, state, placed_at::text AS placed_at, buyer_contact, delivery, total_minor::text, currency,
+              promise_ship_by::text AS promise_ship_by, aging_stage, delivery_method, hold_released_at::text AS hold_released_at
        FROM orders WHERE business_id = $1
-       ORDER BY (state = 'confirmed') DESC, placed_at DESC LIMIT 100`, [businessId])
+       ORDER BY (state IN ('confirmed','in_fulfillment','partially_fulfilled')) DESC, placed_at DESC LIMIT 100`, [businessId])
     const result = []
     for (const o of rows) {
       const { rows: items } = await client.query<{ title: string; option_label: string | null; quantity: number; line_state: string }>(
@@ -409,6 +437,8 @@ export class PgCheckoutService {
         buyer_name: o.buyer_contact?.name ?? '', buyer_email: o.buyer_contact?.email ?? '',
         delivery: o.delivery,
         total_minor: Number(o.total_minor), currency: o.currency,
+        promise_ship_by: o.promise_ship_by, aging_stage: o.aging_stage,
+        delivery_method: o.delivery_method, hold_released_at: o.hold_released_at,
         items,
       })
     }

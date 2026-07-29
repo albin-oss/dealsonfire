@@ -13,8 +13,16 @@ defineProps<{ entries: Entry[]; storeName: string }>()
 
 const ICON: Record<string, IconName> = {
   placed: 'check', payment: 'shield-check', confirmed: 'flame',
-  packed: 'package', shipped: 'truck', delivered: 'party-popper', note: 'message-circle',
+  promise: 'clock', packed: 'package', shipped: 'truck', ready: 'store',
+  granted: 'download', delivered: 'party-popper', refund: 'undo-2', note: 'message-circle',
 }
+
+// R5.5: promises carry weekday + date, in words
+const promiseDate = (iso: unknown) =>
+  typeof iso === 'string'
+    ? new Date(iso).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    : ''
+const titleList = (titles: unknown) => Array.isArray(titles) ? titles.join(' and ') : ''
 </script>
 
 <template>
@@ -39,8 +47,28 @@ const ICON: Record<string, IconName> = {
           </template>
           <template v-else-if="entry.entry_type === 'confirmed'">It’s really happening — your order is confirmed.</template>
           <template v-else-if="entry.entry_type === 'payment'">Payment settled.</template>
+          <template v-else-if="entry.entry_type === 'promise'">
+            {{ storeName }} promises to {{ entry.message.method === 'pickup' ? 'have it ready' : 'ship' }} by {{ promiseDate(entry.message.ship_by) }}.
+          </template>
+          <template v-else-if="entry.entry_type === 'shipped'">
+            <template v-if="entry.message.partial">{{ titleList(entry.message.titles) }} — on its way (the rest follows).</template>
+            <template v-else>On its way to you.</template>
+            <template v-if="entry.message.tracking_ref"> {{ entry.message.carrier ?? 'Tracking' }}: {{ entry.message.tracking_ref }}.</template>
+          </template>
+          <template v-else-if="entry.entry_type === 'ready'">Ready for pickup — come say hello.</template>
+          <template v-else-if="entry.entry_type === 'refund'">
+            <DofMoney v-if="entry.message.amount_minor" :amount="Number(entry.message.amount_minor)" :currency="String(entry.message.currency ?? 'EUR')" />
+            — {{ entry.message.text ?? 'refunded.' }}
+          </template>
           <template v-else>{{ entry.message.text ?? entry.entry_type }}</template>
         </DofText>
+        <!-- the wrapping-paper moment: the parcel, photographed as it left their hands -->
+        <PublicImg
+          v-if="entry.entry_type === 'packed' && typeof entry.message.parcel_url === 'string'"
+          :src="String(entry.message.parcel_url)"
+          :alt="`your parcel, packed by ${storeName}`"
+          img-class="mt-1 h-40 w-full max-w-xs rounded-medium object-cover"
+        />
         <DofText role="caption" class="text-foreground/50"><DofTime :value="entry.occurred_at" mode="relative" /></DofText>
       </div>
     </li>

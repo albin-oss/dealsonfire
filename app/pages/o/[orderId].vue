@@ -69,11 +69,29 @@ const status = computed(() => STATUS[order.value?.state ?? ''] ?? { label: order
             has your order — we’ll tell you the moment it’s confirmed and again when it ships.
             Everything below stays right here, on any device.
           </DofText>
+          <!-- the maker's sign-off (SM-3): their standing promise, in their words -->
+          <DofText v-if="data?.maker_promise" role="caption" class="text-positive">
+            ✓ {{ data!.maker_promise }} — {{ order.store_name }}
+          </DofText>
         </section>
 
         <!-- ——— the story so far -->
         <section aria-label="story" class="flex flex-col gap-3">
           <OrderTimeline :entries="timeline" :store-name="order.store_name" />
+        </section>
+
+        <!-- ——— the Workshop Wait (SX-1): the maker's real week, while you wait -->
+        <section v-if="(data?.wait_sparks?.length ?? 0) > 0" aria-label="from the workshop while you wait" class="flex flex-col gap-2 rounded-large border border-foreground/10 bg-foreground/[0.02] p-4">
+          <DofText role="caption" class="uppercase tracking-widest text-accent">Meanwhile, in the workshop</DofText>
+          <ul class="flex list-none flex-col gap-3 p-0">
+            <li v-for="sp in data!.wait_sparks" :key="sp.id" class="flex items-start gap-3">
+              <PublicImg v-if="sp.image_url" :src="sp.image_url" alt="" img-class="size-12 shrink-0 rounded-medium object-cover" />
+              <div class="flex min-w-0 flex-col gap-0.5">
+                <DofText role="body" class="text-foreground/90">{{ sp.body }}</DofText>
+                <DofText role="caption" class="text-foreground/50"><DofTime :value="sp.published_at" mode="relative" /></DofText>
+              </div>
+            </li>
+          </ul>
         </section>
 
         <!-- ——— the things -->
@@ -99,9 +117,14 @@ const status = computed(() => STATUS[order.value?.state ?? ''] ?? { label: order
 
         <!-- ——— where it's going (two calm lines — R3.7) -->
         <section aria-label="delivery" class="flex flex-col gap-1">
-          <DofText role="caption" tone="muted">Going to</DofText>
-          <DofText role="body">{{ order.contact_name }} · {{ order.delivery.line1 }}</DofText>
-          <DofText role="body" tone="muted">{{ order.delivery.postal_code }} {{ order.delivery.city }}, {{ order.delivery.country }}</DofText>
+          <DofText role="caption" tone="muted">{{ order.delivery_method === 'pickup' ? 'Pickup' : 'Going to' }}</DofText>
+          <template v-if="order.delivery_method === 'pickup'">
+            <DofText role="body">You’re picking it up at {{ order.store_name }} — they’ll tell you here when it’s ready.</DofText>
+          </template>
+          <template v-else>
+            <DofText role="body">{{ order.contact_name }} · {{ order.delivery.line1 }}</DofText>
+            <DofText role="body" tone="muted">{{ order.delivery.postal_code }} {{ order.delivery.city }}, {{ order.delivery.country }}</DofText>
+          </template>
           <DofText role="caption" class="mt-1 text-foreground/50">Order {{ order.order_number }} · placed <DofTime :value="order.placed_at" mode="relative" /></DofText>
         </section>
 

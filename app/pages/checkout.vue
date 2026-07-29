@@ -5,8 +5,8 @@
  * The attempt key is minted once per cart in sessionStorage — refreshes, double
  * taps, and dead networks all converge on the same single order (A7-2).
  */
-import { computed, ref } from 'vue'
-import { DofText, DofButton, DofInput, DofMoney, DofSkeleton, DofProblem, DofEmptyState, announce } from '@ds/index'
+import { computed, ref, watch } from 'vue'
+import { DofText, DofButton, DofChip, DofInput, DofMoney, DofSkeleton, DofProblem, DofEmptyState, announce } from '@ds/index'
 import type { CartsResponse, CartView } from '@contracts/schemas/orders/cart.schema'
 import type { CheckoutResponse } from '@contracts/schemas/orders/checkout.schema'
 import type { AddressValue } from '../components/AddressFields.vue'
@@ -23,12 +23,28 @@ const cart = computed<CartView | null>(() =>
   (data.value?.carts ?? []).find((c) => c.cart_id === cartId.value && c.lines.some((l) => l.available)) ?? null)
 const lines = computed(() => cart.value?.lines.filter((l) => l.available) ?? [])
 
+// C6 — the store's shipping terms (display math only; the server's quote is the truth)
+const { data: shippingTerms, refresh: refreshShipping } = useFetch<{ handling_days: number; flat_rate_minor: number; free_over_minor: number | null; pickup_enabled: boolean }>(
+  () => `/api/v1/public/stores/${cart.value?.store_handle}/shipping`,
+  { lazy: true, server: false, immediate: false },
+)
+watch(cart, (c) => { if (c) void refreshShipping() })
+const method = ref<'ship' | 'pickup'>('ship')
+const shippingMinor = computed(() => {
+  if (!shippingTerms.value || method.value === 'pickup') return 0
+  const t = shippingTerms.value
+  if (t.free_over_minor !== null && (cart.value?.subtotal_minor ?? 0) >= t.free_over_minor) return 0
+  return t.flat_rate_minor
+})
+const totalMinor = computed(() => (cart.value?.subtotal_minor ?? 0) + shippingMinor.value)
+
 const contact = ref({ name: '', email: '' })
 const delivery = ref<AddressValue>({ line1: '', city: '', postal_code: '', country: 'BE' })
 const formComplete = computed(() =>
   contact.value.name.trim().length > 0 && /.+@.+\..+/.test(contact.value.email) &&
-  delivery.value.line1.trim().length > 0 && delivery.value.city.trim().length > 0 &&
-  delivery.value.postal_code.trim().length > 0 && delivery.value.country.trim().length === 2)
+  (method.value === 'pickup' || (
+    delivery.value.line1.trim().length > 0 && delivery.value.city.trim().length > 0 &&
+    delivery.value.postal_code.trim().length > 0 && delivery.value.country.trim().length === 2)))
 
 // the idempotency spine, client half: one key per cart, surviving refreshes
 function attemptKey(): string {
@@ -47,7 +63,7 @@ async function placeOrder() {
   try {
     const res = await $fetch<CheckoutResponse>('/api/v1/public/checkout', {
       method: 'POST',
-      body: { attempt_key: attemptKey(), cart_id: cart.value.cart_id, contact: contact.value, delivery: delivery.value },
+      body: { attempt_key: attemptKey(), cart_id: cart.value.cart_id, contact: contact.value, method: method.value, ...(method.value === 'ship' ? { delivery: delivery.value } : {}) },
     })
     if (res.ok) {
       window.sessionStorage.removeItem(`dof.checkout-attempt.${cartId.value}`)
@@ -105,8 +121,17 @@ async function placeOrder() {
           <DofInput v-model="contact.email" label="Email" type="email" hint="Order updates land here — no account needed." autocomplete="email" :maxlength="254" />
         </section>
 
+        <!-- ——— how it travels (C6: pickup where the store offers it) -->
+        <section v-if="shippingTerms?.pickup_enabled" aria-label="delivery method" class="flex flex-col gap-2">
+          <DofText role="emphasis" as="h2">How would you like it?</DofText>
+          <div class="flex gap-2" role="group" aria-label="delivery method">
+            <DofChip label="Ship it to me" :selected="method === 'ship'" selectable @toggle="method = 'ship'" />
+            <DofChip label="I’ll pick it up" :selected="method === 'pickup'" selectable @toggle="method = 'pickup'" />
+          </div>
+        </section>
+
         <!-- ——— where it's going -->
-        <section aria-label="delivery" class="flex flex-col gap-3">
+        <section v-if="method === 'ship'" aria-label="delivery" class="flex flex-col gap-3">
           <DofText role="emphasis" as="h2">Where is it going?</DofText>
           <AddressFields v-model="delivery" />
         </section>
@@ -118,12 +143,13 @@ async function placeOrder() {
             <DofMoney v-if="cart.currency" :amount="cart.subtotal_minor" :currency="cart.currency" />
           </div>
           <div class="flex items-baseline justify-between">
-            <DofText role="body" tone="muted">Shipping</DofText>
-            <DofText role="body" tone="muted">Included for now</DofText>
+            <DofText role="body" tone="muted">{{ method === 'pickup' ? 'Pickup' : 'Shipping' }}</DofText>
+            <DofText v-if="shippingMinor === 0" role="body" tone="muted">{{ method === 'pickup' ? 'Free — you collect it' : 'Free' }}</DofText>
+            <DofMoney v-else-if="cart.currency" :amount="shippingMinor" :currency="cart.currency" />
           </div>
           <div class="flex items-baseline justify-between border-t border-foreground/10 pt-2">
             <DofText role="body" class="font-medium">Total</DofText>
-            <DofMoney v-if="cart.currency" :amount="cart.subtotal_minor" :currency="cart.currency" class="text-title font-semibold" />
+            <DofMoney v-if="cart.currency" :amount="totalMinor" :currency="cart.currency" class="text-title font-semibold" />
           </div>
         </section>
 
@@ -136,7 +162,7 @@ async function placeOrder() {
         <!-- ——— the commitment (DP-3/DP-4: consequence named above, keystone beside) -->
         <section aria-label="place order" class="flex flex-col gap-3">
           <DofButton tone="accent" size="lg" icon="check" class="w-full" :disabled="!formComplete" :loading="placing" @click="placeOrder">
-            Place order<template v-if="cart.currency"> — <DofMoney :amount="cart.subtotal_minor" :currency="cart.currency" /></template>
+            Place order<template v-if="cart.currency"> — <DofMoney :amount="totalMinor" :currency="cart.currency" /></template>
           </DofButton>
           <KeystoneNote />
         </section>

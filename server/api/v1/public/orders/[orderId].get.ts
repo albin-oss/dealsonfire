@@ -25,6 +25,17 @@ export default definePublicEndpoint({
     const c = getContainer()
     const result = await c.deps.uow.withTransaction((tx) => c.orders.checkout.getBuyerOrder(tx, buyerId, orderId))
     if (!result) return err(domainError('NOT_FOUND', 'this order does not exist'))
+    // C6: the parcel photo — media ids in timeline messages become URLs here
+    const parcelIds = result.timeline
+      .map((t) => t.message.parcel_media_id)
+      .filter((id): id is string => typeof id === 'string')
+    if (parcelIds.length > 0) {
+      const urls = await c.media.urlsFor(parcelIds)
+      for (const entry of result.timeline) {
+        const id = entry.message.parcel_media_id
+        if (typeof id === 'string' && urls[id]) entry.message.parcel_url = urls[id]
+      }
+    }
     return ok(result as BuyerOrderResponse)
   },
 })
