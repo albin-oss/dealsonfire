@@ -221,6 +221,10 @@ describe('placed → confirmed (the C5 ceremony)', () => {
     expect(list.body.items[0].state).toBe('confirmed')
     expect(list.body.items[0].buyer_name).toBe('Jonas')
     expect(list.body.items[0].items[0].title).toBe('Lavender blanket')
+    // ORR-C1: the fulfiller sees where to ship and how to reach the buyer
+    expect(list.body.items[0].delivery.line1).toBe('Kerkstraat 1')
+    expect(list.body.items[0].delivery.city).toBe('Antwerp')
+    expect(list.body.items[0].buyer_email).toBe('jonas@example.com')
 
     const stranger = await merchant()
     const masked = await http.request('GET', `/api/v1/orders?business_id=${m.businessId}`, { headers: { cookie: stranger.cookie } })
