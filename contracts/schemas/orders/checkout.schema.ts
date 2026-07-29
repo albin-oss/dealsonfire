@@ -19,6 +19,8 @@ export const checkoutRequest = z.object({
     postal_code: z.string().min(1).max(20),
     country: z.string().length(2),
   }),
+  /** C6: ship (default) or pickup where the store allows it; digital resolves itself. */
+  method: z.enum(['ship', 'pickup']).optional(),
 })
 export type CheckoutRequest = z.infer<typeof checkoutRequest>
 

@@ -58,9 +58,9 @@ export class PgConfirmService {
     const client = asClient(tx)
     const { rows: orders } = await client.query<{
       id: string; state: string; attempt_key: string; business_id: string; store_id: string
-      buyer_id: string; total_minor: string; currency: string; order_number: string
+      buyer_id: string; total_minor: string; shipping_minor: string; currency: string; order_number: string
     }>(
-      `SELECT id, state, attempt_key, business_id, store_id, buyer_id, total_minor::text, currency, order_number
+      `SELECT id, state, attempt_key, business_id, store_id, buyer_id, total_minor::text, shipping_minor::text, currency, order_number
        FROM orders WHERE id = $1 FOR UPDATE`, [orderId])
     const order = orders[0]
     if (!order) return null
@@ -100,15 +100,17 @@ export class PgConfirmService {
       return { ok: true, state: 'cancelled', reason: 'sold out at confirmation' }
     }
 
-    // ——— the single capture (partial exactly when the race dropped a line)
-    const captured = await this.payments.capture(tx, { attemptKey: order.attempt_key, amountMinor: survivingMinor, orderId })
+    // ——— the single capture (partial exactly when the race dropped a line);
+    // shipping rides with the goods: charged when anything survives to ship
+    const captureMinor = survivingMinor + (survivingMinor > 0 ? Number(order.shipping_minor) : 0)
+    const captured = await this.payments.capture(tx, { attemptKey: order.attempt_key, amountMinor: captureMinor, orderId })
     if (!captured.ok) {
       await client.query(`UPDATE orders SET state = 'payment_pending' WHERE id = $1`, [orderId])
       return { ok: true, state: 'payment_pending' } // the sweep retries; buyer copy stays calm
     }
 
     // ——— certainty: the state, the story, the facts
-    const newTotal = survivingMinor
+    const newTotal = captureMinor
     await client.query(`UPDATE orders SET state = 'confirmed', total_minor = $2 WHERE id = $1`, [orderId, newTotal])
     for (const f of fallen) {
       await this.timeline(client, orderId, 'note', { text: `“${f.title}” sold out before confirmation — it was not charged.` })
@@ -192,6 +194,212 @@ export class PgConfirmService {
       if (result && result.ok && result.state === 'confirmed') confirmed += 1
     }
     return confirmed
+  }
+
+  /**
+   * THE KEYSTONE'S TEETH (C6 — ORR-C2, campaign directive): the three-stage
+   * no-ship aging path. Runs on the cron clock; idempotent (the aging_stage
+   * ratchet only moves forward), restartable (each stage re-derives from
+   * dates, never from memory — hostile scenario 9: a cron dead for days
+   * resumes and walks each order through every due stage), bounded (LIMIT
+   * per stage per tick), observable (every stage writes the timeline; stage
+   * 3 alarms on any failure).
+   *
+   *   Stage 1 · promise passed        → the calm merchant nudge ("Did this ship?")
+   *   Stage 2 · +3 days grace         → the buyer is told plainly
+   *   Stage 3 · +7 days               → automatic refund of the undispatched
+   *                                     amount; lines closed honestly; alarm
+   *                                     ONLY if a step fails
+   *
+   * "Dispatched" facts come from the case port; refunds go through the ONE
+   * payments primitive (cause-keyed → replay-safe even if this sweep and an
+   * operator race — hostile scenario 10).
+   */
+  async sweepAging(tx: Tx, deps: {
+    listCases: (tx: Tx, orderId: string) => Promise<Array<{ state: string; lines: Array<{ line_no: number }> }>>
+    refund: (tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }) =>
+      Promise<{ ok: true; refundId: string; alreadyDone: boolean } | { ok: false; detail: string }>
+  }, now = new Date()): Promise<{ nudged: number; disclosed: number; refunded: number }> {
+    const client = asClient(tx)
+    const nowIso = now.toISOString()
+    const out = { nudged: 0, disclosed: 0, refunded: 0 }
+
+    // Stage 1 — the calm nudge (merchant-facing only; no buyer alarm)
+    const { rows: s1 } = await client.query<{ id: string }>(
+      `UPDATE orders SET aging_stage = 1
+       WHERE aging_stage = 0 AND promise_ship_by IS NOT NULL AND promise_ship_by < $1
+         AND state IN ('confirmed','in_fulfillment','partially_fulfilled')
+       AND id IN (SELECT id FROM orders WHERE aging_stage = 0 AND promise_ship_by < $1
+                  AND state IN ('confirmed','in_fulfillment','partially_fulfilled') LIMIT 50)
+       RETURNING id`, [nowIso])
+    out.nudged = s1.length
+
+    // Stage 2 — the plain-words buyer disclosure (grace = 3 days past promise)
+    const { rows: s2 } = await client.query<{ id: string }>(
+      `UPDATE orders SET aging_stage = 2
+       WHERE aging_stage = 1 AND promise_ship_by < $1::timestamptz - interval '3 days'
+         AND state IN ('confirmed','in_fulfillment','partially_fulfilled')
+       AND id IN (SELECT id FROM orders WHERE aging_stage = 1
+                  AND promise_ship_by < $1::timestamptz - interval '3 days'
+                  AND state IN ('confirmed','in_fulfillment','partially_fulfilled') LIMIT 50)
+       RETURNING id`, [nowIso])
+    for (const o of s2) {
+      await this.timeline(client, o.id, 'note', {
+        text: 'The promised ship-by date has passed. If it doesn’t ship within the next few days, your money for the unshipped items comes back automatically — that’s the promise.',
+      })
+      out.disclosed += 1
+    }
+
+    // Stage 3 — the automatic refund (7 days past promise; the keystone, kept)
+    const { rows: s3 } = await client.query<{
+      id: string; order_number: string; state: string; total_minor: string; shipping_minor: string; currency: string
+      business_id: string; store_id: string
+    }>(
+      `SELECT id, order_number, state, total_minor::text, shipping_minor::text, currency, business_id, store_id FROM orders
+       WHERE aging_stage = 2 AND promise_ship_by < $1::timestamptz - interval '7 days'
+         AND state IN ('confirmed','in_fulfillment','partially_fulfilled')
+       LIMIT 20 FOR UPDATE`, [nowIso])
+    for (const order of s3) {
+      try {
+        const cases = await deps.listCases(tx, order.id)
+        const dispatchedLines = new Set(
+          cases.filter((c) => ['dispatched', 'collected', 'granted'].includes(c.state)).flatMap((c) => c.lines.map((l) => l.line_no)))
+        const { rows: lines } = await client.query<{ line_no: number; unit_price_minor: string; quantity: number; line_state: string; title: string }>(
+          `SELECT line_no, unit_price_minor::text, quantity, line_state, title FROM order_lines WHERE order_id = $1 FOR UPDATE`, [order.id])
+        const undispatched = lines.filter((l) => l.line_state === 'committed' && !dispatchedLines.has(l.line_no))
+        let refundMinor = undispatched.reduce((sum, l) => sum + Number(l.unit_price_minor) * l.quantity, 0)
+        // if NOTHING shipped, the shipping cost comes back too — the whole promise failed
+        if (dispatchedLines.size === 0) refundMinor += Number(order.shipping_minor)
+        if (refundMinor > 0) {
+          const refunded = await deps.refund(tx, {
+            orderId: order.id, amountMinor: refundMinor,
+            causeKey: `no-ship-aging:${order.id}`,
+            cause: { kind: 'no_ship_auto_refund', order_number: order.order_number },
+          })
+          if (!refunded.ok) {
+            this.alarm(`[orders] KEYSTONE STAGE-3 REFUND FAILED for order ${order.id} (${order.order_number}): ${refunded.detail} — manual refund required NOW`)
+            continue // ratchet stays at 2; next tick retries; the alarm is loud
+          }
+        }
+        for (const l of undispatched) {
+          await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_no = $2`, [order.id, l.line_no])
+        }
+        const anythingShipped = dispatchedLines.size > 0
+        await client.query(
+          `UPDATE orders SET aging_stage = 3, state = $2, total_minor = total_minor - $3 WHERE id = $1`,
+          [order.id, anythingShipped ? order.state : 'cancelled', refundMinor])
+        await this.timeline(client, order.id, 'refund', {
+          amount_minor: refundMinor, currency: order.currency,
+          text: anythingShipped
+            ? 'The unshipped part of this order was refunded automatically — the shipped items are unaffected.'
+            : 'This order didn’t ship, so your money is on its way back automatically. Nothing more will be charged.',
+        })
+        await this.events.append(tx, [this.orderEvent(order, 'orders.order.cancelled', {
+          reason: 'no_ship_auto_refund', refunded_minor: refundMinor,
+        })])
+        out.refunded += 1
+      } catch (error) {
+        this.alarm(`[orders] KEYSTONE STAGE-3 CRASHED for order ${order.id}: ${(error as Error).message} — manual review required`)
+      }
+    }
+    return out
+  }
+
+  // ————————————————————————————————— C6: the order's fulfillment reactions
+  // (the endpoint orchestrates the Operations case transition + this reaction
+  // in ONE transaction — the checkout/reservation pattern)
+
+  /** The bench moment: packed, with the optional parcel photo riding along. */
+  async recordPacked(tx: Tx, orderId: string, parcelMediaId: string | null): Promise<void> {
+    const client = asClient(tx)
+    const { rows: dup } = await client.query<{ id: string }>(
+      `SELECT id FROM order_timeline WHERE order_id = $1 AND entry_type = 'packed' LIMIT 1`, [orderId])
+    if (dup[0]) return // idempotent: one packed chapter
+    await client.query(`UPDATE orders SET state = 'in_fulfillment' WHERE id = $1 AND state = 'confirmed'`, [orderId])
+    await this.timeline(client, orderId, 'packed', {
+      ...(parcelMediaId ? { parcel_media_id: parcelMediaId } : {}),
+      text: 'Packed and ready to go.',
+    })
+  }
+
+  /** Dispatch: lines leave the bench; partial shipments narrate honestly. */
+  async recordDispatch(tx: Tx, orderId: string, input: {
+    lineNos: number[]; carrier: string | null; trackingRef: string | null; method: 'ship' | 'pickup'
+  }): Promise<{ orderState: string }> {
+    const client = asClient(tx)
+    for (const lineNo of input.lineNos) {
+      await client.query(
+        `UPDATE order_lines SET line_state = 'fulfilled' WHERE order_id = $1 AND line_no = $2 AND line_state IN ('committed','in_fulfillment')`,
+        [orderId, lineNo])
+    }
+    const { rows: counts } = await client.query<{ open: number; total: number }>(
+      `SELECT count(*) FILTER (WHERE line_state NOT IN ('fulfilled','cancelled','returned'))::int AS open,
+              count(*)::int AS total
+       FROM order_lines WHERE order_id = $1`, [orderId])
+    const allDone = (counts[0]?.open ?? 0) === 0
+    const newState = allDone ? 'fulfilled' : 'partially_fulfilled'
+    await client.query(
+      `UPDATE orders SET state = $2 WHERE id = $1 AND state IN ('confirmed','in_fulfillment','partially_fulfilled')`,
+      [orderId, newState])
+    const { rows: titles } = await client.query<{ title: string }>(
+      `SELECT title FROM order_lines WHERE order_id = $1 AND line_no = ANY($2::int[]) ORDER BY line_no`, [orderId, input.lineNos])
+    await this.timeline(client, orderId, input.method === 'pickup' ? 'ready' : 'shipped', {
+      titles: titles.map((t) => t.title),
+      partial: !allDone,
+      ...(input.carrier ? { carrier: input.carrier } : {}),
+      ...(input.trackingRef ? { tracking_ref: input.trackingRef } : {}),
+    })
+    return { orderState: newState }
+  }
+
+  /** The handover (pickup collected). */
+  async recordHandover(tx: Tx, orderId: string): Promise<void> {
+    const client = asClient(tx)
+    const { rows: dup } = await client.query<{ id: string }>(
+      `SELECT id FROM order_timeline WHERE order_id = $1 AND entry_type = 'delivered' LIMIT 1`, [orderId])
+    if (dup[0]) return
+    await client.query(
+      `UPDATE order_lines SET line_state = 'fulfilled' WHERE order_id = $1 AND line_state IN ('committed','in_fulfillment')`, [orderId])
+    await client.query(
+      `UPDATE orders SET state = 'fulfilled' WHERE id = $1 AND state IN ('confirmed','in_fulfillment','partially_fulfilled')`, [orderId])
+    await this.timeline(client, orderId, 'delivered', { text: 'Picked up — it’s in your hands.' })
+  }
+
+  /**
+   * The payout-hold clock (C6 — ORR-C3): candidates are fulfilled-ish orders
+   * whose hold hasn't released; the DECISION is the one pure policy
+   * (payments/hold-policy via the injected evaluator through releaseHold's
+   * caller); the MOVEMENT is the one payments primitive. Idempotent twice
+   * over (hold_released_at guard + releaseHold's cause key). Bounded.
+   */
+  async sweepHoldRelease(tx: Tx, deps: {
+    listCases: (tx: Tx, orderId: string) => Promise<Array<{ method: 'ship' | 'pickup' | 'digital'; state: string; dispatched_at: string | null; handed_over_at: string | null }>>
+    releaseHold: (tx: Tx, input: { orderId: string; causeKey: string }) =>
+      Promise<{ ok: true; releasedMinor: number; alreadyDone: boolean } | { ok: false; detail: string }>
+    /** The ONE policy, injected by the composition root (no cross-domain import). */
+    policy: (cases: Array<{ method: 'ship' | 'pickup' | 'digital'; state: string; dispatched_at: string | null; handed_over_at: string | null }>, now: Date) => boolean
+  }, now = new Date()): Promise<number> {
+    const client = asClient(tx)
+    const { rows: candidates } = await client.query<{ id: string }>(
+      `SELECT id FROM orders
+       WHERE hold_released_at IS NULL AND state IN ('fulfilled','partially_fulfilled','completed')
+       LIMIT 50 FOR UPDATE`)
+    let released = 0
+    for (const order of candidates) {
+      const cases = await deps.listCases(tx, order.id)
+      if (!deps.policy(cases, now)) continue
+      const result = await deps.releaseHold(tx, { orderId: order.id, causeKey: `fulfillment-evidence:${order.id}` })
+      if (!result.ok) {
+        this.alarm(`[orders] HOLD RELEASE FAILED for order ${order.id}: ${result.detail} — payout eligibility stuck; manual review required`)
+        continue
+      }
+      await client.query(`UPDATE orders SET hold_released_at = now() WHERE id = $1`, [order.id])
+      await this.timeline(client, order.id, 'note', {
+        text: 'Delivery evidence settled — the maker’s payout for this order is now on its way.',
+      })
+      released += 1
+    }
+    return released
   }
 
   private async timeline(client: ReturnType<typeof asClient>, orderId: string, entryType: string, message: Record<string, unknown>): Promise<void> {

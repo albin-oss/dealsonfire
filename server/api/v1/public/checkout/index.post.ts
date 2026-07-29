@@ -33,6 +33,7 @@ export default definePublicEndpoint({
         cartId: body.cart_id,
         contact: body.contact,
         delivery: body.delivery,
+        method: body.method,
       }))
     if (result.ok) {
       // C5: confirmation runs immediately in its OWN transaction — the order exists
