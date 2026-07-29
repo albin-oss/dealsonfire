@@ -15,4 +15,7 @@ export const PAYMENTS_EVENT = {
   /** C5: capture facts — the charge is real and the payout hold opens (AMENDMENT-001 §4). */
   CHARGE_SUCCEEDED: 'payments.charge.succeeded',
   HOLD_OPENED: 'payments.hold.opened',
+  /** C6: money back (frozen name) and the hold release on fulfillment evidence. */
+  REFUND_ISSUED: 'payments.refund.issued',
+  HOLD_RELEASED: 'payments.hold.released',
 } as const

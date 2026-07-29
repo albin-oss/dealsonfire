@@ -18,7 +18,14 @@ export const checkoutRequest = z.object({
     city: z.string().min(1).max(120),
     postal_code: z.string().min(1).max(20),
     country: z.string().length(2),
-  }),
+  }).optional(),
+  /** C6: ship (default) or pickup where the store allows it; digital resolves itself. */
+  method: z.enum(['ship', 'pickup']).optional(),
+}).superRefine((body, ctx) => {
+  // pickup needs no address; shipping does (DeliverySnapshot = address OR pickup marker)
+  if (body.method !== 'pickup' && !body.delivery) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['delivery'], message: 'a delivery address is required for shipped orders' })
+  }
 })
 export type CheckoutRequest = z.infer<typeof checkoutRequest>
 
@@ -57,6 +64,9 @@ export const buyerOrderResponse = z.object({
     currency: z.string(),
     contact_name: z.string(),
     delivery: z.object({ line1: z.string(), city: z.string(), postal_code: z.string(), country: z.string() }),
+    /** C6: the promise snapshot + how it travels. */
+    promise_ship_by: z.string().nullable(),
+    delivery_method: z.string(),
   }),
   lines: z.array(orderLine),
   timeline: z.array(z.object({
@@ -64,6 +74,15 @@ export const buyerOrderResponse = z.object({
     message: z.record(z.string(), z.unknown()),
     occurred_at: z.string(),
   })),
+  /** C6 — the Workshop Wait: the maker's public sparks from the wait window. */
+  wait_sparks: z.array(z.object({
+    id: z.string().uuid(),
+    body: z.string(),
+    published_at: z.string(),
+    image_url: z.string().nullable(),
+  })),
+  /** The maker's standing sign-off (their brand promise line), when one exists. */
+  maker_promise: z.string().nullable(),
 })
 export type BuyerOrderResponse = z.infer<typeof buyerOrderResponse>
 

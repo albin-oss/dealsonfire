@@ -1081,6 +1081,61 @@
           "reconciliation": "closure blocked with balances"
         }
       ]
+    },
+    {
+      "table": "shipping_profiles",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [
+        {
+          "column": "store_id",
+          "target_domain": "merchant",
+          "target_concept": "store (by value)",
+          "cleanup_event": "none",
+          "reconciliation": "none required"
+        }
+      ]
+    },
+    {
+      "table": "fulfillment_cases",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "pii_note": "tracking refs only; addresses live on the order (orders domain)",
+      "retention": "permanent (fulfillment truth)",
+      "delete_class": "never",
+      "cross_domain_refs": [
+        {
+          "column": "order_id",
+          "target_domain": "orders",
+          "target_concept": "order (by value)",
+          "cleanup_event": "none — both permanent",
+          "reconciliation": "none required"
+        },
+        {
+          "column": "parcel_media_id",
+          "target_domain": "merchant",
+          "target_concept": "media asset (by value)",
+          "cleanup_event": "none",
+          "reconciliation": "none required"
+        }
+      ]
+    },
+    {
+      "table": "fulfillment_case_lines",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "case_id",
+      "pii_tier": "P0",
+      "retention": "with parent case",
+      "delete_class": "never",
+      "cross_domain_refs": []
     }
   ]
 }

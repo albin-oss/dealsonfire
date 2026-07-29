@@ -102,6 +102,7 @@ import { PgCheckoutService, type PaymentPort } from '@domains/orders/checkout/ap
 import { PgConfirmService } from '@domains/orders/checkout/application/confirm'
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
+import { PgFulfillmentRepository } from '@domains/operations/fulfillment/application/fulfillment'
 import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
@@ -189,6 +190,8 @@ export interface Container {
     }
     /** C2 (CDC-001 §2.2): the frozen reservation contract — Orders' only stock door. */
     stock: PgStockRepository
+    /** C6: profiles + cases — the parcel's life. */
+    fulfillment: PgFulfillmentRepository
   }
   orders: {
     dispatcher: OutboxDispatcher
@@ -439,12 +442,17 @@ export function buildContainer(databaseUrl: string): Container {
     authorize: (tx, input) => paymentsService.authorize(tx, input),
     void: (authRef) => paymentsService.void(authRef),
   }
-  const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort)
+  const fulfillmentRepository = new PgFulfillmentRepository()
+  const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort, {
+    getOrDefaultProfile: (tx, businessId, storeId) => fulfillmentRepository.getOrDefaultProfile(tx, businessId, storeId),
+    shippingCost: (profile, method, subtotal) => fulfillmentRepository.shippingCost(profile as never, method, subtotal),
+  })
   const confirmService = new PgConfirmService(
     ordersEventStore,
     stockRepository,
     { capture: (tx, input) => paymentsService.capture(tx, input) },
     (message) => logger.error(message, { component: 'orders-confirm' }),
+    { createCase: (tx, input) => fulfillmentRepository.createCase(tx, input) },
   )
 
   // ————— Identity (WP-R1-B1): own machinery instances (D-22); the session adapter's backend.
@@ -578,6 +586,7 @@ export function buildContainer(databaseUrl: string): Container {
         listLocations: listLocationsQuery(operationsDeps),
       },
       stock: stockRepository,
+      fulfillment: fulfillmentRepository,
     },
     orders: {
       dispatcher: ordersDispatcher,

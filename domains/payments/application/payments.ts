@@ -37,6 +37,8 @@ export interface ProviderPort {
     Promise<{ ok: true; auth: ProviderAuthorization } | { ok: false; detail: string }>
   capture(providerRef: string, amountMinor: number): Promise<{ ok: true } | { ok: false; detail: string }>
   void(providerRef: string): Promise<void>
+  /** C6 (keystone enforcement): money back — idempotent per (intent, cause). */
+  refund(providerRef: string, amountMinor: number, idempotencyKey: string): Promise<{ ok: true } | { ok: false; detail: string }>
 }
 
 /** Deterministic twin (test law): declines SANDBOX_DECLINE_AMOUNT_MINOR, nothing else. */
@@ -51,6 +53,7 @@ export class SandboxProviderTwin implements ProviderPort {
   }
   async capture(_ref: string, _amount: number) { return { ok: true as const } }
   async void(_ref: string): Promise<void> { /* nothing held */ }
+  async refund(_ref: string, _amount: number, _key: string) { return { ok: true as const } }
 }
 
 /**
@@ -90,6 +93,18 @@ export class StripeProviderAdapter implements ProviderPort {
   }
   async void(providerRef: string): Promise<void> {
     await this.stripe.paymentIntents.cancel(providerRef).catch(() => { /* already terminal — idempotent enough */ })
+  }
+  async refund(providerRef: string, amountMinor: number, idempotencyKey: string) {
+    try {
+      // reverse_transfer pulls the funds back from the connected account
+      // (CONNECT_FUNDS_FLOW §2); fee refund policy joins with real fees (value 0 today)
+      await this.stripe.refunds.create(
+        { payment_intent: providerRef, amount: amountMinor, reverse_transfer: true },
+        { idempotencyKey })
+      return { ok: true as const }
+    } catch (error) {
+      return { ok: false as const, detail: (error as Stripe.errors.StripeError).message ?? 'The refund failed.' }
+    }
   }
 }
 
@@ -267,6 +282,103 @@ export class PaymentsService {
       },
     ])
     return { ok: true, intentId: intent.id }
+  }
+
+  /**
+   * Money back (C6 — keystone enforcement; C8 reuses this exact primitive).
+   * Bounded (refunded ≤ captured, schema-CHECKed AND guarded), idempotent per
+   * (intent, cause key), cause-linked, ledger-reversed: holding first, then
+   * payable (evidence-order fairness, CONNECT_FUNDS_FLOW §2).
+   */
+  async refund(tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }):
+    Promise<{ ok: true; refundId: string; alreadyDone: boolean } | { ok: false; detail: string }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{
+      id: string; state: string; provider_ref: string | null; business_id: string; currency: string
+      captured_minor: string; refunded_minor: string
+    }>(
+      `SELECT id, state, provider_ref, business_id, currency, captured_minor::text, refunded_minor::text
+       FROM payment_intents WHERE order_id = $1 FOR UPDATE`, [input.orderId])
+    const intent = rows[0]
+    if (!intent) return { ok: false, detail: 'no intent for this order' }
+    // idempotency by cause: the same cause never refunds twice
+    const { rows: prior } = await client.query<{ id: string }>(
+      `SELECT id FROM payment_facts WHERE intent_id = $1 AND kind = 'refunded' AND detail->>'cause_key' = $2`,
+      [intent.id, input.causeKey])
+    if (prior[0]) return { ok: true, refundId: prior[0].id, alreadyDone: true }
+    const captured = Number(intent.captured_minor)
+    const refunded = Number(intent.refunded_minor)
+    if (input.amountMinor <= 0 || refunded + input.amountMinor > captured) {
+      return { ok: false, detail: `refund exceeds captured (P2): ${refunded} + ${input.amountMinor} > ${captured}` }
+    }
+
+    const done = await this.provider.refund(intent.provider_ref ?? '', input.amountMinor, `${intent.id}:refund:${input.causeKey}`)
+    if (!done.ok) return { ok: false, detail: done.detail }
+
+    const factId = uuidv7()
+    await client.query(
+      `UPDATE payment_intents SET refunded_minor = refunded_minor + $2, updated_at = now() WHERE id = $1`,
+      [intent.id, input.amountMinor])
+    await client.query(
+      `INSERT INTO payment_facts (id, intent_id, kind, amount_minor, detail) VALUES ($1, $2, 'refunded', $3, $4)`,
+      [factId, intent.id, input.amountMinor, JSON.stringify({ cause_key: input.causeKey, ...input.cause })])
+    // ledger reversal: pull back from holding first, then payable — never below zero either leg
+    const { rows: bal } = await client.query<{ kind: string; balance: string }>(
+      `SELECT kind, balance_minor::text AS balance FROM ledger_accounts
+       WHERE business_id = $1 AND kind IN ('merchant_holding','merchant_payable') AND currency = $2`,
+      [intent.business_id, intent.currency])
+    const holding = Number(bal.find((b) => b.kind === 'merchant_holding')?.balance ?? 0)
+    const fromHolding = Math.min(input.amountMinor, Math.max(holding, 0))
+    const fromPayable = input.amountMinor - fromHolding
+    const legs: LedgerLeg[] = [{ kind: 'psp_clearing', businessId: null, deltaMinor: input.amountMinor }]
+    if (fromHolding > 0) legs.push({ kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: -fromHolding })
+    if (fromPayable > 0) legs.push({ kind: 'merchant_payable', businessId: intent.business_id, deltaMinor: -fromPayable })
+    await this.ledger.post(tx, intent.currency, legs, { intent_id: intent.id, order_id: input.orderId, kind: 'refund', cause_key: input.causeKey })
+    await this.events.append(tx, [{
+      businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+      eventType: PAYMENTS_EVENT.REFUND_ISSUED, schemaVersion: 1,
+      payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: input.amountMinor, currency: intent.currency, cause_key: input.causeKey },
+      actor: { type: 'system', id: 'payments' },
+    }])
+    return { ok: true, refundId: factId, alreadyDone: false }
+  }
+
+  /**
+   * The payout-hold release (C6 — ORR-C3, ONE policy, never duplicated):
+   * moves the order's still-held amount holding → payable and emits the fact.
+   * Idempotent per order (cause-keyed like refunds).
+   */
+  async releaseHold(tx: Tx, input: { orderId: string; causeKey: string }):
+    Promise<{ ok: true; releasedMinor: number; alreadyDone: boolean } | { ok: false; detail: string }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{
+      id: string; business_id: string; currency: string; captured_minor: string; refunded_minor: string
+    }>(
+      `SELECT id, business_id, currency, captured_minor::text, refunded_minor::text
+       FROM payment_intents WHERE order_id = $1 AND state = 'captured' FOR UPDATE`, [input.orderId])
+    const intent = rows[0]
+    if (!intent) return { ok: false, detail: 'no captured intent for this order' }
+    const { rows: prior } = await client.query<{ id: string }>(
+      `SELECT id FROM payment_facts WHERE intent_id = $1 AND kind = 'webhook' AND detail->>'cause_key' = $2 AND detail->>'kind' = 'hold_released'`,
+      [intent.id, input.causeKey])
+    if (prior[0]) return { ok: true, releasedMinor: 0, alreadyDone: true }
+
+    const releasable = Number(intent.captured_minor) - Number(intent.refunded_minor)
+    if (releasable <= 0) return { ok: true, releasedMinor: 0, alreadyDone: false }
+    await this.ledger.post(tx, intent.currency, [
+      { kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: -releasable },
+      { kind: 'merchant_payable', businessId: intent.business_id, deltaMinor: releasable },
+    ], { intent_id: intent.id, order_id: input.orderId, kind: 'hold_release', cause_key: input.causeKey })
+    await client.query(
+      `INSERT INTO payment_facts (id, intent_id, kind, amount_minor, detail) VALUES ($1, $2, 'webhook', $3, $4)`,
+      [uuidv7(), intent.id, releasable, JSON.stringify({ kind: 'hold_released', cause_key: input.causeKey })])
+    await this.events.append(tx, [{
+      businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+      eventType: PAYMENTS_EVENT.HOLD_RELEASED, schemaVersion: 1,
+      payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: releasable, currency: intent.currency },
+      actor: { type: 'system', id: 'payments' },
+    }])
+    return { ok: true, releasedMinor: releasable, alreadyDone: false }
   }
 
   /** Webhook ingestion: dedupe by provider event id (A8-7 layer 4), then record the fact. */

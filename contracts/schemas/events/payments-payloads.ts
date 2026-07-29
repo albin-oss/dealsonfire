@@ -18,6 +18,9 @@ export const PAYMENTS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'payments.authorization.failed': moneyFact,
   'payments.charge.succeeded': moneyFact.and(z.object({ order_id: uuid }).passthrough()),
   'payments.hold.opened': moneyFact.and(z.object({ order_id: uuid }).passthrough()),
+  // C6: money back (frozen taxonomy name) + the hold release on fulfillment evidence
+  'payments.refund.issued': moneyFact.and(z.object({ order_id: uuid, cause_key: z.string() }).passthrough()),
+  'payments.hold.released': moneyFact.and(z.object({ order_id: uuid }).passthrough()),
 }
 
 export function paymentsPayloadValidators(): Record<string, PayloadValidator> {

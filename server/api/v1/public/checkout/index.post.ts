@@ -32,7 +32,9 @@ export default definePublicEndpoint({
         buyerId,
         cartId: body.cart_id,
         contact: body.contact,
-        delivery: body.delivery,
+        // pickup's DeliverySnapshot is the honest marker, not a fake address
+        delivery: body.delivery ?? { line1: 'Pickup at the shop', city: '', postal_code: '', country: '' },
+        method: body.method,
       }))
     if (result.ok) {
       // C5: confirmation runs immediately in its OWN transaction — the order exists

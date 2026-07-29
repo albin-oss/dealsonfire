@@ -27,6 +27,7 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
       orders_event_deliveries, orders_outbox_events, orders_domain_events, orders_audit_logs,
       order_timeline, order_lines, orders, order_counters, checkout_attempts,
       cart_lines, carts, reservations, stock_ledger, stock_items,
+      fulfillment_case_lines, fulfillment_cases, shipping_profiles,
       commerce_event_deliveries, commerce_outbox_events, commerce_domain_events, commerce_audit_logs,
       spark_reactions, sparks, deal_reactions, deal_saves, deals, listings, product_media, product_variants, products, media_assets,
       operations_event_deliveries, operations_outbox_events, operations_domain_events, operations_audit_logs, locations,
