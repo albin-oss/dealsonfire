@@ -12,4 +12,6 @@ export const ordersOrderingScopeOf = (event: NewDomainEvent): string =>
 
 export const ORDERS_EVENT = {
   CART_ABANDONED: 'orders.cart.abandoned',
+  /** C3: the frozen taxonomy's first order fact — buyer intent became a promise record. */
+  ORDER_PLACED: 'orders.order.placed',
 } as const

@@ -848,6 +848,111 @@
           "reconciliation": "none required"
         }
       ]
+    },
+    {
+      "table": "checkout_attempts",
+      "owner": "orders",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "buyer_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "contact",
+        "delivery"
+      ],
+      "pii_note": "buyer contact + address snapshots — masked in logs (D-26); attempt rows purge after terminal + 30d",
+      "retention": "terminal + 30d, then purgeable",
+      "delete_class": "purge",
+      "cross_domain_refs": [
+        {
+          "column": "store_id",
+          "target_domain": "merchant",
+          "target_concept": "store (by value)",
+          "cleanup_event": "none",
+          "reconciliation": "none required"
+        }
+      ]
+    },
+    {
+      "table": "orders",
+      "owner": "orders",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "scope_key": "buyer_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "buyer_contact",
+        "delivery"
+      ],
+      "pii_note": "frozen snapshots (O1) — encrypted-at-rest posture, retention-scheduled per ADR-007 §10",
+      "retention": "permanent (the promise record)",
+      "delete_class": "never (immutable header)",
+      "cross_domain_refs": [
+        {
+          "column": "store_id",
+          "target_domain": "merchant",
+          "target_concept": "store (by value)",
+          "cleanup_event": "store closure blocked with open orders (CONNECT_FUNDS_FLOW §5)",
+          "reconciliation": "closure policy"
+        },
+        {
+          "column": "buyer_id",
+          "target_domain": "identity",
+          "target_concept": "visitor (claimable)",
+          "cleanup_event": "identity claim carries order history",
+          "reconciliation": "the claim seam"
+        }
+      ]
+    },
+    {
+      "table": "order_lines",
+      "owner": "orders",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "order_id",
+      "pii_tier": "P0",
+      "pii_note": "catalog snapshots only",
+      "retention": "with parent order",
+      "delete_class": "never (snapshots are the product, O1)",
+      "cross_domain_refs": [
+        {
+          "column": "variant_id",
+          "target_domain": "commerce",
+          "target_concept": "product_variant (by value — snapshot survives deletion)",
+          "cleanup_event": "none",
+          "reconciliation": "none required"
+        },
+        {
+          "column": "reservation_id",
+          "target_domain": "operations",
+          "target_concept": "reservation (by value)",
+          "cleanup_event": "commit/release via CDC-001 commands",
+          "reconciliation": "TTL sweep"
+        }
+      ]
+    },
+    {
+      "table": "order_timeline",
+      "owner": "orders",
+      "class": "ledger",
+      "tenancy_key": null,
+      "scope_key": "order_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids; message payloads PII-free by review",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "order_counters",
+      "owner": "orders",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "cross_domain_refs": []
     }
   ]
 }

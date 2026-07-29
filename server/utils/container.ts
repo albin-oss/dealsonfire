@@ -98,6 +98,7 @@ import { GuestClaimService } from '@domains/identity/application/guest-claim-ser
 import { merchantAccessAdapter } from './merchant-access'
 import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
 import { PgCartRepository } from '@domains/orders/cart/application/carts'
+import { PgCheckoutService, SandboxPaymentAdapter, type PaymentPort } from '@domains/orders/checkout/application/checkout'
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
 import { getServerConfig } from './config'
@@ -187,6 +188,9 @@ export interface Container {
   orders: {
     dispatcher: OutboxDispatcher
     carts: PgCartRepository
+    checkout: PgCheckoutService
+    /** The ADR-007 §6 port — sandbox in C3, Stripe behind the same seam in C4. */
+    paymentPort: PaymentPort
   }
   commands: {
     createBusiness: ReturnType<typeof createBusinessCommand>
@@ -390,6 +394,8 @@ export function buildContainer(databaseUrl: string): Container {
     { logError: (message) => logger.error(message, { component: 'orders-outbox' }) },
   )
   const cartRepository = new PgCartRepository(ordersEventStore)
+  const paymentPort: PaymentPort = new SandboxPaymentAdapter()
+  const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort)
 
   // ————— Identity (WP-R1-B1): own machinery instances (D-22); the session adapter's backend.
   const { appBaseUrl, webauthnRpId, webauthnOrigin, isProduction: identityProd } = getServerConfig()
@@ -526,6 +532,8 @@ export function buildContainer(databaseUrl: string): Container {
     orders: {
       dispatcher: ordersDispatcher,
       carts: cartRepository,
+      checkout: checkoutService,
+      paymentPort,
     },
     commands: {
       createBusiness: createBusinessCommand(deps, entitlements),

@@ -28,6 +28,9 @@ import dealsFeedGet from '../../server/api/v1/public/deals/index.get'
 import homeGet from '../../server/api/v1/public/home.get'
 import cartGet from '../../server/api/v1/public/cart/index.get'
 import cartLinesPost from '../../server/api/v1/public/cart/lines.post'
+import checkoutPost from '../../server/api/v1/public/checkout/index.post'
+import ordersGet from '../../server/api/v1/public/orders/index.get'
+import orderGet from '../../server/api/v1/public/orders/[orderId].get'
 import shopsGet from '../../server/api/v1/public/shops.get'
 import searchGet from '../../server/api/v1/public/search.get'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
@@ -121,6 +124,9 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/public/home', homeGet)
   router.get('/api/v1/public/cart', cartGet)
   router.post('/api/v1/public/cart/lines', cartLinesPost)
+  router.post('/api/v1/public/checkout', checkoutPost)
+  router.get('/api/v1/public/orders', ordersGet)
+  router.get('/api/v1/public/orders/:orderId', orderGet)
   router.get('/api/v1/public/shops', shopsGet)
   router.get('/api/v1/public/search', searchGet)
   router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)

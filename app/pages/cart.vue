@@ -103,9 +103,14 @@ const priceMoved = (line: CartView['lines'][number]) =>
             </li>
           </ul>
 
-          <DofText role="caption" class="text-foreground/60">
-            Checkout is almost here — everything stays saved, and your cart follows you when you sign in.
-          </DofText>
+          <div class="flex flex-col gap-2 border-t border-foreground/10 pt-3">
+            <NuxtLink v-if="cart.lines.some((l) => l.available)" :to="`/checkout?cart=${cart.cart_id}`" class="contents">
+              <DofButton tone="accent" icon="check" class="w-full">
+                Check out at {{ cart.store_name }}<template v-if="cart.currency"> — <DofMoney :amount="cart.subtotal_minor" :currency="cart.currency" /></template>
+              </DofButton>
+            </NuxtLink>
+            <KeystoneNote />
+          </div>
         </section>
       </template>
 
