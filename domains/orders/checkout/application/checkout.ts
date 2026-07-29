@@ -352,15 +352,16 @@ export class PgCheckoutService {
    */
   async listBusinessOrders(tx: Tx, businessId: string): Promise<Array<{
     id: string; order_number: string; state: string; placed_at: string
-    buyer_name: string; total_minor: number; currency: string
+    buyer_name: string; buyer_email: string; delivery: DeliveryAddress
+    total_minor: number; currency: string
     items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
   }>> {
     const client = asClient(tx)
     const { rows } = await client.query<{
       id: string; order_number: string; state: string; placed_at: string
-      buyer_contact: BuyerContact; total_minor: string; currency: string
+      buyer_contact: BuyerContact; delivery: DeliveryAddress; total_minor: string; currency: string
     }>(
-      `SELECT id, order_number, state, placed_at::text AS placed_at, buyer_contact, total_minor::text, currency
+      `SELECT id, order_number, state, placed_at::text AS placed_at, buyer_contact, delivery, total_minor::text, currency
        FROM orders WHERE business_id = $1
        ORDER BY (state = 'confirmed') DESC, placed_at DESC LIMIT 100`, [businessId])
     const result = []
@@ -369,7 +370,11 @@ export class PgCheckoutService {
         `SELECT title, option_label, quantity, line_state FROM order_lines WHERE order_id = $1 ORDER BY line_no`, [o.id])
       result.push({
         id: o.id, order_number: o.order_number, state: o.state, placed_at: o.placed_at,
-        buyer_name: o.buyer_contact?.name ?? '', total_minor: Number(o.total_minor), currency: o.currency,
+        // ORR-C1: the fulfiller sees where to ship and how to reach the buyer —
+        // legitimate, necessary fulfillment PII (manifest P2; never in events)
+        buyer_name: o.buyer_contact?.name ?? '', buyer_email: o.buyer_contact?.email ?? '',
+        delivery: o.delivery,
+        total_minor: Number(o.total_minor), currency: o.currency,
         items,
       })
     }

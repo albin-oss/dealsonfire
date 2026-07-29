@@ -21,7 +21,9 @@ const businessId = computed(() => workspace.value?.businesses[0]?.business_id ??
 
 interface MerchantOrder {
   id: string; order_number: string; state: string; placed_at: string
-  buyer_name: string; total_minor: number; currency: string
+  buyer_name: string; buyer_email: string
+  delivery: { line1: string; city: string; postal_code: string; country: string }
+  total_minor: number; currency: string
   items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
 }
 const { data, pending, refresh } = useFetch<{ items: MerchantOrder[] }>(
@@ -95,9 +97,15 @@ const itemsLine = (o: MerchantOrder) =>
               <DofText role="caption" tone="muted">
                 for {{ o.buyer_name }} · {{ STATE_LINE[o.state] ?? o.state }} · placed <DofTime :value="o.placed_at" mode="relative" />
               </DofText>
-              <DofText v-if="o.state === 'confirmed'" role="caption" class="text-accent">
-                Packing and shipping arrive with the next update — your promise date will live here.
-              </DofText>
+              <!-- ORR-C1: everything needed to pack the parcel, on the card itself -->
+              <div v-if="o.state === 'confirmed'" class="flex flex-col gap-0.5 border-t border-foreground/10 pt-1.5">
+                <DofText role="caption" class="text-foreground/80">
+                  Ship to: {{ o.delivery.line1 }}, {{ o.delivery.postal_code }} {{ o.delivery.city }}, {{ o.delivery.country }}
+                </DofText>
+                <DofText role="caption" tone="muted">
+                  Reach {{ o.buyer_name }} at <a :href="`mailto:${o.buyer_email}`" class="dof-interactive rounded-small underline-offset-4 hover:underline focus-visible:focus-ring">{{ o.buyer_email }}</a>
+                </DofText>
+              </div>
             </div>
           </DofCard>
         </li>
