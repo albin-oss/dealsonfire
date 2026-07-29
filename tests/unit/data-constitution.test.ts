@@ -84,7 +84,7 @@ describe('manifest completeness', () => {
       expect(entry.retention, entry.table).toBeTruthy()
       expect(entry.delete_class, entry.table).toBeTruthy()
     }
-    expect(manifestTableNames().size).toBe(73) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1) +1 deals (R0.3) +3 engagement (R0.4) +2 sparks (R0.6) +6 orders (Commerce Foundation C1) +3 stock (C2) +5 checkout (C3) +10 payments (C4: quartet + intents + facts + ledger + provider_events + profiles)
+    expect(manifestTableNames().size).toBe(76) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1) +1 deals (R0.3) +3 engagement (R0.4) +2 sparks (R0.6) +6 orders (Commerce Foundation C1) +3 stock (C2) +5 checkout (C3) +10 payments (C4) +3 fulfillment (C6: shipping_profiles + fulfillment_cases + case_lines)
   })
 })
 
