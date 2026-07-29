@@ -2,6 +2,11 @@
  * Integration HTTP harness: mounts the REAL endpoint handlers (server/api/**) on an h3
  * app served over a real socket — the same handlers Nitro mounts in production
  * (DECISIONS D-12 is what makes this possible).
+ *
+ * ⚠️ REGISTRATION IS MANUAL: if you add an endpoint, register it below.
+ * A bare 404 in an integration test almost always means you forgot — this
+ * exact symptom cost a debugging session once (C1). The manual registry is
+ * deliberate (real handlers, no route-scan magic); this warning is its price.
  */
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'

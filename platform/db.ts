@@ -17,6 +17,14 @@ export function asClient(tx: Tx): pg.PoolClient {
 export class PgUnitOfWork implements UnitOfWork {
   constructor(private readonly pool: pg.Pool) {}
 
+  /**
+   * ⚠️ THE ROLLBACK LAW: a returned `{ok: false}`-shaped value ROLLS BACK the
+   * transaction (commands that return errors leave no partial writes). If your
+   * "failure" outcome must PERSIST (a resolved cancellation, a recorded decline),
+   * return `ok: true` with a state field. Canonical example:
+   * domains/orders/checkout/application/confirm.ts. Full gotcha list:
+   * CONTRIBUTING.md § Platform laws. (This law bit its own authors three times.)
+   */
   async withTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     const client = await this.pool.connect()
     try {

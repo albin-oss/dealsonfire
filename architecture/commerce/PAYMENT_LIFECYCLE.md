@@ -1,6 +1,13 @@
 # DOF Commerce Foundation — PAYMENT_LIFECYCLE
 
-**Status:** Blueprint for Founder Review · v1.0 · 2026-07-25 · ADR-008 conformed verbatim; this document is the **Stripe realization** of that constitution. Stripe specifics live in `domains/payments/providers/stripe/` and nowhere else (ACL law).
+> ⚠️ **SUPERSEDED — do not implement from this document.**
+> The capture-on-fulfillment policy described here was **rejected** by the
+> Payment Reality Review (verified Stripe reality: one capture per intent,
+> 5–7 day auth windows). The document of record is
+> **UPDATED_PAYMENT_LIFECYCLE.md** (capture-at-confirmation, Option A).
+> Kept unmodified below for the amendment diff (COMMERCE_BLUEPRINT_AMENDMENT_001).
+
+**Status:** SUPERSEDED by UPDATED_PAYMENT_LIFECYCLE.md · originally: Blueprint for Founder Review · v1.0 · 2026-07-25 · ADR-008 conformed verbatim; this document is the **Stripe realization** of that constitution. Stripe specifics live in `domains/payments/providers/stripe/` and nowhere else (ACL law).
 
 ---
 
