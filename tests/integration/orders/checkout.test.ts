@@ -74,12 +74,12 @@ describe('the checkout saga (ADR-007)', () => {
 
     const order = await http.request('GET', `/api/v1/public/orders/${res.body.order_id}`, { headers: { cookie: buyer.cookie } })
     expect(order.status).toBe(200)
-    expect(order.body.order.state).toBe('placed')
+    expect(order.body.order.state).toBe('confirmed') // C5: confirmation runs inline
     expect(order.body.order.total_minor).toBe(9000)
     expect(order.body.lines).toHaveLength(1)
     expect(order.body.lines[0].title).toBe('Lavender blanket')
-    expect(order.body.lines[0].line_state).toBe('reserved')
-    expect(order.body.timeline.map((t: { entry_type: string }) => t.entry_type)).toEqual(['placed'])
+    expect(order.body.lines[0].line_state).toBe('committed')
+    expect(order.body.timeline.map((t: { entry_type: string }) => t.entry_type)).toEqual(['placed', 'confirmed', 'payment'])
 
     // the frozen fact landed
     const { rows } = await container.pool.query(`SELECT payload FROM orders_domain_events WHERE event_type = 'orders.order.placed'`)

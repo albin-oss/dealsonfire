@@ -14,4 +14,7 @@ export const ORDERS_EVENT = {
   CART_ABANDONED: 'orders.cart.abandoned',
   /** C3: the frozen taxonomy's first order fact — buyer intent became a promise record. */
   ORDER_PLACED: 'orders.order.placed',
+  /** C5: money and stock are certain — the merchant hears NOW, never earlier (A7-8). */
+  ORDER_CONFIRMED: 'orders.order.confirmed',
+  ORDER_CANCELLED: 'orders.order.cancelled',
 } as const

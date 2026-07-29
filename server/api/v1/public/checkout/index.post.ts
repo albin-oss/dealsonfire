@@ -34,7 +34,12 @@ export default definePublicEndpoint({
         contact: body.contact,
         delivery: body.delivery,
       }))
-    if (result.ok) return ok({ ok: true, order_id: result.orderId, order_number: result.orderNumber })
+    if (result.ok) {
+      // C5: confirmation runs immediately in its OWN transaction — the order exists
+      // either way, and the cron sweep retries any straggler (placed is never a rest).
+      await c.deps.uow.withTransaction((tx) => c.orders.confirm.confirmOrder(tx, result.orderId)).catch(() => { /* sweep retries */ })
+      return ok({ ok: true, order_id: result.orderId, order_number: result.orderNumber })
+    }
     return ok({ ok: false, code: result.code, detail: result.detail })
   },
 })

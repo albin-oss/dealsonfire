@@ -29,6 +29,7 @@ import homeGet from '../../server/api/v1/public/home.get'
 import cartGet from '../../server/api/v1/public/cart/index.get'
 import cartLinesPost from '../../server/api/v1/public/cart/lines.post'
 import checkoutPost from '../../server/api/v1/public/checkout/index.post'
+import merchantOrdersGet from '../../server/api/v1/orders/index.get'
 import ordersGet from '../../server/api/v1/public/orders/index.get'
 import orderGet from '../../server/api/v1/public/orders/[orderId].get'
 import shopsGet from '../../server/api/v1/public/shops.get'
@@ -125,6 +126,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/public/cart', cartGet)
   router.post('/api/v1/public/cart/lines', cartLinesPost)
   router.post('/api/v1/public/checkout', checkoutPost)
+  router.get('/api/v1/orders', merchantOrdersGet)
   router.get('/api/v1/public/orders', ordersGet)
   router.get('/api/v1/public/orders/:orderId', orderGet)
   router.get('/api/v1/public/shops', shopsGet)

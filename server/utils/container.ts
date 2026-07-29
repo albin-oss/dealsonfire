@@ -99,6 +99,7 @@ import { merchantAccessAdapter } from './merchant-access'
 import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
 import { PgCartRepository } from '@domains/orders/cart/application/carts'
 import { PgCheckoutService, type PaymentPort } from '@domains/orders/checkout/application/checkout'
+import { PgConfirmService } from '@domains/orders/checkout/application/confirm'
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
 import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
@@ -191,6 +192,7 @@ export interface Container {
     dispatcher: OutboxDispatcher
     carts: PgCartRepository
     checkout: PgCheckoutService
+    confirm: PgConfirmService
     /** The ADR-007 §6 port — backed by the Payments domain since C4. */
     paymentPort: PaymentPort
   }
@@ -436,6 +438,9 @@ export function buildContainer(databaseUrl: string): Container {
     void: (authRef) => paymentsService.void(authRef),
   }
   const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort)
+  const confirmService = new PgConfirmService(ordersEventStore, stockRepository, {
+    capture: (tx, input) => paymentsService.capture(tx, input),
+  })
 
   // ————— Identity (WP-R1-B1): own machinery instances (D-22); the session adapter's backend.
   const { appBaseUrl, webauthnRpId, webauthnOrigin, isProduction: identityProd } = getServerConfig()
@@ -573,6 +578,7 @@ export function buildContainer(databaseUrl: string): Container {
       dispatcher: ordersDispatcher,
       carts: cartRepository,
       checkout: checkoutService,
+      confirm: confirmService,
       paymentPort,
     },
     payments: {
