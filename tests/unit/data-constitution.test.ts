@@ -84,7 +84,7 @@ describe('manifest completeness', () => {
       expect(entry.retention, entry.table).toBeTruthy()
       expect(entry.delete_class, entry.table).toBeTruthy()
     }
-    expect(manifestTableNames().size).toBe(63) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1) +1 deals (R0.3) +3 engagement (R0.4) +2 sparks (R0.6) +6 orders (Commerce Foundation C1) +3 stock (C2) +5 checkout (C3: attempts + orders + lines + timeline + counters)
+    expect(manifestTableNames().size).toBe(73) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1) +1 deals (R0.3) +3 engagement (R0.4) +2 sparks (R0.6) +6 orders (Commerce Foundation C1) +3 stock (C2) +5 checkout (C3) +10 payments (C4: quartet + intents + facts + ledger + provider_events + profiles)
   })
 })
 
@@ -115,8 +115,8 @@ describe('immutability grants are represented in deploy SQL (ADR-004 C4)', () =>
   it('the grants file revokes UPDATE/DELETE and grants only SELECT/INSERT on both tables', async () => {
     const { readFileSync } = await import('node:fs')
     const sql = readFileSync('db/grants/immutable-tables.sql', 'utf8')
-    expect(sql).toMatch(/REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline FROM \{\{APP_ROLE\}\}/)
-    expect(sql).toMatch(/GRANT SELECT, INSERT ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline TO \{\{APP_ROLE\}\}/)
+    expect(sql).toMatch(/REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline, payments_audit_logs, payments_domain_events, payment_facts, ledger_entries FROM \{\{APP_ROLE\}\}/)
+    expect(sql).toMatch(/GRANT SELECT, INSERT ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline, payments_audit_logs, payments_domain_events, payment_facts, ledger_entries TO \{\{APP_ROLE\}\}/)
     expect(sql).toMatch(/pg_inherits/) // partitions covered
     expect(sql).not.toMatch(/GRANT[^;]*(UPDATE|DELETE)[^;]*ON audit_logs/)
   })

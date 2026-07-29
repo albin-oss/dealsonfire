@@ -14,6 +14,7 @@ export default defineNitroPlugin(() => {
       void getContainer().dispatcher.dispatchPending().catch(() => {})
       void getContainer().commerce.dispatcher.dispatchPending().catch(() => {})
       void getContainer().orders.dispatcher.dispatchPending().catch(() => {})
+      void getContainer().payments.dispatcher.dispatchPending().catch(() => {})
     } catch {
       // container not ready (e.g. DB down in dev) — retry next tick
     }

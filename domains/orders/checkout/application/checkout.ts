@@ -27,7 +27,7 @@ import type { PgStockRepository } from '../../../operations/inventory/applicatio
 
 export interface PaymentAuthorization { authRef: string }
 export interface PaymentPort {
-  authorize(input: { attemptKey: string; amountMinor: number; currency: string }):
+  authorize(input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
     Promise<{ ok: true; auth: PaymentAuthorization } | { ok: false; code: 'DECLINED'; detail: string }>
   void(authRef: string): Promise<void>
 }
@@ -161,7 +161,7 @@ export class PgCheckoutService {
     // ——— authorize (idempotent by attempt key at the port; sandbox in C3, Stripe in C4)
     let authRef = attempt.auth_ref
     if (!authRef) {
-      const auth = await this.payments.authorize({ attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency })
+      const auth = await this.payments.authorize({ attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
       if (!auth.ok) {
         await this.releaseAll(tx, reservationIds)
         await this.fail(client, attempt.id, 'PAYMENT_DECLINED')

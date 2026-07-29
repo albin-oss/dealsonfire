@@ -15,6 +15,9 @@ export interface ServerConfig {
   appBaseUrl: string
   webauthnRpId: string
   webauthnOrigin: string
+  /** C4: no key, no Stripe — the sandbox twin runs everywhere keys are absent. */
+  stripeSecretKey: string
+  stripeWebhookSecret: string
 }
 
 export function getServerConfig(): ServerConfig {
@@ -31,5 +34,7 @@ export function getServerConfig(): ServerConfig {
     appBaseUrl,
     webauthnRpId: optionalEnv('NUXT_WEBAUTHN_RP_ID', 'localhost'),
     webauthnOrigin: optionalEnv('NUXT_WEBAUTHN_ORIGIN', appBaseUrl),
+    stripeSecretKey: optionalEnv('NUXT_STRIPE_SECRET_KEY'),
+    stripeWebhookSecret: optionalEnv('NUXT_STRIPE_WEBHOOK_SECRET'),
   }
 }

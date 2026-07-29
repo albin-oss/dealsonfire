@@ -8,15 +8,15 @@
 
 GRANT USAGE ON SCHEMA public TO {{APP_ROLE}};
 
-GRANT SELECT, INSERT ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline TO {{APP_ROLE}};
-REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline FROM {{APP_ROLE}};
+GRANT SELECT, INSERT ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline, payments_audit_logs, payments_domain_events, payment_facts, ledger_entries TO {{APP_ROLE}};
+REVOKE UPDATE, DELETE, TRUNCATE ON audit_logs, domain_events, commerce_audit_logs, commerce_domain_events, operations_audit_logs, operations_domain_events, identity_audit_logs, identity_domain_events, orders_audit_logs, orders_domain_events, stock_ledger, order_timeline, payments_audit_logs, payments_domain_events, payment_facts, ledger_entries FROM {{APP_ROLE}};
 
 -- audit_logs partitions: direct partition access must carry the same protections.
 DO $$
 DECLARE part regclass;
 BEGIN
   FOR part IN SELECT inhrelid::regclass FROM pg_inherits
-    WHERE inhparent IN ('audit_logs'::regclass, 'commerce_audit_logs'::regclass, 'operations_audit_logs'::regclass, 'identity_audit_logs'::regclass, 'orders_audit_logs'::regclass)
+    WHERE inhparent IN ('audit_logs'::regclass, 'commerce_audit_logs'::regclass, 'operations_audit_logs'::regclass, 'identity_audit_logs'::regclass, 'orders_audit_logs'::regclass, 'payments_audit_logs'::regclass)
   LOOP
     EXECUTE format('GRANT SELECT, INSERT ON %s TO {{APP_ROLE}}', part);
     EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON %s FROM {{APP_ROLE}}', part);

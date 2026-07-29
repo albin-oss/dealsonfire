@@ -98,9 +98,11 @@ import { GuestClaimService } from '@domains/identity/application/guest-claim-ser
 import { merchantAccessAdapter } from './merchant-access'
 import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
 import { PgCartRepository } from '@domains/orders/cart/application/carts'
-import { PgCheckoutService, SandboxPaymentAdapter, type PaymentPort } from '@domains/orders/checkout/application/checkout'
+import { PgCheckoutService, type PaymentPort } from '@domains/orders/checkout/application/checkout'
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
+import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
+import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { getServerConfig } from './config'
 
 export interface Container {
@@ -189,8 +191,14 @@ export interface Container {
     dispatcher: OutboxDispatcher
     carts: PgCartRepository
     checkout: PgCheckoutService
-    /** The ADR-007 §6 port — sandbox in C3, Stripe behind the same seam in C4. */
+    /** The ADR-007 §6 port — backed by the Payments domain since C4. */
     paymentPort: PaymentPort
+  }
+  payments: {
+    dispatcher: OutboxDispatcher
+    service: PaymentsService
+    /** Which provider is live: 'stripe' when a secret key is configured, else the twin. */
+    provider: ProviderPort['name']
   }
   commands: {
     createBusiness: ReturnType<typeof createBusinessCommand>
@@ -394,7 +402,39 @@ export function buildContainer(databaseUrl: string): Container {
     { logError: (message) => logger.error(message, { component: 'orders-outbox' }) },
   )
   const cartRepository = new PgCartRepository(ordersEventStore)
-  const paymentPort: PaymentPort = new SandboxPaymentAdapter()
+
+  // ————— Payments (C4): own machinery (D-22); the PSP moves money, the ledger owns
+  // truth (A8-1). No Stripe key configured → the deterministic sandbox twin runs.
+  const paymentsEventStore = new PgEventStore({
+    eventsTable: 'payments_domain_events',
+    outboxTable: 'payments_outbox_events',
+    orderingScope: paymentsOrderingScopeOf,
+  })
+  const paymentsDispatcher = new OutboxDispatcher(
+    pool,
+    {
+      outboxTable: 'payments_outbox_events',
+      eventsTable: 'payments_domain_events',
+      deliveriesTable: 'payments_event_deliveries',
+      housekeepingSql: [
+        "SELECT payments_audit_logs_ensure_partition((date_trunc('month', now()) + interval '1 month')::date)",
+      ],
+    },
+    [],
+    {},
+    { logError: (message) => logger.error(message, { component: 'payments-outbox' }) },
+  )
+  const { stripeSecretKey } = getServerConfig()
+  const paymentsProvider: ProviderPort = stripeSecretKey
+    ? new StripeProviderAdapter(stripeSecretKey)
+    : new SandboxProviderTwin()
+  const paymentsService = new PaymentsService(paymentsEventStore, paymentsProvider, new LedgerPoster())
+  paymentsService.withTx = (fn) => deps.uow.withTransaction(fn)
+  // the Orders PaymentPort, structurally satisfied by the Payments domain (no cross-import)
+  const paymentPort: PaymentPort = {
+    authorize: ({ attemptKey, amountMinor, currency, businessId }) => paymentsService.authorize({ attemptKey, amountMinor, currency, businessId }),
+    void: (authRef) => paymentsService.void(authRef),
+  }
   const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort)
 
   // ————— Identity (WP-R1-B1): own machinery instances (D-22); the session adapter's backend.
@@ -534,6 +574,11 @@ export function buildContainer(databaseUrl: string): Container {
       carts: cartRepository,
       checkout: checkoutService,
       paymentPort,
+    },
+    payments: {
+      dispatcher: paymentsDispatcher,
+      service: paymentsService,
+      provider: paymentsProvider.name,
     },
     commands: {
       createBusiness: createBusinessCommand(deps, entitlements),
