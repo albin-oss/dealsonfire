@@ -197,6 +197,22 @@ export class PgCartRepository {
   }
 
   /**
+   * PRR-M1: the manifest's retention promise, kept — terminal carts (merged or
+   * abandoned) purge after 90 quiet days, lines first (no CASCADE by law).
+   */
+  async purgeTerminal(tx: Tx, now = new Date()): Promise<number> {
+    const client = asClient(tx)
+    const cutoff = new Date(now.getTime() - 90 * 86_400_000).toISOString()
+    const { rows } = await client.query<{ id: string }>(
+      `SELECT id FROM carts WHERE status IN ('merged','abandoned') AND updated_at < $1 LIMIT 200`, [cutoff])
+    for (const cart of rows) {
+      await client.query(`DELETE FROM cart_lines WHERE cart_id = $1`, [cart.id])
+      await client.query(`DELETE FROM carts WHERE id = $1`, [cart.id])
+    }
+    return rows.length
+  }
+
+  /**
    * The abandonment clock (§5.2): 30 quiet days → `orders.cart.abandoned` (frozen
    * taxonomy; payload carries refs, no lines — DOMAIN_EVENTS.md) and the cart leaves
    * the active set. Idempotent by construction: the status flip and the event land

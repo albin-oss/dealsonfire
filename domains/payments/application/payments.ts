@@ -145,14 +145,18 @@ export class PaymentsService {
     readonly ledger: LedgerPoster,
   ) {}
 
-  /** PaymentPort.authorize (structural): idempotent forever by attempt key (P4). */
-  async authorize(input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
+  /**
+   * PaymentPort.authorize (structural): idempotent forever by attempt key (P4).
+   * Runs on the CALLER's transaction (PRR-C1 — an own-transaction here acquired a
+   * second pool connection while the checkout held its first; ≥ pool-size
+   * concurrent buyers deadlocked the whole app). The provider call is idempotent
+   * by attempt key, so a rolled-back tx replayed later re-lands on the SAME
+   * provider intent — no duplicate money objects exist even when our row was
+   * never written.
+   */
+  async authorize(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
     Promise<{ ok: true; auth: { authRef: string } } | { ok: false; code: 'DECLINED'; detail: string }> {
-    // NOTE (C4 posture): the intent row commits with its surrounding checkout
-    // transaction. The provider call itself is idempotent by attempt key, so a
-    // rolled-back tx replayed later re-lands on the SAME provider intent — no
-    // duplicate money objects exist even when our row was never written.
-    return this.withTx(async (tx) => {
+    {
       const client = asClient(tx)
       const { rows: existing } = await client.query<{ id: string; state: string; provider_ref: string | null }>(
         `SELECT id, state, provider_ref FROM payment_intents WHERE attempt_key = $1 FOR UPDATE`, [input.attemptKey])
@@ -197,7 +201,7 @@ export class PaymentsService {
         actor: { type: 'system', id: 'payments' },
       }])
       return { ok: true as const, auth: { authRef: result.auth.providerRef } }
-    })
+    }
   }
 
   /** PaymentPort.void (structural): compensation — release the authorization. */

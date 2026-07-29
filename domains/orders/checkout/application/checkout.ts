@@ -27,7 +27,13 @@ import type { PgStockRepository } from '../../../operations/inventory/applicatio
 
 export interface PaymentAuthorization { authRef: string }
 export interface PaymentPort {
-  authorize(input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
+  /**
+   * Runs on the CALLER's transaction (PRR-C1: a nested own-transaction here
+   * acquires a second pool connection while the checkout holds its first —
+   * N ≥ pool-size concurrent buyers deadlock the entire application).
+   * Provider idempotency by attempt key is the crash-recovery mechanism.
+   */
+  authorize(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
     Promise<{ ok: true; auth: PaymentAuthorization } | { ok: false; code: 'DECLINED'; detail: string }>
   void(authRef: string): Promise<void>
 }
@@ -35,7 +41,7 @@ export interface PaymentPort {
 /** Sandbox adapter (test law): deterministic, idempotent by attempt key, no money. */
 export class SandboxPaymentAdapter implements PaymentPort {
   constructor(private readonly declineAmounts: number[] = [66600]) {}
-  async authorize(input: { attemptKey: string; amountMinor: number; currency: string }) {
+  async authorize(_tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string }) {
     if (this.declineAmounts.includes(input.amountMinor)) {
       return { ok: false as const, code: 'DECLINED' as const, detail: 'The payment method declined.' }
     }
@@ -161,7 +167,7 @@ export class PgCheckoutService {
     // ——— authorize (idempotent by attempt key at the port; sandbox in C3, Stripe in C4)
     let authRef = attempt.auth_ref
     if (!authRef) {
-      const auth = await this.payments.authorize({ attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
+      const auth = await this.payments.authorize(tx, { attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
       if (!auth.ok) {
         await this.releaseAll(tx, reservationIds)
         await this.fail(client, attempt.id, 'PAYMENT_DECLINED')
@@ -326,6 +332,17 @@ export class PgCheckoutService {
       lines: lines.map((l) => ({ ...l, unit_price_minor: Number(l.unit_price_minor) })),
       timeline,
     }
+  }
+
+  /**
+   * PRR-M1: the manifest's retention promise, kept — terminal attempts (placed or
+   * failed) carry buyer PII snapshots and purge after 30 days.
+   */
+  async purgeTerminalAttempts(tx: Tx, now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - 30 * 86_400_000).toISOString()
+    const result = await asClient(tx).query(
+      `DELETE FROM checkout_attempts WHERE step IN ('placed','failed') AND updated_at < $1`, [cutoff])
+    return result.rowCount ?? 0
   }
 
   /**

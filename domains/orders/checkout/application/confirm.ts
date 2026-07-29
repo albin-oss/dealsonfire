@@ -39,6 +39,8 @@ export class PgConfirmService {
     private readonly events: EventStore,
     private readonly stock: PgStockRepository,
     private readonly payments: CapturePort,
+    /** PRR-H1: the loud channel — a stuck payment is a record humans must see. */
+    private readonly alarm: (message: string) => void = (m) => console.error(m),
   ) {}
 
   async confirmOrder(tx: Tx, orderId: string): Promise<ConfirmResult | null> {
@@ -112,7 +114,22 @@ export class PgConfirmService {
 
   /** Cron fallback: any order resting in `placed`/`payment_pending` gets another push. */
   async sweepUnconfirmed(tx: Tx, olderThanSeconds = 60): Promise<number> {
-    const { rows } = await asClient(tx).query<{ id: string }>(
+    const client = asClient(tx)
+
+    // PRR-H1: retries are capped — after 24h in payment_pending the order fails
+    // honestly (stock was committed; the correction is a human's reason-coded
+    // adjustment, and the alarm makes sure a human knows). Never silent, never eternal.
+    const { rows: stale } = await client.query<{ id: string; order_number: string; business_id: string; store_id: string }>(
+      `UPDATE orders SET state = 'payment_failed'
+       WHERE state = 'payment_pending' AND placed_at < now() - interval '24 hours'
+       RETURNING id, order_number, business_id, store_id`)
+    for (const order of stale) {
+      await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_state <> 'cancelled'`, [order.id])
+      await this.timeline(client, order.id, 'note', { text: 'The payment could not be completed — this order is closed and nothing more will be charged.' })
+      this.alarm(`[orders] payment_pending exceeded 24h — order ${order.id} (${order.order_number}) marked payment_failed with COMMITTED stock; manual stock adjustment required (PRR-H1)`)
+    }
+
+    const { rows } = await client.query<{ id: string }>(
       `SELECT id FROM orders WHERE state IN ('placed','payment_pending')
        AND placed_at < now() - ($1 || ' seconds')::interval LIMIT 20`, [olderThanSeconds])
     let confirmed = 0

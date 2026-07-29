@@ -39,9 +39,9 @@ describe('the money laws (ADR-008)', () => {
   it('P4: one intent per attempt key, forever — replays return the original', async () => {
     const attemptKey = uuidv7()
     const businessId = uuidv7()
-    const first = await container.payments.service.authorize({ attemptKey, amountMinor: 4500, currency: 'EUR', businessId })
+    const first = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 4500, currency: 'EUR', businessId }))
     expect(first.ok).toBe(true)
-    const replay = await container.payments.service.authorize({ attemptKey, amountMinor: 4500, currency: 'EUR', businessId })
+    const replay = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 4500, currency: 'EUR', businessId }))
     expect(replay.ok && first.ok && replay.auth.authRef).toBe(first.ok ? first.auth.authRef : '')
     const { rows } = await container.pool.query(`SELECT count(*)::int AS n FROM payment_intents`)
     expect(rows[0].n).toBe(1)
@@ -53,7 +53,7 @@ describe('the money laws (ADR-008)', () => {
     const attemptKey = uuidv7()
     const businessId = uuidv7()
     const orderId = uuidv7()
-    const auth = await container.payments.service.authorize({ attemptKey, amountMinor: 4500, currency: 'EUR', businessId })
+    const auth = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 4500, currency: 'EUR', businessId }))
     expect(auth.ok).toBe(true)
 
     // over-capture refused before any provider call (P2)
@@ -92,7 +92,7 @@ describe('the money laws (ADR-008)', () => {
 
   it('webhook dedupe: the same provider event lands exactly once (A8-7 layer 4)', async () => {
     const attemptKey = uuidv7()
-    const auth = await container.payments.service.authorize({ attemptKey, amountMinor: 1200, currency: 'EUR', businessId: uuidv7() })
+    const auth = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 1200, currency: 'EUR', businessId: uuidv7() }))
     expect(auth.ok).toBe(true)
     const providerRef = auth.ok ? auth.auth.authRef : ''
 

@@ -434,13 +434,16 @@ export function buildContainer(databaseUrl: string): Container {
   paymentsService.withTx = (fn) => deps.uow.withTransaction(fn)
   // the Orders PaymentPort, structurally satisfied by the Payments domain (no cross-import)
   const paymentPort: PaymentPort = {
-    authorize: ({ attemptKey, amountMinor, currency, businessId }) => paymentsService.authorize({ attemptKey, amountMinor, currency, businessId }),
+    authorize: (tx, input) => paymentsService.authorize(tx, input),
     void: (authRef) => paymentsService.void(authRef),
   }
   const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort)
-  const confirmService = new PgConfirmService(ordersEventStore, stockRepository, {
-    capture: (tx, input) => paymentsService.capture(tx, input),
-  })
+  const confirmService = new PgConfirmService(
+    ordersEventStore,
+    stockRepository,
+    { capture: (tx, input) => paymentsService.capture(tx, input) },
+    (message) => logger.error(message, { component: 'orders-confirm' }),
+  )
 
   // ————— Identity (WP-R1-B1): own machinery instances (D-22); the session adapter's backend.
   const { appBaseUrl, webauthnRpId, webauthnOrigin, isProduction: identityProd } = getServerConfig()
