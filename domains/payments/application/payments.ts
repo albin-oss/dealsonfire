@@ -27,6 +27,8 @@ export const STRIPE_PINNED_API_VERSION = '2026-06-24.dahlia'
 
 /** The ONE deterministic decline amount, shared by every sandbox surface (MM-5). */
 export const SANDBOX_DECLINE_AMOUNT_MINOR = 66600
+/** The twin refuses to REFUND exactly this amount (failure-injection, scenario 8). */
+export const SANDBOX_REFUND_FAIL_AMOUNT_MINOR = 66601
 
 // ————————————————————————————————————————————— provider port (ACL — ADR-008 §6)
 
@@ -53,7 +55,11 @@ export class SandboxProviderTwin implements ProviderPort {
   }
   async capture(_ref: string, _amount: number) { return { ok: true as const } }
   async void(_ref: string): Promise<void> { /* nothing held */ }
-  async refund(_ref: string, _amount: number, _key: string) { return { ok: true as const } }
+  async refund(_ref: string, amount: number, _key: string) {
+    // failure injection (hostile scenario 8): one magic amount fails deterministically
+    if (amount === SANDBOX_REFUND_FAIL_AMOUNT_MINOR) return { ok: false as const, detail: 'The provider refused this refund (sandbox injection).' }
+    return { ok: true as const }
+  }
 }
 
 /**

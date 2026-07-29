@@ -38,6 +38,8 @@ import merchantOrdersGet from '../../server/api/v1/orders/index.get'
 import orderPackPost from '../../server/api/v1/orders/[orderId]/pack.post'
 import orderDispatchPost from '../../server/api/v1/orders/[orderId]/dispatch.post'
 import orderCollectedPost from '../../server/api/v1/orders/[orderId]/collected.post'
+import orderCancelDecisionPost from '../../server/api/v1/orders/[orderId]/cancel-decision.post'
+import publicOrderCancelPost from '../../server/api/v1/public/orders/[orderId]/cancel.post'
 import shippingPut from '../../server/api/v1/stores/[storeId]/shipping.put'
 import ordersGet from '../../server/api/v1/public/orders/index.get'
 import orderGet from '../../server/api/v1/public/orders/[orderId].get'
@@ -139,6 +141,8 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/orders/:orderId/pack', orderPackPost)
   router.post('/api/v1/orders/:orderId/dispatch', orderDispatchPost)
   router.post('/api/v1/orders/:orderId/collected', orderCollectedPost)
+  router.post('/api/v1/orders/:orderId/cancel-decision', orderCancelDecisionPost)
+  router.post('/api/v1/public/orders/:orderId/cancel', publicOrderCancelPost)
   router.put('/api/v1/stores/:storeId/shipping', shippingPut)
   router.get('/api/v1/public/orders', ordersGet)
   router.get('/api/v1/public/orders/:orderId', orderGet)

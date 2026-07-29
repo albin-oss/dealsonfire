@@ -25,6 +25,7 @@ interface MerchantOrder {
   delivery: { line1: string; city: string; postal_code: string; country: string }
   total_minor: number; currency: string
   promise_ship_by: string | null; aging_stage: number; delivery_method: string; hold_released_at: string | null
+  cancel_requested: boolean
   items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
 }
 const { data, pending, refresh } = useFetch<{ items: MerchantOrder[] }>(
@@ -50,6 +51,20 @@ function keepMoment() {
 const busyOrder = ref<string | null>(null)
 const tracking = ref<Record<string, { carrier: string; ref: string }>>({})
 const trackingFor = (id: string) => (tracking.value[id] ??= { carrier: '', ref: '' })
+async function decideCancel(o: MerchantOrder, approve: boolean) {
+  if (busyOrder.value) return
+  busyOrder.value = o.id
+  try {
+    await $fetch(`/api/v1/orders/${o.id}/cancel-decision`, {
+      method: 'POST', headers: { ...headers, 'idempotency-key': crypto.randomUUID() }, body: { approve } })
+    announce(approve ? 'Cancelled and refunded — all settled.' : 'It stays on its way — the buyer knows.')
+    await refresh()
+  } catch {
+    announce('That didn’t take — the refund may have been refused; try again.')
+  } finally {
+    busyOrder.value = null
+  }
+}
 async function act(o: MerchantOrder, action: 'pack' | 'dispatch' | 'collected') {
   if (busyOrder.value) return
   busyOrder.value = o.id
@@ -80,6 +95,10 @@ const STATE_LINE: Record<string, string> = {
   payment_pending: 'payment settling',
   payment_failed: 'payment needs another try',
   confirmed: 'to make ready',
+  in_fulfillment: 'on the bench',
+  partially_fulfilled: 'partly on its way',
+  fulfilled: 'on its way',
+  completed: 'delivered',
   cancelled: 'cancelled — nothing owed',
 }
 const itemsLine = (o: MerchantOrder) =>
@@ -138,6 +157,16 @@ const itemsLine = (o: MerchantOrder) =>
                   {{ o.delivery_method === 'pickup' ? 'Ready' : 'Ship' }} by {{ promiseDate(o.promise_ship_by) }} — your promise to {{ o.buyer_name }}
                 </DofText>
                 <DofText role="caption" tone="muted"><DofMoney :amount="o.total_minor" :currency="o.currency" /> {{ moneyLine(o) }}</DofText>
+              </div>
+              <!-- C8: the cancellation request — one decision, consequences visible -->
+              <div v-if="o.cancel_requested" class="flex flex-col gap-2 rounded-medium bg-caution/10 p-2">
+                <DofText role="caption" class="text-caution">
+                  {{ o.buyer_name }} asked to cancel. Approve and the unshipped part refunds instantly — or keep it going and it ships as promised.
+                </DofText>
+                <div class="flex gap-2">
+                  <DofButton size="sm" tone="critical" variant="soft" icon="undo-2" :loading="busyOrder === o.id" @click="decideCancel(o, true)">Cancel &amp; refund</DofButton>
+                  <DofButton size="sm" variant="soft" tone="neutral" icon="truck" :loading="busyOrder === o.id" @click="decideCancel(o, false)">Keep it going</DofButton>
+                </div>
               </div>
               <!-- the calm nudge (aging stage 1): a question, never an alarm -->
               <DofText v-if="o.aging_stage >= 1 && actionable(o)" role="caption" class="rounded-medium bg-caution/10 px-2 py-1 text-caution">

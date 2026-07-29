@@ -42,6 +42,12 @@ export const ORDERS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
     business_id: uuid,
     store_id: uuid,
   }).passthrough(),
+  // C8: the cancellation request (the bench decides)
+  'orders.order.cancel_requested': z.object({
+    order_id: uuid,
+    business_id: uuid,
+    store_id: uuid,
+  }).passthrough(),
 }
 
 export function ordersPayloadValidators(): Record<string, PayloadValidator> {

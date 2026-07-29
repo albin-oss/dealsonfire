@@ -5,8 +5,8 @@
  * correspondence — the one place in commerce where slowing down is right.
  * Buyer-gated by the visitor identity; someone else's order is a 404.
  */
-import { computed } from 'vue'
-import { DofText, DofMoney, DofButton, DofSkeleton, DofTime } from '@ds/index'
+import { computed, ref } from 'vue'
+import { DofText, DofMoney, DofButton, DofSkeleton, DofTime, announce } from '@ds/index'
 import type { BuyerOrderResponse } from '@contracts/schemas/orders/checkout.schema'
 
 definePageMeta({ layout: false })
@@ -37,6 +37,37 @@ const STATUS: Record<string, { label: string; positive?: boolean }> = {
   cancelled: { label: 'Cancelled' },
 }
 const status = computed(() => STATUS[order.value?.state ?? ''] ?? { label: order.value?.state ?? '' })
+
+// C8 — cancel: the tap decides while nothing packed; afterwards the maker does.
+// Destructive = the armed two-tap idiom (R2.1), 3s disarm.
+const cancellable = computed(() =>
+  !!order.value && ['confirmed', 'in_fulfillment', 'partially_fulfilled'].includes(order.value.state) && !order.value.cancel_requested)
+const cancelArmed = ref(false)
+let disarmTimer: ReturnType<typeof setTimeout> | null = null
+const cancelling = ref(false)
+async function cancelOrder() {
+  if (!cancelArmed.value) {
+    cancelArmed.value = true
+    if (disarmTimer) clearTimeout(disarmTimer)
+    disarmTimer = setTimeout(() => (cancelArmed.value = false), 3000)
+    return
+  }
+  if (cancelling.value) return
+  cancelling.value = true
+  try {
+    const res = await $fetch<{ outcome: string; detail?: string }>(`/api/v1/public/orders/${orderId.value}/cancel`, { method: 'POST' })
+    if (res.outcome === 'cancelled') announce('Cancelled — your money is on its way back.')
+    else if (res.outcome === 'requested') announce('You asked to cancel — the maker decides, and you will see the answer here.')
+    else announce(res.detail ?? 'This order cannot be cancelled anymore.')
+    await refreshNuxtData()
+    window.location.reload()
+  } catch {
+    announce('That didn’t take — nothing changed; try again.')
+  } finally {
+    cancelling.value = false
+    cancelArmed.value = false
+  }
+}
 </script>
 
 <template>
@@ -127,6 +158,19 @@ const status = computed(() => STATUS[order.value?.state ?? ''] ?? { label: order
           </template>
           <DofText role="caption" class="mt-1 text-foreground/50">Order {{ order.order_number }} · placed <DofTime :value="order.placed_at" mode="relative" /></DofText>
         </section>
+
+        <!-- ——— cancel (C8): quiet, honest, armed -->
+        <div v-if="cancellable" class="flex items-center gap-2">
+          <DofButton size="sm" :variant="cancelArmed ? 'soft' : 'ghost'" :tone="cancelArmed ? 'critical' : 'neutral'" icon="x" :loading="cancelling" @click="cancelOrder">
+            {{ cancelArmed ? 'Really cancel this order?' : 'Cancel this order' }}
+          </DofButton>
+          <DofText role="caption" class="text-foreground/50">
+            Not packed yet? It cancels instantly. Already moving? The maker decides.
+          </DofText>
+        </div>
+        <DofText v-else-if="order.cancel_requested" role="caption" class="text-foreground/60">
+          You asked to cancel — {{ order.store_name }} decides, and the answer lands right here.
+        </DofText>
 
         <!-- ——— the door (R1.5) -->
         <NuxtLink :to="`/s/${order.store_handle}`" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/60 underline-offset-4 hover:underline focus-visible:focus-ring">

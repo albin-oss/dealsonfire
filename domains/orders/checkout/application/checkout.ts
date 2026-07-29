@@ -325,6 +325,7 @@ export class PgCheckoutService {
       subtotal_minor: number; shipping_minor: number; total_minor: number; currency: string
       contact_name: string; delivery: DeliveryAddress
       promise_ship_by: string | null; delivery_method: string
+      cancel_requested: boolean
     }
     lines: Array<{ line_no: number; title: string; option_label: string | null; unit_price_minor: number; quantity: number; line_state: string; product_id: string; image_url: string | null }>
     timeline: Array<{ entry_type: string; message: Record<string, unknown>; occurred_at: string }>
@@ -338,11 +339,13 @@ export class PgCheckoutService {
       subtotal_minor: string; shipping_minor: string; total_minor: string; currency: string
       buyer_contact: BuyerContact; delivery: DeliveryAddress
       promise_ship_by: string | null; delivery_method: string
+      cancel_requested_at: string | null
     }>(
       `SELECT o.id, o.order_number, o.state, o.placed_at::text AS placed_at,
               s.handle AS store_handle, s.name AS store_name, o.store_id,
               o.subtotal_minor::text, o.shipping_minor::text, o.total_minor::text, o.currency,
-              o.buyer_contact, o.delivery, o.promise_ship_by::text AS promise_ship_by, o.delivery_method
+              o.buyer_contact, o.delivery, o.promise_ship_by::text AS promise_ship_by, o.delivery_method,
+              o.cancel_requested_at::text AS cancel_requested_at
        FROM orders o JOIN stores s ON s.id = o.store_id
        WHERE o.id = $1 AND o.buyer_id = $2`, [orderId, buyerId])
     const order = orders[0]
@@ -385,6 +388,7 @@ export class PgCheckoutService {
         total_minor: Number(order.total_minor), currency: order.currency,
         contact_name: order.buyer_contact?.name ?? '', delivery: order.delivery,
         promise_ship_by: order.promise_ship_by, delivery_method: order.delivery_method,
+        cancel_requested: order.cancel_requested_at !== null,
       },
       lines: lines.map((l) => ({ ...l, unit_price_minor: Number(l.unit_price_minor) })),
       timeline,
@@ -414,6 +418,7 @@ export class PgCheckoutService {
     buyer_name: string; buyer_email: string; delivery: DeliveryAddress
     total_minor: number; currency: string
     promise_ship_by: string | null; aging_stage: number; delivery_method: string; hold_released_at: string | null
+    cancel_requested: boolean
     items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
   }>> {
     const client = asClient(tx)
@@ -421,9 +426,11 @@ export class PgCheckoutService {
       id: string; order_number: string; state: string; placed_at: string
       buyer_contact: BuyerContact; delivery: DeliveryAddress; total_minor: string; currency: string
       promise_ship_by: string | null; aging_stage: number; delivery_method: string; hold_released_at: string | null
+      cancel_requested_at: string | null
     }>(
       `SELECT id, order_number, state, placed_at::text AS placed_at, buyer_contact, delivery, total_minor::text, currency,
-              promise_ship_by::text AS promise_ship_by, aging_stage, delivery_method, hold_released_at::text AS hold_released_at
+              promise_ship_by::text AS promise_ship_by, aging_stage, delivery_method, hold_released_at::text AS hold_released_at,
+              cancel_requested_at::text AS cancel_requested_at
        FROM orders WHERE business_id = $1
        ORDER BY (state IN ('confirmed','in_fulfillment','partially_fulfilled')) DESC, placed_at DESC LIMIT 100`, [businessId])
     const result = []
@@ -439,6 +446,7 @@ export class PgCheckoutService {
         total_minor: Number(o.total_minor), currency: o.currency,
         promise_ship_by: o.promise_ship_by, aging_stage: o.aging_stage,
         delivery_method: o.delivery_method, hold_released_at: o.hold_released_at,
+        cancel_requested: o.cancel_requested_at !== null,
         items,
       })
     }

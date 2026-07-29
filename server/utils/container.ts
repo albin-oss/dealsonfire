@@ -100,6 +100,7 @@ import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
 import { PgCartRepository } from '@domains/orders/cart/application/carts'
 import { PgCheckoutService, type PaymentPort } from '@domains/orders/checkout/application/checkout'
 import { PgConfirmService } from '@domains/orders/checkout/application/confirm'
+import { PgCancellationService } from '@domains/orders/checkout/application/cancel'
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
 import { PgFulfillmentRepository } from '@domains/operations/fulfillment/application/fulfillment'
@@ -202,6 +203,7 @@ export interface Container {
     carts: PgCartRepository
     checkout: PgCheckoutService
     confirm: PgConfirmService
+    cancel: PgCancellationService
     /** The ADR-007 §6 port — backed by the Payments domain since C4. */
     paymentPort: PaymentPort
   }
@@ -455,6 +457,11 @@ export function buildContainer(databaseUrl: string): Container {
     getOrDefaultProfile: (tx, businessId, storeId) => fulfillmentRepository.getOrDefaultProfile(tx, businessId, storeId),
     shippingCost: (profile, method, subtotal) => fulfillmentRepository.shippingCost(profile as never, method, subtotal),
   })
+  const cancellationService = new PgCancellationService(ordersEventStore, {
+    listCases: (tx, orderId) => fulfillmentRepository.listByOrder(tx, orderId),
+    refund: (tx, input) => paymentsService.refund(tx, input),
+    restock: (tx, reservationId, actor) => stockRepository.restockCommitted(tx, reservationId, actor),
+  })
   const confirmService = new PgConfirmService(
     ordersEventStore,
     stockRepository,
@@ -602,6 +609,7 @@ export function buildContainer(databaseUrl: string): Container {
       carts: cartRepository,
       checkout: checkoutService,
       confirm: confirmService,
+      cancel: cancellationService,
       paymentPort,
     },
     payments: {
