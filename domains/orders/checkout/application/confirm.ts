@@ -235,18 +235,19 @@ export class PgConfirmService {
     out.nudged = s1.length
 
     // Stage 2 — the plain-words buyer disclosure (grace = 3 days past promise)
-    const { rows: s2 } = await client.query<{ id: string }>(
+    const { rows: s2 } = await client.query<{ id: string; business_id: string; store_id: string }>(
       `UPDATE orders SET aging_stage = 2
        WHERE aging_stage = 1 AND promise_ship_by < $1::timestamptz - interval '3 days'
          AND state IN ('confirmed','in_fulfillment','partially_fulfilled')
        AND id IN (SELECT id FROM orders WHERE aging_stage = 1
                   AND promise_ship_by < $1::timestamptz - interval '3 days'
                   AND state IN ('confirmed','in_fulfillment','partially_fulfilled') LIMIT 50)
-       RETURNING id`, [nowIso])
+       RETURNING id, business_id, store_id`, [nowIso])
     for (const o of s2) {
       await this.timeline(client, o.id, 'note', {
         text: 'The promised ship-by date has passed. If it doesn’t ship within the next few days, your money for the unshipped items comes back automatically — that’s the promise.',
       })
+      await this.events.append(tx, [this.orderEvent(o, 'orders.order.promise_missed', {})])
       out.disclosed += 1
     }
 

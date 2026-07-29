@@ -17,4 +17,6 @@ export const ORDERS_EVENT = {
   /** C5: money and stock are certain — the merchant hears NOW, never earlier (A7-8). */
   ORDER_CONFIRMED: 'orders.order.confirmed',
   ORDER_CANCELLED: 'orders.order.cancelled',
+  /** C7: aging stage 2 — the promise was missed and both sides hear it plainly. */
+  ORDER_PROMISE_MISSED: 'orders.order.promise_missed',
 } as const

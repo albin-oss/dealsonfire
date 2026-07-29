@@ -107,6 +107,8 @@ import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapt
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
 import { paymentsPayloadValidators } from '@contracts/schemas/events/payments-payloads'
+import { SandboxMailer, type MailPort } from '@platform/mail'
+import { notificationConsumers } from './notifications'
 import { getServerConfig } from './config'
 
 export interface Container {
@@ -193,6 +195,8 @@ export interface Container {
     /** C6: profiles + cases — the parcel's life. */
     fulfillment: PgFulfillmentRepository
   }
+  /** C7: the one outbound-mail boundary (sandbox unless a provider binds). */
+  mail: MailPort
   orders: {
     dispatcher: OutboxDispatcher
     carts: PgCartRepository
@@ -387,6 +391,10 @@ export function buildContainer(databaseUrl: string): Container {
     { logError: (message) => logger.error(message, { component: 'operations-outbox' }) },
   )
 
+  // ————— C7: the notification seam — a MailPort + event consumers, not a domain.
+  const mailer = new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
+  const notify = notificationConsumers({ pool, mail: mailer, appBaseUrl: getServerConfig().appBaseUrl })
+
   // ————— Orders (Commerce Foundation C1): own machinery instances (D-22). The domain
   // begins with its smallest citizen — the Cart — and the quartet it will grow into.
   const ordersEventStore = new PgEventStore({
@@ -404,7 +412,7 @@ export function buildContainer(databaseUrl: string): Container {
         "SELECT orders_audit_logs_ensure_partition((date_trunc('month', now()) + interval '1 month')::date)",
       ],
     },
-    [], // consumers arrive with C6+ (fulfillment policies)
+    notify.orders, // C7: the letters ride the delivery ledger (exactly-once by law)
     ordersPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'orders-outbox' }) },
   )
@@ -427,7 +435,7 @@ export function buildContainer(databaseUrl: string): Container {
         "SELECT payments_audit_logs_ensure_partition((date_trunc('month', now()) + interval '1 month')::date)",
       ],
     },
-    [],
+    notify.payments,
     paymentsPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'payments-outbox' }) },
   )
@@ -588,6 +596,7 @@ export function buildContainer(databaseUrl: string): Container {
       stock: stockRepository,
       fulfillment: fulfillmentRepository,
     },
+    mail: mailer,
     orders: {
       dispatcher: ordersDispatcher,
       carts: cartRepository,

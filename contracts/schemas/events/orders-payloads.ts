@@ -36,6 +36,12 @@ export const ORDERS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
     store_id: uuid,
     reason: z.string(),
   }).passthrough(),
+  // C7: aging stage 2 — registered with the sprint that first emits it (M-6)
+  'orders.order.promise_missed': z.object({
+    order_id: uuid,
+    business_id: uuid,
+    store_id: uuid,
+  }).passthrough(),
 }
 
 export function ordersPayloadValidators(): Record<string, PayloadValidator> {
