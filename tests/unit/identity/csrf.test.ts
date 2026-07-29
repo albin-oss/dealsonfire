@@ -20,7 +20,7 @@ const run = (e: ReturnType<typeof evt>) => (csrf as unknown as (event: typeof e)
 beforeEach(() => {
   vi.spyOn(config, 'getServerConfig').mockReturnValue({
     databaseUrl: '', cronSecret: '', identityMode: 'session', isProduction: true,
-    appBaseUrl: 'https://app.dof.dev', webauthnRpId: 'app.dof.dev', webauthnOrigin: 'https://app.dof.dev',
+    appBaseUrl: 'https://app.dof.dev', webauthnRpId: 'app.dof.dev', webauthnOrigin: 'https://app.dof.dev', stripeSecretKey: '', stripeWebhookSecret: '',
   })
 })
 afterEach(() => vi.restoreAllMocks())
@@ -54,7 +54,7 @@ describe('CSRF middleware (dev mode)', () => {
   it('is exempt entirely (header auth carries no ambient credential)', () => {
     vi.spyOn(config, 'getServerConfig').mockReturnValue({
       databaseUrl: '', cronSecret: '', identityMode: 'dev', isProduction: false,
-      appBaseUrl: 'https://app.dof.dev', webauthnRpId: 'app.dof.dev', webauthnOrigin: 'https://app.dof.dev',
+      appBaseUrl: 'https://app.dof.dev', webauthnRpId: 'app.dof.dev', webauthnOrigin: 'https://app.dof.dev', stripeSecretKey: '', stripeWebhookSecret: '',
     })
     expect(() => run(evt('POST', '/api/v1/auth/login', { origin: 'https://evil.example', host: 'app.dof.dev' }))).not.toThrow()
   })

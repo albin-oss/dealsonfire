@@ -953,6 +953,134 @@
       "retention": "permanent",
       "delete_class": "never",
       "cross_domain_refs": []
+    },
+    {
+      "table": "payments_domain_events",
+      "owner": "payments",
+      "class": "event",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids; payloads are constitutionally PII-free (ADR-004 rule 19)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "payments_outbox_events",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 7d after dispatch",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "payments_event_deliveries",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed with outbox",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "payments_audit_logs",
+      "owner": "payments",
+      "class": "ledger",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "actor ids only; digests are PII-free by review",
+      "retention": "permanent (month-partitioned)",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "payment_intents",
+      "owner": "payments",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "provider tokens only — no PAN field exists (A8-4)",
+      "retention": "permanent (money truth)",
+      "delete_class": "never",
+      "cross_domain_refs": [
+        {
+          "column": "order_id",
+          "target_domain": "orders",
+          "target_concept": "order (by value)",
+          "cleanup_event": "none — orders are permanent too",
+          "reconciliation": "none required"
+        }
+      ]
+    },
+    {
+      "table": "payment_facts",
+      "owner": "payments",
+      "class": "ledger",
+      "tenancy_key": null,
+      "scope_key": "intent_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "ledger_accounts",
+      "owner": "payments",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "permanent",
+      "delete_class": "never",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "ledger_entries",
+      "owner": "payments",
+      "class": "ledger",
+      "tenancy_key": null,
+      "scope_key": "account_id",
+      "pii_tier": "P0",
+      "pii_note": "causes carry refs only (intent/order ids)",
+      "retention": "permanent",
+      "delete_class": "never",
+      "immutability": "app role: INSERT+SELECT only (db/grants); corrections are reversing postings (A8-8)",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "provider_events",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 90d (webhook dedupe horizon)",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "merchant_payment_profiles",
+      "owner": "payments",
+      "class": "aggregate",
+      "tenancy_key": "business_id",
+      "pii_tier": "P1",
+      "pii_note": "provider account refs by value; no bank data — Stripe holds it",
+      "retention": "permanent",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [
+        {
+          "column": "business_id",
+          "target_domain": "merchant",
+          "target_concept": "business",
+          "cleanup_event": "account closure policy (CONNECT_FUNDS_FLOW §5)",
+          "reconciliation": "closure blocked with balances"
+        }
+      ]
     }
   ]
 }

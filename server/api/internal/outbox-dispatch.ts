@@ -30,6 +30,7 @@ export default defineEventHandler(async (event) => {
     ['identity-outbox', container.identity.dispatcher],
     ['operations-outbox', container.operations.dispatcher],
     ['orders-outbox', container.orders.dispatcher],
+    ['payments-outbox', container.payments.dispatcher],
   ] as const
   let dispatched = 0
   let failed = 0
