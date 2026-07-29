@@ -53,7 +53,7 @@ const titleList = (titles: unknown) => Array.isArray(titles) ? titles.join(' and
           <template v-else-if="entry.entry_type === 'shipped'">
             <template v-if="entry.message.partial">{{ titleList(entry.message.titles) }} — on its way (the rest follows).</template>
             <template v-else>On its way to you.</template>
-            <template v-if="entry.message.tracking_ref"> {{ entry.message.carrier ?? 'Tracking' }}: {{ entry.message.tracking_ref }}.</template>
+            <template v-if="entry.message.tracking_ref">{{ ` ${entry.message.carrier ?? 'Tracking'}: ${entry.message.tracking_ref}.` }}</template>
           </template>
           <template v-else-if="entry.entry_type === 'ready'">Ready for pickup — come say hello.</template>
           <template v-else-if="entry.entry_type === 'refund'">
