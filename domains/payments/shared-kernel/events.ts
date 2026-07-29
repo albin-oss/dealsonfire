@@ -12,4 +12,7 @@ export const paymentsOrderingScopeOf = (event: NewDomainEvent): string =>
 export const PAYMENTS_EVENT = {
   AUTHORIZATION_SUCCEEDED: 'payments.authorization.succeeded',
   AUTHORIZATION_FAILED: 'payments.authorization.failed',
+  /** C5: capture facts — the charge is real and the payout hold opens (AMENDMENT-001 §4). */
+  CHARGE_SUCCEEDED: 'payments.charge.succeeded',
+  HOLD_OPENED: 'payments.hold.opened',
 } as const

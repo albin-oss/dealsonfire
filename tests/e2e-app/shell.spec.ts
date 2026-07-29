@@ -54,7 +54,8 @@ test('ask bar: mod+k opens, narrows, Enter navigates; recents recorded', async (
   await expect(dialog.getByRole('option', { name: /Go to Products/ })).toBeHidden()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/orders$/)
-  await expect(page.getByText('A short to-do list with money attached.')).toBeVisible()
+  // C5: /orders is the real workshop surface now — promises, not a coming-soon stub
+  await expect(page.getByText('Every order is a promise')).toBeVisible()
 
   // the term was recorded as a recent
   await expect(async () => {

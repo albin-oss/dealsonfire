@@ -245,6 +245,20 @@ export class PaymentsService {
       { kind: 'psp_clearing', businessId: null, deltaMinor: -input.amountMinor },
       { kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: input.amountMinor },
     ], { intent_id: intent.id, order_id: input.orderId, kind: 'capture' })
+    await this.events.append(tx, [
+      {
+        businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+        eventType: PAYMENTS_EVENT.CHARGE_SUCCEEDED, schemaVersion: 1,
+        payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: input.amountMinor, currency: intent.currency },
+        actor: { type: 'system', id: 'payments' },
+      },
+      {
+        businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+        eventType: PAYMENTS_EVENT.HOLD_OPENED, schemaVersion: 1,
+        payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: input.amountMinor, currency: intent.currency },
+        actor: { type: 'system', id: 'payments' },
+      },
+    ])
     return { ok: true, intentId: intent.id }
   }
 

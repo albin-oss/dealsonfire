@@ -328,6 +328,37 @@ export class PgCheckoutService {
     }
   }
 
+  /**
+   * The merchant's orders — promises in progress (THE_DOF_WORKSHOP §2 verdict:
+   * parcels and promise language, never a status table). Confirmed-first (A7-8:
+   * the merchant's list leads with certainty), then the quiet exceptions.
+   */
+  async listBusinessOrders(tx: Tx, businessId: string): Promise<Array<{
+    id: string; order_number: string; state: string; placed_at: string
+    buyer_name: string; total_minor: number; currency: string
+    items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
+  }>> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{
+      id: string; order_number: string; state: string; placed_at: string
+      buyer_contact: BuyerContact; total_minor: string; currency: string
+    }>(
+      `SELECT id, order_number, state, placed_at::text AS placed_at, buyer_contact, total_minor::text, currency
+       FROM orders WHERE business_id = $1
+       ORDER BY (state = 'confirmed') DESC, placed_at DESC LIMIT 100`, [businessId])
+    const result = []
+    for (const o of rows) {
+      const { rows: items } = await client.query<{ title: string; option_label: string | null; quantity: number; line_state: string }>(
+        `SELECT title, option_label, quantity, line_state FROM order_lines WHERE order_id = $1 ORDER BY line_no`, [o.id])
+      result.push({
+        id: o.id, order_number: o.order_number, state: o.state, placed_at: o.placed_at,
+        buyer_name: o.buyer_contact?.name ?? '', total_minor: Number(o.total_minor), currency: o.currency,
+        items,
+      })
+    }
+    return result
+  }
+
   async listBuyerOrders(tx: Tx, buyerId: string): Promise<Array<{
     id: string; order_number: string; state: string; placed_at: string; store_handle: string; store_name: string; total_minor: number; currency: string; line_count: number
   }>> {

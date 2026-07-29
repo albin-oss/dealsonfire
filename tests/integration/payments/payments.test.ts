@@ -126,7 +126,7 @@ describe('the money laws (ADR-008)', () => {
     const { rows: intents } = await container.pool.query(
       `SELECT state, provider, business_id, amount_minor::int AS amount FROM payment_intents`)
     expect(intents).toHaveLength(1)
-    expect(intents[0].state).toBe('authorized')
+    expect(intents[0].state).toBe('captured') // C5: the single capture ran at confirm
     expect(intents[0].provider).toBe('sandbox')
     expect(intents[0].business_id).toBe(m.businessId)
     expect(intents[0].amount).toBe(4500)
