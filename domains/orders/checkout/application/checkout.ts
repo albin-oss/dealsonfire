@@ -64,8 +64,22 @@ interface QuoteLine {
   option_label: string | null
   unit_price_minor: number
   quantity: number
+  fulfillment_kind: 'physical' | 'digital' | 'service'
 }
-interface FrozenQuote { lines: QuoteLine[]; subtotal_minor: number; shipping_minor: number; total_minor: number; currency: string }
+interface FrozenQuote {
+  lines: QuoteLine[]
+  subtotal_minor: number; shipping_minor: number; total_minor: number; currency: string
+  method: 'ship' | 'pickup' | 'digital'
+  handling_days: number
+}
+
+/** Structural port onto the Operations shipping profile (no cross-domain import). */
+export interface ShippingQuotePort {
+  getOrDefaultProfile(tx: Tx, businessId: string, storeId: string): Promise<{
+    handling_days: number; flat_rate_minor: number; free_over_minor: number | null; pickup_enabled: boolean
+  }>
+  shippingCost(profile: { flat_rate_minor: number; free_over_minor: number | null }, method: 'ship' | 'pickup' | 'digital', subtotalMinor: number): number
+}
 
 export type CheckoutResult =
   | { ok: true; orderId: string; orderNumber: string; alreadyPlaced: boolean }
@@ -81,6 +95,7 @@ export class PgCheckoutService {
     private readonly events: EventStore,
     private readonly stock: PgStockRepository,
     private readonly payments: PaymentPort,
+    private readonly shipping: ShippingQuotePort,
   ) {}
 
   /**
@@ -94,6 +109,8 @@ export class PgCheckoutService {
     cartId: string
     contact: BuyerContact
     delivery: DeliveryAddress
+    /** ship (default) | pickup (when the store allows it); digital resolves itself. */
+    method?: 'ship' | 'pickup'
   }): Promise<CheckoutResult> {
     const client = asClient(tx)
 
@@ -115,7 +132,7 @@ export class PgCheckoutService {
 
     // ——— quote (frozen at first entry; replays reuse it — stable line ids)
     if (!attempt) {
-      const quoted = await this.quoteCart(tx, input.buyerId, input.cartId)
+      const quoted = await this.quoteCart(tx, input.buyerId, input.cartId, input.method ?? 'ship')
       if (!quoted.ok) return quoted.error
       const attemptId = uuidv7()
       const inserted = await client.query(
@@ -183,17 +200,17 @@ export class PgCheckoutService {
       const orderNumber = await this.nextOrderNumber(tx, attempt.store_id)
       await client.query(
         `INSERT INTO orders (id, order_number, attempt_key, business_id, store_id, buyer_id, buyer_contact, delivery,
-                             subtotal_minor, shipping_minor, total_minor, currency, state)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'placed')`,
+                             subtotal_minor, shipping_minor, total_minor, currency, state, delivery_method)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'placed', $13)`,
         [orderId, orderNumber, input.attemptKey, attempt.business_id, attempt.store_id, input.buyerId,
          JSON.stringify(input.contact), JSON.stringify(input.delivery),
-         quote.subtotal_minor, quote.shipping_minor, quote.total_minor, quote.currency])
+         quote.subtotal_minor, quote.shipping_minor, quote.total_minor, quote.currency, quote.method ?? 'ship'])
       for (const line of quote.lines) {
         await client.query(
-          `INSERT INTO order_lines (order_id, line_no, variant_id, product_id, title, option_label, unit_price_minor, quantity, reservation_id, line_state)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'reserved')`,
+          `INSERT INTO order_lines (order_id, line_no, variant_id, product_id, title, option_label, unit_price_minor, quantity, reservation_id, line_state, fulfillment_kind)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'reserved', $10)`,
           [orderId, line.line_no, line.variant_id, line.product_id, line.title, line.option_label,
-           line.unit_price_minor, line.quantity, reservationIds[line.line_no - 1] ?? null])
+           line.unit_price_minor, line.quantity, reservationIds[line.line_no - 1] ?? null, line.fulfillment_kind ?? 'physical'])
       }
       await client.query(
         `INSERT INTO order_timeline (id, order_id, entry_type, message, actor)
@@ -221,16 +238,18 @@ export class PgCheckoutService {
   }
 
   /** Live quote from the cart under the full visibility conjunction (fail-closed). */
-  private async quoteCart(tx: Tx, buyerId: string, cartId: string): Promise<
+  private async quoteCart(tx: Tx, buyerId: string, cartId: string, method: 'ship' | 'pickup'): Promise<
     { ok: true; businessId: string; storeId: string; quote: FrozenQuote } | { ok: false; error: CheckoutResult & { ok: false } }> {
     const client = asClient(tx)
     const { rows } = await client.query<{
       business_id: string; store_id: string; variant_id: string; product_id: string
       title: string; option_values: Record<string, string> | null; quantity: number
       price: string | null; currency: string | null; available: boolean
+      fulfillment_kind: 'physical' | 'digital' | 'service' | null
     }>(
       `SELECT c.business_id, c.store_id, cl.variant_id, cl.product_id,
               COALESCE(p.title, cl.title_seen) AS title, v.option_values, cl.quantity,
+              p.fulfillment_kind,
               COALESCE(v.sale_amount, v.price_amount)::text AS price, v.price_currency AS currency,
               (v.id IS NOT NULL AND p.id IS NOT NULL AND p.status <> 'archived' AND p.deleted_at IS NULL
                AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
@@ -256,11 +275,26 @@ export class PgCheckoutService {
       variant_id: r.variant_id, product_id: r.product_id, title: r.title,
       option_label: Object.values(r.option_values ?? {}).filter(Boolean).join(' · ') || null,
       unit_price_minor: Number(r.price), quantity: r.quantity,
+      fulfillment_kind: r.fulfillment_kind ?? 'physical',
     }))
     const subtotal = lines.reduce((sum, l) => sum + l.unit_price_minor * l.quantity, 0)
+
+    // the method resolves: all-digital carts need no address or postage; pickup
+    // must be allowed by the store's profile; everything else ships (C6)
+    const businessId = rows[0]!.business_id
+    const storeId = rows[0]!.store_id
+    const allDigital = lines.every((l) => l.fulfillment_kind === 'digital')
+    const profile = await this.shipping.getOrDefaultProfile(tx, businessId, storeId)
+    let resolvedMethod: FrozenQuote['method'] = allDigital ? 'digital' : method
+    if (resolvedMethod === 'pickup' && !profile.pickup_enabled) resolvedMethod = 'ship'
+    const shipping = this.shipping.shippingCost(profile, resolvedMethod, subtotal)
+
     return {
-      ok: true, businessId: rows[0]!.business_id, storeId: rows[0]!.store_id,
-      quote: { lines, subtotal_minor: subtotal, shipping_minor: 0, total_minor: subtotal, currency: rows[0]!.currency ?? 'EUR' },
+      ok: true, businessId, storeId,
+      quote: {
+        lines, subtotal_minor: subtotal, shipping_minor: shipping, total_minor: subtotal + shipping,
+        currency: rows[0]!.currency ?? 'EUR', method: resolvedMethod, handling_days: profile.handling_days,
+      },
     }
   }
 

@@ -24,6 +24,15 @@ export interface CapturePort {
     Promise<{ ok: true; intentId: string } | { ok: false; detail: string }>
 }
 
+/** Structural port onto Operations fulfillment (C6 — no cross-domain import). */
+export interface FulfillmentCasePort {
+  createCase(tx: Tx, input: {
+    businessId: string; orderId: string; storeId: string
+    method: 'ship' | 'pickup' | 'digital'
+    lines: Array<{ line_no: number; quantity: number }>
+  }): Promise<{ caseId: string; granted: boolean }>
+}
+
 /**
  * Every outcome is ok:true — even cancellation is a successfully RESOLVED
  * confirmation (the house UnitOfWork rolls back ok:false returns, and a
@@ -41,6 +50,8 @@ export class PgConfirmService {
     private readonly payments: CapturePort,
     /** PRR-H1: the loud channel — a stuck payment is a record humans must see. */
     private readonly alarm: (message: string) => void = (m) => console.error(m),
+    /** C6: cases are born at confirm — certainty first (A7-8), then the work. */
+    private readonly fulfillment?: FulfillmentCasePort,
   ) {}
 
   async confirmOrder(tx: Tx, orderId: string): Promise<ConfirmResult | null> {
@@ -104,6 +115,49 @@ export class PgConfirmService {
     }
     await this.timeline(client, orderId, 'confirmed', { order_number: order.order_number })
     await this.timeline(client, orderId, 'payment', { total_minor: newTotal, currency: order.currency })
+
+    // ——— C6: the promise snapshot + the cases (the work begins at certainty)
+    if (this.fulfillment) {
+      const { rows: meta } = await client.query<{ delivery_method: 'ship' | 'pickup' | 'digital'; handling_days: number }>(
+        `SELECT o.delivery_method,
+                COALESCE((a.quote->>'handling_days')::int, 3) AS handling_days
+         FROM orders o LEFT JOIN checkout_attempts a ON a.attempt_key = o.attempt_key
+         WHERE o.id = $1`, [orderId])
+      const method = meta[0]?.delivery_method ?? 'ship'
+      const handlingDays = meta[0]?.handling_days ?? 3
+      const surviving = lines.filter((l) => l.line_state !== 'cancelled' && !fallen.some((f) => f.line_no === l.line_no))
+      const { rows: kinds } = await client.query<{ line_no: number; fulfillment_kind: string; quantity: number }>(
+        `SELECT line_no, fulfillment_kind, quantity FROM order_lines WHERE order_id = $1`, [orderId])
+      const kindOf = new Map(kinds.map((k) => [k.line_no, k.fulfillment_kind]))
+      const digitalLines = surviving.filter((l) => kindOf.get(l.line_no) === 'digital')
+      const physicalLines = surviving.filter((l) => kindOf.get(l.line_no) !== 'digital')
+
+      if (digitalLines.length > 0) {
+        await this.fulfillment.createCase(tx, {
+          businessId: order.business_id, orderId, storeId: order.store_id, method: 'digital',
+          lines: digitalLines.map((l) => ({ line_no: l.line_no, quantity: l.quantity })),
+        })
+        for (const l of digitalLines) {
+          await client.query(`UPDATE order_lines SET line_state = 'fulfilled' WHERE order_id = $1 AND line_no = $2`, [orderId, l.line_no])
+        }
+        await this.timeline(client, orderId, 'granted', { text: 'Your digital items are yours — no waiting on a parcel.' })
+      }
+      if (physicalLines.length > 0) {
+        const shipBy = new Date(Date.now() + handlingDays * 86_400_000)
+        await client.query(`UPDATE orders SET promise_ship_by = $2 WHERE id = $1`, [orderId, shipBy.toISOString()])
+        await this.fulfillment.createCase(tx, {
+          businessId: order.business_id, orderId, storeId: order.store_id,
+          method: method === 'pickup' ? 'pickup' : 'ship',
+          lines: physicalLines.map((l) => ({ line_no: l.line_no, quantity: l.quantity })),
+        })
+        await this.timeline(client, orderId, 'promise', {
+          ship_by: shipBy.toISOString(), method: method === 'pickup' ? 'pickup' : 'ship',
+        })
+      } else if (digitalLines.length > 0) {
+        // all-digital orders are fulfilled the moment they're confirmed
+        await client.query(`UPDATE orders SET state = 'fulfilled' WHERE id = $1`, [orderId])
+      }
+    }
     await this.events.append(tx, [
       this.orderEvent(order, 'orders.order.confirmed', {
         total_minor: newTotal, currency: order.currency, fallen_lines: fallen.length,

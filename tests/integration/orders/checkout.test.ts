@@ -79,7 +79,7 @@ describe('the checkout saga (ADR-007)', () => {
     expect(order.body.lines).toHaveLength(1)
     expect(order.body.lines[0].title).toBe('Lavender blanket')
     expect(order.body.lines[0].line_state).toBe('committed')
-    expect(order.body.timeline.map((t: { entry_type: string }) => t.entry_type)).toEqual(['placed', 'confirmed', 'payment'])
+    expect(order.body.timeline.map((t: { entry_type: string }) => t.entry_type)).toEqual(['placed', 'confirmed', 'payment', 'promise']) // C6: the ship-by chapter
 
     // the frozen fact landed
     const { rows } = await container.pool.query(`SELECT payload FROM orders_domain_events WHERE event_type = 'orders.order.placed'`)

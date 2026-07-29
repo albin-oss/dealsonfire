@@ -77,7 +77,7 @@ describe('placed → confirmed (the C5 ceremony)', () => {
     const order = await http.request('GET', `/api/v1/public/orders/${response.body.order_id}`, { headers: { cookie } })
     expect(order.body.order.state).toBe('confirmed')
     expect(order.body.lines[0].line_state).toBe('committed')
-    expect(order.body.timeline.map((t: { entry_type: string }) => t.entry_type)).toEqual(['placed', 'confirmed', 'payment'])
+    expect(order.body.timeline.map((t: { entry_type: string }) => t.entry_type)).toEqual(['placed', 'confirmed', 'payment', 'promise']) // C6: the ship-by chapter
 
     // the money story: captured intent, funds in the merchant's holding, hold.opened
     const { rows: intents } = await container.pool.query(`SELECT state, captured_minor::int AS captured FROM payment_intents`)
