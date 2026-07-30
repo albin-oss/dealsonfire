@@ -45,7 +45,7 @@ const payloadsSource = read('contracts/schemas/events/operations-payloads.ts')
 const eventsSource = read('domains/operations/locations/domain/events.ts')
 const registered = [...payloadsSource.matchAll(/'(operations\.[a-z_.]+)':/g)].map((m) => m[1]).sort()
 const declared = [...eventsSource.matchAll(/'(operations\.[a-z_.]+)'/g)].map((m) => m[1]).sort()
-const expected = ['operations.location.closed', 'operations.location.created', 'operations.location.updated', 'operations.reservation.expired']
+const expected = ['operations.location.closed', 'operations.location.created', 'operations.location.updated', 'operations.reservation.expired', 'operations.return.authorized', 'operations.return.requested', 'operations.return.resolved']
 if (JSON.stringify(registered) !== JSON.stringify(expected)) fail(`registered payloads ${registered} ≠ expected ${expected}`)
 if (JSON.stringify([...new Set(declared)].sort()) !== JSON.stringify(expected)) fail(`domain event constants ${declared} ≠ expected ${expected}`)
 

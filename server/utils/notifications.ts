@@ -49,7 +49,7 @@ async function orderFacts(tx: unknown, orderId: string): Promise<OrderFacts | nu
 const money = (minor: number, currency: string) =>
   new Intl.NumberFormat('en', { style: 'currency', currency }).format(minor / 100)
 
-export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; payments: OutboxConsumer[] } {
+export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; payments: OutboxConsumer[]; operations: OutboxConsumer[] } {
   const orderLink = (orderId: string) => `${deps.appBaseUrl}/o/${orderId}`
   const workshopLink = () => `${deps.appBaseUrl}/orders`
 
@@ -182,5 +182,51 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
     },
   ]
 
-  return { orders, payments }
+  const operations: OutboxConsumer[] = [
+    {
+      consumer: 'notify.return-requested',
+      eventTypes: ['operations.return.requested'],
+      async handle(tx, event) {
+        const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
+        const facts = await orderFacts(tx, orderId)
+        if (!facts) return
+        await send(facts.owner_email,
+          `${facts.buyer_name} wants to send something back — ${facts.order_number}`,
+          `A return was requested on ${facts.order_number}.\n\n` +
+          `What happens next: authorize it (with your instructions), refund without the send-back, or decline with a word — one decision, on the bench.\n\n` +
+          `${workshopLink()}`)
+      },
+    },
+    {
+      consumer: 'notify.return-authorized',
+      eventTypes: ['operations.return.authorized'],
+      async handle(tx, event) {
+        const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
+        const facts = await orderFacts(tx, orderId)
+        if (!facts) return
+        await send(facts.buyer_email,
+          `${facts.store_name} says: send it back`,
+          `Your return on ${facts.order_number} is authorized.\n\n` +
+          `What happens next: send it back (the maker's instructions are on your order page); once it arrives and checks out, your refund follows automatically.\n\n` +
+          `The story: ${orderLink(orderId)}`)
+      },
+    },
+    {
+      consumer: 'notify.return-resolved',
+      eventTypes: ['operations.return.resolved'],
+      async handle(tx, event) {
+        const payload = event.payload as { order_id?: string; refund_minor?: number }
+        const orderId = String(payload.order_id ?? '')
+        const facts = await orderFacts(tx, orderId)
+        if (!facts) return
+        await send(facts.buyer_email,
+          `Your return is settled — ${facts.store_name}`,
+          `The maker received and checked your return on ${facts.order_number}.\n\n` +
+          `What happens next: ${Number(payload.refund_minor ?? 0) > 0 ? `${money(Number(payload.refund_minor), facts.currency)} heads back to your original payment method within a few business days.` : 'nothing further — it is settled.'}\n\n` +
+          `The story: ${orderLink(orderId)}`)
+      },
+    },
+  ]
+
+  return { orders, payments, operations }
 }

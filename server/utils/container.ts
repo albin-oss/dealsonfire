@@ -104,6 +104,7 @@ import { PgCancellationService } from '@domains/orders/checkout/application/canc
 import { ordersOrderingScopeOf } from '@domains/orders/shared-kernel/events'
 import { PgStockRepository } from '@domains/operations/inventory/application/stock'
 import { PgFulfillmentRepository } from '@domains/operations/fulfillment/application/fulfillment'
+import { PgReturnsRepository } from '@domains/operations/returns/application/returns'
 import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
@@ -195,6 +196,8 @@ export interface Container {
     stock: PgStockRepository
     /** C6: profiles + cases — the parcel's life. */
     fulfillment: PgFulfillmentRepository
+    /** C9: the return case — the fair judge's bench. */
+    returns: PgReturnsRepository
   }
   /** C7: the one outbound-mail boundary (sandbox unless a provider binds). */
   mail: MailPort
@@ -355,6 +358,10 @@ export function buildContainer(databaseUrl: string): Container {
   // ————— Operations (OPS-001 Batch 1): own machinery instances (D-22), one adapter for
   // MerchantAccessPort (structural typing — CDC-001 §3), honest L2 stock port until the
   // ledger lands in Batch 2 (no stock_items table exists, so no location can hold stock).
+  // ————— C7: the notification seam — a MailPort + event consumers, not a domain.
+  const mailer = new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
+  const notify = notificationConsumers({ pool, mail: mailer, appBaseUrl: getServerConfig().appBaseUrl })
+
   const operationsAudit = new PgAuditLog(pool, { auditTable: 'operations_audit_logs' })
   // C2 (OPS Batch 2): the honest-L2 stub is replaced by the real stock query.
   const operationsEventStoreForStock = new PgEventStore({
@@ -388,14 +395,10 @@ export function buildContainer(databaseUrl: string): Container {
         "SELECT operations_audit_logs_ensure_partition((date_trunc('month', now()) + interval '1 month')::date)",
       ],
     },
-    [], // the Availability projection consumer arrives with Batch 2
+    notify.operations, // C9: the return letters (delivery-ledgered, replay-safe)
     operationsPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'operations-outbox' }) },
   )
-
-  // ————— C7: the notification seam — a MailPort + event consumers, not a domain.
-  const mailer = new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
-  const notify = notificationConsumers({ pool, mail: mailer, appBaseUrl: getServerConfig().appBaseUrl })
 
   // ————— Orders (Commerce Foundation C1): own machinery instances (D-22). The domain
   // begins with its smallest citizen — the Cart — and the quartet it will grow into.
@@ -453,6 +456,7 @@ export function buildContainer(databaseUrl: string): Container {
     void: (authRef) => paymentsService.void(authRef),
   }
   const fulfillmentRepository = new PgFulfillmentRepository()
+  const returnsRepository = new PgReturnsRepository(operationsEventStoreForStock)
   const checkoutService = new PgCheckoutService(ordersEventStore, stockRepository, paymentPort, {
     getOrDefaultProfile: (tx, businessId, storeId) => fulfillmentRepository.getOrDefaultProfile(tx, businessId, storeId),
     shippingCost: (profile, method, subtotal) => fulfillmentRepository.shippingCost(profile as never, method, subtotal),
@@ -602,6 +606,7 @@ export function buildContainer(databaseUrl: string): Container {
       },
       stock: stockRepository,
       fulfillment: fulfillmentRepository,
+      returns: returnsRepository,
     },
     mail: mailer,
     orders: {

@@ -34,6 +34,17 @@ export const OPERATIONS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
     order_line_id: uuid,
     variant_id: uuid,
   }).passthrough(),
+  // C9 (CDC-001 §2.3 choreography): the return lifecycle facts
+  'operations.return.requested': z.object({
+    return_case_id: uuid, order_id: uuid, business_id: uuid, store_id: uuid, reason_code: z.string(),
+  }).passthrough(),
+  'operations.return.authorized': z.object({
+    return_case_id: uuid, order_id: uuid, business_id: uuid, store_id: uuid,
+  }).passthrough(),
+  'operations.return.resolved': z.object({
+    return_case_id: uuid, order_id: uuid, business_id: uuid, store_id: uuid,
+    refund_minor: z.number().int().nonnegative(), disposition: z.string(),
+  }).passthrough(),
 }
 
 export function operationsPayloadValidators(): Record<string, PayloadValidator> {

@@ -361,7 +361,9 @@ export class PgCheckoutService {
        ) img ON true
        WHERE ol.order_id = $1 ORDER BY ol.line_no`, [orderId])
     const { rows: timeline } = await client.query<{ entry_type: string; message: Record<string, unknown>; occurred_at: string }>(
-      `SELECT entry_type, message, occurred_at::text AS occurred_at FROM order_timeline WHERE order_id = $1 ORDER BY occurred_at ASC`, [orderId])
+      `SELECT entry_type, message, occurred_at::text AS occurred_at FROM order_timeline
+        WHERE order_id = $1 AND NOT COALESCE((message->>'internal')::boolean, false)
+        ORDER BY occurred_at ASC`, [orderId])
 
     // C6 — the Workshop Wait (SX-1): the maker's PUBLIC sparks from the buyer's
     // wait window, interleaved into the story. Real events only; zero merchant work.
