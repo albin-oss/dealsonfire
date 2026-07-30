@@ -1,10 +1,13 @@
 {
   "contracts/schemas/operations/location.schema.ts": "9b49e9a4b5e73d0a7c572c7d78b3b2333c39a5bde670bc1639ec5c4cff5e6013",
-  "contracts/schemas/events/operations-payloads.ts": "6e3bf1d6f5ffb9385bd5016b9cead2b58928a0fb26d59adb783a76926d30fdd9",
+  "contracts/schemas/events/operations-payloads.ts": "b387235fb33173105caf5e6fd7c551d87d9f6d2996acdda8f9fe7750824d5918",
   "events": [
     "operations.location.closed",
     "operations.location.created",
     "operations.location.updated",
-    "operations.reservation.expired"
+    "operations.reservation.expired",
+    "operations.return.authorized",
+    "operations.return.requested",
+    "operations.return.resolved"
   ]
 }

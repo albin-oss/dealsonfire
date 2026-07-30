@@ -23,7 +23,20 @@ export default definePublicEndpoint({
     const buyerId = getVisitorId(event)
     if (!buyerId || !isUuid(orderId)) return err(domainError('NOT_FOUND', 'this order does not exist'))
     const c = getContainer()
-    const result = await c.deps.uow.withTransaction((tx) => c.orders.checkout.getBuyerOrder(tx, buyerId, orderId))
+    const result = await c.deps.uow.withTransaction(async (tx) => {
+      const order = await c.orders.checkout.getBuyerOrder(tx, buyerId, orderId)
+      if (!order) return null
+      // C9: the open (or latest) return case, so the page can say where things stand
+      const cases = await c.operations.returns.listByOrder(tx, orderId)
+      const rc = cases.find((k) => k.state === 'requested' || k.state === 'authorized') ?? cases.at(-1) ?? null
+      return {
+        ...order,
+        return_case: rc && {
+          state: rc.state, instructions: rc.instructions,
+          tracking_ref: rc.tracking_ref, resolved_without_return: rc.resolved_without_return,
+        },
+      }
+    })
     if (!result) return err(domainError('NOT_FOUND', 'this order does not exist'))
     // C6: the parcel photo — media ids in timeline messages become URLs here
     const parcelIds = result.timeline

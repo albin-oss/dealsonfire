@@ -84,6 +84,13 @@ export const buyerOrderResponse = z.object({
   })),
   /** The maker's standing sign-off (their brand promise line), when one exists. */
   maker_promise: z.string().nullable(),
+  /** C9 — the open (or latest) return case, so the page can say where things stand. */
+  return_case: z.object({
+    state: z.string(),
+    instructions: z.string().nullable(),
+    tracking_ref: z.string().nullable(),
+    resolved_without_return: z.boolean(),
+  }).nullable().optional(),
 })
 export type BuyerOrderResponse = z.infer<typeof buyerOrderResponse>
 

@@ -23,7 +23,20 @@ export default defineQueryEndpoint({
       const access = await c.commerce.deps.merchantAccess.resolveAccess(tx, auth.userId, parsed.data.business_id)
       if (!access.ok) return sendProblem(event, domainError('NOT_FOUND', 'not found'))
       const items = await c.orders.checkout.listBusinessOrders(tx, parsed.data.business_id)
-      return { items }
+      // C9: open return cases join their orders here (composition, ids by value)
+      const open = await c.operations.returns.listOpenByBusiness(tx, parsed.data.business_id)
+      const byOrder = new Map(open.map((k) => [k.order_id, k]))
+      return {
+        items: items.map((o: { id: string }) => {
+          const rc = byOrder.get(o.id)
+          return {
+            ...o,
+            return_case: rc
+              ? { state: rc.state, reason_code: rc.reason_code, buyer_comment: rc.buyer_comment, tracking_ref: rc.tracking_ref, line_nos: rc.lines.map((l) => l.line_no) }
+              : null,
+          }
+        }),
+      }
     })
   },
 })

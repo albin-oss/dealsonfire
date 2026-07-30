@@ -40,7 +40,13 @@ import orderDispatchPost from '../../server/api/v1/orders/[orderId]/dispatch.pos
 import orderCollectedPost from '../../server/api/v1/orders/[orderId]/collected.post'
 import orderCancelDecisionPost from '../../server/api/v1/orders/[orderId]/cancel-decision.post'
 import publicOrderCancelPost from '../../server/api/v1/public/orders/[orderId]/cancel.post'
+import publicOrderReturnPost from '../../server/api/v1/public/orders/[orderId]/return.post'
+import orderReturnDecisionPost from '../../server/api/v1/orders/[orderId]/return-decision.post'
 import shippingPut from '../../server/api/v1/stores/[storeId]/shipping.put'
+import opsOrderGet from '../../server/api/v1/ops/orders/[orderId]/index.get'
+import opsOrderNotePost from '../../server/api/v1/ops/orders/[orderId]/note.post'
+import opsOrderRefundPost from '../../server/api/v1/ops/orders/[orderId]/refund.post'
+import opsAlarmsGet from '../../server/api/v1/ops/alarms.get'
 import ordersGet from '../../server/api/v1/public/orders/index.get'
 import orderGet from '../../server/api/v1/public/orders/[orderId].get'
 import shopsGet from '../../server/api/v1/public/shops.get'
@@ -143,6 +149,12 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/orders/:orderId/collected', orderCollectedPost)
   router.post('/api/v1/orders/:orderId/cancel-decision', orderCancelDecisionPost)
   router.post('/api/v1/public/orders/:orderId/cancel', publicOrderCancelPost)
+  router.post('/api/v1/public/orders/:orderId/return', publicOrderReturnPost)
+  router.post('/api/v1/orders/:orderId/return-decision', orderReturnDecisionPost)
+  router.get('/api/v1/ops/orders/:orderId', opsOrderGet)
+  router.post('/api/v1/ops/orders/:orderId/note', opsOrderNotePost)
+  router.post('/api/v1/ops/orders/:orderId/refund', opsOrderRefundPost)
+  router.get('/api/v1/ops/alarms', opsAlarmsGet)
   router.put('/api/v1/stores/:storeId/shipping', shippingPut)
   router.get('/api/v1/public/orders', ordersGet)
   router.get('/api/v1/public/orders/:orderId', orderGet)

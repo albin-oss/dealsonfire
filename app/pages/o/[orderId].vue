@@ -6,7 +6,7 @@
  * Buyer-gated by the visitor identity; someone else's order is a 404.
  */
 import { computed, ref } from 'vue'
-import { DofText, DofMoney, DofButton, DofSkeleton, DofTime, announce } from '@ds/index'
+import { DofText, DofMoney, DofButton, DofSkeleton, DofTime, DofInput, announce } from '@ds/index'
 import type { BuyerOrderResponse } from '@contracts/schemas/orders/checkout.schema'
 
 definePageMeta({ layout: false })
@@ -66,6 +66,65 @@ async function cancelOrder() {
   } finally {
     cancelling.value = false
     cancelArmed.value = false
+  }
+}
+
+// C9 — returns: open once things have arrived; the maker answers here.
+const REASONS = [
+  { code: 'not_as_described', label: 'Not as described' },
+  { code: 'damaged', label: 'Arrived damaged' },
+  { code: 'wrong_item', label: 'Wrong item' },
+  { code: 'changed_mind', label: 'Changed my mind' },
+  { code: 'other', label: 'Something else' },
+] as const
+const returnCase = computed(() => data.value?.return_case ?? null)
+const returnable = computed(() =>
+  !!order.value && !returnCase.value
+  && ['fulfilled', 'partially_fulfilled', 'completed'].includes(order.value.state)
+  && lines.value.some((l) => l.line_state === 'fulfilled'))
+const returnOpen = ref(false)
+const returnReason = ref<string>('')
+const returnComment = ref('')
+const returnLines = ref<number[]>([])
+const returnBusy = ref(false)
+function toggleReturnLine(lineNo: number) {
+  returnLines.value = returnLines.value.includes(lineNo)
+    ? returnLines.value.filter((n) => n !== lineNo)
+    : [...returnLines.value, lineNo]
+}
+async function requestReturn() {
+  if (!returnReason.value || returnBusy.value) return
+  returnBusy.value = true
+  try {
+    await $fetch(`/api/v1/public/orders/${orderId.value}/return`, {
+      method: 'POST',
+      body: {
+        reason_code: returnReason.value,
+        comment: returnComment.value.trim() || null,
+        ...(returnLines.value.length ? { line_nos: returnLines.value } : {}),
+      },
+    })
+    announce('Asked — the maker takes a look and answers right here.')
+    window.location.reload()
+  } catch (e) {
+    const detail = (e as { data?: { detail?: string } }).data?.detail
+    announce(detail ?? 'That didn’t take — nothing changed; try again.')
+    returnBusy.value = false
+  }
+}
+const returnTracking = ref('')
+async function sendReturnTracking() {
+  if (!returnTracking.value.trim() || returnBusy.value) return
+  returnBusy.value = true
+  try {
+    await $fetch(`/api/v1/public/orders/${orderId.value}/return`, {
+      method: 'POST', body: { tracking_ref: returnTracking.value.trim() },
+    })
+    announce('Noted — the maker sees it’s on the way back.')
+    window.location.reload()
+  } catch {
+    announce('That didn’t take — nothing changed; try again.')
+    returnBusy.value = false
   }
 }
 </script>
@@ -171,6 +230,65 @@ async function cancelOrder() {
         <DofText v-else-if="order.cancel_requested" role="caption" class="text-foreground/60">
           You asked to cancel — {{ order.store_name }} decides, and the answer lands right here.
         </DofText>
+
+        <!-- ——— returns (C9): opens once things arrive; the maker answers here -->
+        <section v-if="returnable" aria-label="send something back" class="flex flex-col gap-3">
+          <DofButton v-if="!returnOpen" size="sm" variant="ghost" tone="neutral" icon="rotate-ccw" @click="returnOpen = true">
+            Send something back
+          </DofButton>
+          <div v-else class="flex flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-4">
+            <DofText role="emphasis" as="p">What’s bringing it back?</DofText>
+            <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="reason">
+              <button
+                v-for="r in REASONS" :key="r.code" type="button" role="radio" :aria-checked="returnReason === r.code"
+                class="dof-interactive rounded-full border px-3 py-1.5 text-caption focus-visible:focus-ring"
+                :class="returnReason === r.code ? 'border-accent bg-accent/10 font-medium text-foreground' : 'border-foreground/15 text-foreground/80'"
+                @click="returnReason = r.code"
+              >{{ r.label }}</button>
+            </div>
+            <template v-if="lines.filter((l) => l.line_state === 'fulfilled').length > 1">
+              <DofText role="caption" tone="muted">Which things? (leave empty for everything delivered)</DofText>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="l in lines.filter((x) => x.line_state === 'fulfilled')" :key="l.line_no" type="button"
+                  :aria-pressed="returnLines.includes(l.line_no)"
+                  class="dof-interactive rounded-full border px-3 py-1.5 text-caption focus-visible:focus-ring"
+                  :class="returnLines.includes(l.line_no) ? 'border-accent bg-accent/10 font-medium text-foreground' : 'border-foreground/15 text-foreground/80'"
+                  @click="toggleReturnLine(l.line_no)"
+                >{{ l.title }}</button>
+              </div>
+            </template>
+            <DofInput v-model="returnComment" label="Anything the maker should know? (optional)" :maxlength="500" />
+            <div class="flex items-center gap-2">
+              <DofButton size="sm" tone="accent" :disabled="!returnReason" :loading="returnBusy" @click="requestReturn">Ask to send it back</DofButton>
+              <DofButton size="sm" variant="ghost" tone="neutral" @click="returnOpen = false">Never mind</DofButton>
+            </div>
+            <DofText role="caption" class="text-foreground/50">The maker takes a look and answers right here — nothing ships until they say where.</DofText>
+          </div>
+        </section>
+
+        <section v-else-if="returnCase" aria-label="your return" class="flex flex-col gap-2 rounded-large border border-foreground/10 bg-foreground/[0.02] p-4">
+          <template v-if="returnCase.state === 'requested'">
+            <DofText role="body">You asked to send something back — {{ order.store_name }} takes a look and answers here.</DofText>
+          </template>
+          <template v-else-if="returnCase.state === 'authorized'">
+            <DofText role="body" class="font-medium">{{ order.store_name }} says: send it back.</DofText>
+            <DofText v-if="returnCase.instructions" role="body" class="text-foreground/80" reading>“{{ returnCase.instructions }}”</DofText>
+            <template v-if="!returnCase.tracking_ref">
+              <div class="flex items-end gap-2">
+                <DofInput v-model="returnTracking" label="Tracking for the send-back (optional)" :maxlength="120" class="flex-1" />
+                <DofButton size="sm" variant="soft" tone="neutral" :loading="returnBusy" @click="sendReturnTracking">Add</DofButton>
+              </div>
+            </template>
+            <DofText v-else role="caption" class="text-foreground/60">On its way back — tracking {{ returnCase.tracking_ref }}.</DofText>
+          </template>
+          <template v-else-if="returnCase.state === 'resolved'">
+            <DofText role="body" class="text-positive">Your return is settled — the refund line above is the receipt.</DofText>
+          </template>
+          <template v-else-if="returnCase.state === 'declined'">
+            <DofText role="body" class="text-foreground/80">{{ order.store_name }} looked at this return and is keeping the order as delivered — the note in the story says why.</DofText>
+          </template>
+        </section>
 
         <!-- ——— the door (R1.5) -->
         <NuxtLink :to="`/s/${order.store_handle}`" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/60 underline-offset-4 hover:underline focus-visible:focus-ring">

@@ -16,6 +16,10 @@ export const OPERATIONS_EVENT = {
   LOCATION_CLOSED: 'operations.location.closed',
   /** C2 (CDC-001 frozen lifecycle): the TTL clock's answer — Orders MUST consume. */
   RESERVATION_EXPIRED: 'operations.reservation.expired',
+  /** C9 (CDC-001 §2.3): the return lifecycle. */
+  RETURN_REQUESTED: 'operations.return.requested',
+  RETURN_AUTHORIZED: 'operations.return.authorized',
+  RETURN_RESOLVED: 'operations.return.resolved',
 } as const
 
 export type LocationCreatedPayload = {
