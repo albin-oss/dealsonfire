@@ -27,6 +27,7 @@ interface MerchantOrder {
   promise_ship_by: string | null; aging_stage: number; delivery_method: string; hold_released_at: string | null
   cancel_requested: boolean
   items: Array<{ title: string; option_label: string | null; quantity: number; line_state: string }>
+  return_case: { state: string; reason_code: string; buyer_comment: string | null; tracking_ref: string | null; line_nos: number[] } | null
 }
 const { data, pending, refresh } = useFetch<{ items: MerchantOrder[] }>(
   () => `/api/v1/orders?business_id=${businessId.value}`,
@@ -58,6 +59,43 @@ async function decideCancel(o: MerchantOrder, approve: boolean) {
     await $fetch(`/api/v1/orders/${o.id}/cancel-decision`, {
       method: 'POST', headers: { ...headers, 'idempotency-key': crypto.randomUUID() }, body: { approve } })
     announce(approve ? 'Cancelled and refunded — all settled.' : 'It stays on its way — the buyer knows.')
+    await refresh()
+  } catch {
+    announce('That didn’t take — the refund may have been refused; try again.')
+  } finally {
+    busyOrder.value = null
+  }
+}
+// C9 — the fair judge's bench: authorize / decline / resolve, consequences said plainly
+const REASON_WORDS: Record<string, string> = {
+  not_as_described: 'says it’s not as described',
+  damaged: 'says it arrived damaged',
+  wrong_item: 'got the wrong item',
+  changed_mind: 'changed their mind',
+  other: 'wants to send it back',
+}
+const returnNote = ref<Record<string, string>>({})
+const restockChoice = ref<Record<string, boolean>>({})
+watch(orders, (list) => {
+  for (const o of list) if (o.return_case?.state === 'authorized') restockChoice.value[o.id] ??= true
+}, { immediate: true })
+async function decideReturn(o: MerchantOrder, action: 'authorize' | 'decline' | 'resolve', withoutReturn = false) {
+  if (busyOrder.value) return
+  busyOrder.value = o.id
+  try {
+    const res = await $fetch<{ outcome: string; refunded_minor?: number }>(`/api/v1/orders/${o.id}/return-decision`, {
+      method: 'POST', headers: { ...headers, 'idempotency-key': crypto.randomUUID() },
+      body: {
+        action,
+        instructions: returnNote.value[o.id]?.trim() || null,
+        ...(action === 'resolve' ? { disposition: (restockChoice.value[o.id] ?? true) ? 'restock' : 'discard', without_return: withoutReturn } : {}),
+      } })
+    announce(
+      action === 'authorize' ? 'Told them: send it back.'
+      : action === 'decline' ? 'Declined — the buyer sees your words.'
+      : withoutReturn ? 'Refunded — they keep it, you keep the goodwill.'
+      : 'Settled — refund on its way, shelf updated.')
+    if (res.outcome === 'resolved') returnNote.value[o.id] = ''
     await refresh()
   } catch {
     announce('That didn’t take — the refund may have been refused; try again.')
@@ -167,6 +205,32 @@ const itemsLine = (o: MerchantOrder) =>
                   <DofButton size="sm" tone="critical" variant="soft" icon="undo-2" :loading="busyOrder === o.id" @click="decideCancel(o, true)">Cancel &amp; refund</DofButton>
                   <DofButton size="sm" variant="soft" tone="neutral" icon="truck" :loading="busyOrder === o.id" @click="decideCancel(o, false)">Keep it going</DofButton>
                 </div>
+              </div>
+              <!-- C9: the return — one decision, then one settlement -->
+              <div v-if="o.return_case" class="flex flex-col gap-2 rounded-medium bg-accent/10 p-2">
+                <template v-if="o.return_case.state === 'requested'">
+                  <DofText role="caption" class="text-foreground/90">
+                    {{ o.buyer_name }} {{ REASON_WORDS[o.return_case.reason_code] ?? REASON_WORDS.other }}{{ o.return_case.buyer_comment ? ` — “${o.return_case.buyer_comment}”` : '' }}.
+                  </DofText>
+                  <DofInput v-model="returnNote[o.id]" label="A word for the buyer (how to send it, or why not)" :maxlength="500" />
+                  <div class="flex flex-wrap gap-2">
+                    <DofButton size="sm" tone="accent" icon="rotate-ccw" :loading="busyOrder === o.id" @click="decideReturn(o, 'authorize')">Send it back</DofButton>
+                    <DofButton size="sm" variant="soft" tone="neutral" icon="undo-2" :loading="busyOrder === o.id" @click="decideReturn(o, 'resolve', true)">Refund, they keep it</DofButton>
+                    <DofButton size="sm" variant="ghost" tone="neutral" icon="x" :loading="busyOrder === o.id" @click="decideReturn(o, 'decline')">Decline</DofButton>
+                  </div>
+                </template>
+                <template v-else-if="o.return_case.state === 'authorized'">
+                  <DofText role="caption" class="text-foreground/90">
+                    Return on its way back{{ o.return_case.tracking_ref ? ` — tracking ${o.return_case.tracking_ref}` : '' }}. When it lands and you’ve looked it over, settle it below.
+                  </DofText>
+                  <label class="flex items-center gap-2 text-caption text-foreground/80">
+                    <input v-model="restockChoice[o.id]" type="checkbox" class="size-4 accent-[var(--dof-accent)]">
+                    Back on the shelf (uncheck if it can’t be sold again)
+                  </label>
+                  <div class="flex gap-2">
+                    <DofButton size="sm" tone="accent" icon="check" :loading="busyOrder === o.id" @click="decideReturn(o, 'resolve')">Arrived &amp; checked — refund</DofButton>
+                  </div>
+                </template>
               </div>
               <!-- the calm nudge (aging stage 1): a question, never an alarm -->
               <DofText v-if="o.aging_stage >= 1 && actionable(o)" role="caption" class="rounded-medium bg-caution/10 px-2 py-1 text-caution">

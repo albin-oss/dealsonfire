@@ -65,3 +65,14 @@ Follow `correlation_id` into `payments_domain_events` / `operations_domain_event
 | *(C6)* no-ship auto-refund fired | keystone enforced automatically | none — verify refund fact landed; note to merchant |
 
 Pre-C8 courtesy paths (address change, voluntary cancellation): coordinate merchant↔buyer by email (both visible on the merchant's order card); money movements pre-C8 are operator-executed refunds via the provider dashboard, recorded as a timeline `note`.
+
+## C9 — do it without SQL (the operator surfaces)
+
+Everything above is now one authenticated call for users listed in `NUXT_OPS_USER_IDS`:
+
+- `GET /api/v1/ops/orders/:orderId` — order + lines + timeline (including internal notes) + payment intent/facts/ledger + reservations + fulfillment cases + return cases + domain events, one response.
+- `GET /api/v1/ops/alarms` — the review queue **derived from state** (`payment_stuck` >2h, `stock_orphaned` payment_failed with committed stock, `promise_broken` aging stage ≥2), each row carrying `acknowledged` once a human ack note exists.
+- `POST /api/v1/ops/orders/:orderId/note` — `{text, ack?, internal?}` — the manual timeline note / alarm acknowledgement. Internal by default: never shown to the buyer.
+- `POST /api/v1/ops/orders/:orderId/refund` — `{amount_minor, cause_key, reason}` — failed-refund retry, goodwill, exceptional cancellation. Bounded by schema (refunded ≤ captured), idempotent per `cause_key`, audited as `ops.order.refund` (sensitive).
+
+Money is fixed HERE, never in the provider dashboard and never in SQL.
