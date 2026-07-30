@@ -67,6 +67,7 @@ export const buyerOrderResponse = z.object({
     /** C6: the promise snapshot + how it travels. */
     promise_ship_by: z.string().nullable(),
     delivery_method: z.string(),
+    cancel_requested: z.boolean(),
   }),
   lines: z.array(orderLine),
   timeline: z.array(z.object({

@@ -19,4 +19,6 @@ export const ORDERS_EVENT = {
   ORDER_CANCELLED: 'orders.order.cancelled',
   /** C7: aging stage 2 — the promise was missed and both sides hear it plainly. */
   ORDER_PROMISE_MISSED: 'orders.order.promise_missed',
+  /** C8: the buyer asked; the bench decides (parcel already in motion). */
+  ORDER_CANCEL_REQUESTED: 'orders.order.cancel_requested',
 } as const

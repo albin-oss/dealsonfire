@@ -167,6 +167,32 @@ export class PgStockRepository {
     return rows.length
   }
 
+  /**
+   * Restock a COMMITTED claim (C8 cancellations / C9 returns): the sold ledger
+   * line reverses with a reason-coded 'returned' entry and the cached sum moves
+   * back. Idempotent per reservation (one restock, ever). No-op claims restock
+   * nothing (there was no stock to move).
+   */
+  async restockCommitted(tx: Tx, reservationId: string, actor: { type: string; id: string }): Promise<{ restocked: boolean }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{ status: string; stock_item_id: string | null; business_id: string; quantity: number; order_line_id: string }>(
+      `SELECT status, stock_item_id, business_id, quantity, order_line_id FROM reservations WHERE id = $1 FOR UPDATE`, [reservationId])
+    const r = rows[0]
+    if (!r || r.status !== 'committed' || r.stock_item_id === null) return { restocked: false }
+    const { rows: prior } = await client.query<{ id: string }>(
+      `SELECT id FROM stock_ledger WHERE stock_item_id = $1 AND reason = 'returned' AND cause_ref->>'reservation_id' = $2 LIMIT 1`,
+      [r.stock_item_id, reservationId])
+    if (prior[0]) return { restocked: false } // already restocked — idempotent
+    await client.query(`SELECT id FROM stock_items WHERE id = $1 FOR UPDATE`, [r.stock_item_id])
+    await client.query(
+      `INSERT INTO stock_ledger (id, business_id, stock_item_id, delta, reason, cause_ref, actor)
+       VALUES ($1, $2, $3, $4, 'returned', $5, $6)`,
+      [uuidv7(), r.business_id, r.stock_item_id, r.quantity,
+       JSON.stringify({ reservation_id: reservationId, order_line_id: r.order_line_id }), JSON.stringify(actor)])
+    await client.query(`UPDATE stock_items SET on_hand = on_hand + $2, updated_at = now() WHERE id = $1`, [r.stock_item_id, r.quantity])
+    return { restocked: true }
+  }
+
   /** StockAtLocationPort (L2): a location holding tracked stock cannot close. */
   async hasStock(tx: Tx, locationId: string): Promise<boolean> {
     const { rows } = await asClient(tx).query<{ n: number }>(

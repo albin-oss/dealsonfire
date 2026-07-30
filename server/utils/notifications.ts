@@ -104,6 +104,19 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
         const orderId = String(payload.order_id ?? '')
         const facts = await orderFacts(tx, orderId)
         if (!facts) return
+        if (payload.reason === 'buyer_cancel' || payload.reason === 'merchant_approved') {
+          await send(facts.buyer_email,
+            `Cancelled — your money is on its way back`,
+            `Your order (${facts.order_number}) at ${facts.store_name} is cancelled${payload.reason === 'merchant_approved' ? ' — the maker approved your request' : ' at your request'}.\n\n` +
+            `What happens next: the refund lands back on your original payment method, usually within a few business days. Anything that already shipped is unaffected.\n\n` +
+            `The story: ${orderLink(orderId)}`)
+          await send(facts.owner_email,
+            `${facts.order_number} was cancelled`,
+            `${facts.buyer_name}'s order is cancelled${payload.reason === 'merchant_approved' ? ' — you approved the request' : ' before you packed it'}; the refund is handled and any tracked stock is back on your shelf.\n\n` +
+            `What happens next: nothing — it's all settled.\n\n` +
+            `The bench: ${workshopLink()}`)
+          return
+        }
         if (payload.reason === 'no_ship_auto_refund') {
           await send(facts.buyer_email,
             `Your money is on its way back — ${facts.store_name}`,
@@ -119,6 +132,22 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       },
     },
   ]
+
+  const cancelRequested: OutboxConsumer = {
+    consumer: 'notify.cancel-requested',
+    eventTypes: ['orders.order.cancel_requested'],
+    async handle(tx, event) {
+      const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
+      const facts = await orderFacts(tx, orderId)
+      if (!facts) return
+      await send(facts.owner_email,
+        `${facts.buyer_name} asked to cancel ${facts.order_number}`,
+        `The parcel is already in motion, so this one is your call.\n\n` +
+        `What happens next: approve and the unshipped part refunds instantly, or keep it going and it ships as promised — decide on the bench.\n\n` +
+        `${workshopLink()}`)
+    },
+  }
+  orders.push(cancelRequested)
 
   const payments: OutboxConsumer[] = [
     {
