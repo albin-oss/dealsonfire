@@ -48,7 +48,8 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
     </div>
     <div v-if="productTitle" class="px-4 pb-4">
       <div :class="cx('flex flex-col gap-1 rounded-medium bg-foreground/5 p-3', compactCard ? 'w-full' : 'w-52')">
-        <div class="flex h-16 items-center justify-center rounded-small bg-accent/15 text-caption text-foreground/90" aria-hidden="true">
+        <!-- full-strength text: 13px caption over a brand tint sat at 4.35:1 with /90 (axe, WCAG AA) -->
+        <div class="flex h-16 items-center justify-center rounded-small bg-accent/15 text-caption text-foreground" aria-hidden="true">
           your photo here
         </div>
         <span class="truncate text-body text-foreground">{{ productTitle }}</span>
