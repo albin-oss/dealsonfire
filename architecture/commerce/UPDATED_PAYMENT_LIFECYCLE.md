@@ -57,3 +57,15 @@ The intent timeline, ledger postings on capture/refund/dispute facts, and P1–P
 | Payout sweep exceeds `merchant_payable` | impossible by construction (PO1 against the ledger, checked against Stripe balance before sweep) |
 
 Sections not repeated here (webhook pipeline, idempotency derivation, reconciliation cadence, "what Payments will never do") stand as written in PAYMENT_LIFECYCLE.md, unmodified by this correction.
+
+## 7. The two-phase provider boundary (RM-C2 amendment — WRITTEN LAW as of the Real Money Readiness Review)
+
+No Stripe network request may run while a database transaction or row lock is open. The sandbox twin's zero latency hid this; real latency (300ms–30s) held locks on orders, intents, and stock. Every provider-touching operation follows one shape:
+
+1. **Phase 1 — record intent-to-act** in a short transaction: a `provider_operations` journal row (operation kind, target, amount, the stable idempotency key derived from the domain cause — `{intent}:refund:{causeKey}`, `{attemptKey}:intent`, etc.), state `pending`.
+2. **Phase 2 — call the provider outside every transaction**, under that stable key. The key makes retries converge on the provider side no matter how many times phase 2 runs.
+3. **Phase 3 — record the outcome** in a second short transaction: journal row → `succeeded`/`failed` + the domain facts/ledger postings that the outcome justifies.
+
+**Recovery sweep:** a cron lane re-drives any journal row stuck in `pending` past a grace window — re-running phase 2 (idempotent) and completing phase 3. A crash between phases 2 and 3 therefore converges instead of drifting; external reconciliation (§C10 slice 4) is the final tripwire for anything the sweep cannot see.
+
+Domain decisions (cancel, return, keystone refund) keep their atomicity by *sequencing*, not by wrapping: decide → phase 1 → commit decision tx → phases 2/3 → outcome facts. A provider failure after a committed decision is an *operational* state (journal row failed, alarm raised, sweep retries), never a silent rollback of money that already moved.

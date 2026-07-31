@@ -68,6 +68,26 @@ export class SandboxProviderTwin implements ProviderPort {
  * with provider-side test/hosted instruments; this server-side adapter only
  * creates, captures, and cancels intents by token.
  */
+/**
+ * Refund flags derive from the charge's ACTUAL shape (RM-C4): `reverse_transfer`
+ * is only legal when the charge carried a transfer (destination charge), and
+ * `refund_application_fee` only when it carried an application fee. Sending
+ * either against a plain charge is a Stripe error — which would have broken
+ * every real refund (keystone, cancellation, return) on day one.
+ */
+export function refundFlagsFor(charge: { transfer?: unknown; application_fee?: unknown } | null | undefined):
+  { reverse_transfer: boolean; refund_application_fee: boolean } {
+  return {
+    reverse_transfer: Boolean(charge?.transfer),
+    refund_application_fee: Boolean(charge?.application_fee),
+  }
+}
+
+/** RM-M5 tripwire: a webhook arriving under a different API version than the pin. */
+export function apiVersionMismatch(eventApiVersion: string | null | undefined): boolean {
+  return Boolean(eventApiVersion) && eventApiVersion !== STRIPE_PINNED_API_VERSION
+}
+
 export class StripeProviderAdapter implements ProviderPort {
   readonly name = 'stripe' as const
   private readonly stripe: Stripe
@@ -102,10 +122,13 @@ export class StripeProviderAdapter implements ProviderPort {
   }
   async refund(providerRef: string, amountMinor: number, idempotencyKey: string) {
     try {
-      // reverse_transfer pulls the funds back from the connected account
-      // (CONNECT_FUNDS_FLOW §2); fee refund policy joins with real fees (value 0 today)
+      // The flags come from the charge's real shape (RM-C4): reverse_transfer pulls
+      // funds back from the connected account only when a transfer exists
+      // (CONNECT_FUNDS_FLOW §2); the app-fee refund joins only when a fee was taken.
+      const intent = await this.stripe.paymentIntents.retrieve(providerRef, { expand: ['latest_charge'] })
+      const charge = typeof intent.latest_charge === 'object' ? intent.latest_charge : null
       await this.stripe.refunds.create(
-        { payment_intent: providerRef, amount: amountMinor, reverse_transfer: true },
+        { payment_intent: providerRef, amount: amountMinor, ...refundFlagsFor(charge) },
         { idempotencyKey })
       return { ok: true as const }
     } catch (error) {

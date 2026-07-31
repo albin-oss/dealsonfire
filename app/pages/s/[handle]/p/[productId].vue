@@ -185,7 +185,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
             </DofButton>
           </div>
           <DofText role="caption" class="text-foreground/60">
-            You’re charged when {{ store.name }} confirms — and they aren’t paid until it ships.
+            You’re charged when your order is confirmed — and {{ store.name }} isn’t paid until it ships.
           </DofText>
         </div>
       </section>
