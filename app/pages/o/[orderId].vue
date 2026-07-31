@@ -38,6 +38,21 @@ const STATUS: Record<string, { label: string; positive?: boolean }> = {
 }
 const status = computed(() => STATUS[order.value?.state ?? ''] ?? { label: order.value?.state ?? '' })
 
+// The letter speaks from where the order actually IS — a shipped order must never
+// still be promising to tell you when it ships (copy law: never say the untrue).
+const LETTER: Record<string, string> = {
+  placed: 'has your order — we’ll tell you the moment it’s confirmed, and again when it ships.',
+  payment_pending: 'has your order — we’ll tell you the moment your payment settles.',
+  payment_failed: 'is holding your order — the payment needs another try before anything is made ready.',
+  confirmed: 'has your order and is making it ready — we’ll tell you the moment it ships.',
+  in_fulfillment: 'is making your order ready — we’ll tell you the moment it ships.',
+  partially_fulfilled: 'has sent part of your order — we’ll tell you when the rest follows.',
+  fulfilled: 'has sent your order on its way.',
+  completed: 'sent this to you, and it arrived.',
+  cancelled: 'cancelled this order — nothing is owed.',
+}
+const letterLine = computed(() => LETTER[order.value?.state ?? ''] ?? 'has your order.')
+
 // C8 — cancel: the tap decides while nothing packed; afterwards the maker does.
 // Destructive = the armed two-tap idiom (R2.1), 3s disarm.
 const cancellable = computed(() =>
@@ -156,8 +171,7 @@ async function sendReturnTracking() {
           </div>
           <DofText role="body" class="max-w-prose text-foreground/90" reading>
             <NuxtLink :to="`/s/${order.store_handle}`" class="dof-interactive rounded-small font-medium underline-offset-4 hover:underline focus-visible:focus-ring">{{ order.store_name }}</NuxtLink>
-            has your order — we’ll tell you the moment it’s confirmed and again when it ships.
-            Everything below stays right here, on any device.
+            {{ letterLine }} Everything below stays right here, on any device.
           </DofText>
           <!-- the maker's sign-off (SM-3): their standing promise, in their words -->
           <DofText v-if="data?.maker_promise" role="caption" class="text-positive">
