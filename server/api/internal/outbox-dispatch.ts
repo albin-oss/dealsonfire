@@ -49,7 +49,19 @@ export default defineEventHandler(async (event) => {
   const [cartsSwept, reservationsSwept, ordersConfirmed, cartsPurged, attemptsPurged, aging] = await Promise.all([
     container.deps.uow.withTransaction((tx) => container.orders.carts.sweepAbandoned(tx)).catch(() => -1),
     container.deps.uow.withTransaction((tx) => container.operations.stock.sweepExpired(tx)).catch(() => -1),
-    container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepUnconfirmed(tx)).catch(() => -1),
+    container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepUnconfirmed(tx))
+      .then(async (swept) => {
+        // RM-H2: release the card holds of orders the 24h path just closed —
+        // AFTER the sweep's transaction, never inside it (provider boundary law).
+        // void() is provider-idempotent; a crash here re-derives nothing worse
+        // than an already-cancelled intent on the next authorization-expiry pass.
+        for (const ref of swept.voidRefs) {
+          await container.payments.service.void(ref).catch((error) =>
+            console.error(`[orders] void after 24h failure failed for ${ref}:`, (error as Error).message))
+        }
+        return swept.confirmed
+      })
+      .catch(() => -1),
     // PRR-M1: the manifest's PII retention promises, kept on the same clock
     container.deps.uow.withTransaction((tx) => container.orders.carts.purgeTerminal(tx)).catch(() => -1),
     container.deps.uow.withTransaction((tx) => container.orders.checkout.purgeTerminalAttempts(tx)).catch(() => -1),

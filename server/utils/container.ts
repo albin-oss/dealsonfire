@@ -362,6 +362,21 @@ export function buildContainer(databaseUrl: string): Container {
   const mailer = new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
   const notify = notificationConsumers({ pool, mail: mailer, appBaseUrl: getServerConfig().appBaseUrl })
 
+  // RM-H3: a critical alarm is a letter, not a log line. stdout stays (structured,
+  // greppable); when NUXT_OPS_ALARM_EMAIL is configured the same words also reach a
+  // human's inbox through the ONE mail port. Alarm delivery must never take down the
+  // path that raised it — send failures are swallowed loudly.
+  const opsAlarmEmail = optionalEnv('NUXT_OPS_ALARM_EMAIL')
+  const opsAlarm = (message: string): void => {
+    logger.error(message, { component: 'ops-alarm' })
+    if (!opsAlarmEmail) return
+    void mailer.send({
+      to: opsAlarmEmail,
+      subject: 'DOF operational alarm — a human is needed',
+      body: `${message}\n\nWhat happened: an automated protection hit a wall and stopped safely.\nWhat next: the runbook is docs/runbooks/order-reconstruction.md; the queue is /api/v1/ops/alarms.\nWhat you can do: acknowledge with an ops note once you've seen it.`,
+    }).catch((error) => logger.error(`ops alarm mail failed: ${(error as Error).message}`, { component: 'ops-alarm' }))
+  }
+
   const operationsAudit = new PgAuditLog(pool, { auditTable: 'operations_audit_logs' })
   // C2 (OPS Batch 2): the honest-L2 stub is replaced by the real stock query.
   const operationsEventStoreForStock = new PgEventStore({
@@ -470,7 +485,7 @@ export function buildContainer(databaseUrl: string): Container {
     ordersEventStore,
     stockRepository,
     { capture: (tx, input) => paymentsService.capture(tx, input) },
-    (message) => logger.error(message, { component: 'orders-confirm' }),
+    opsAlarm, // RM-H3: keystone alarms reach a human, not just stdout
     { createCase: (tx, input) => fulfillmentRepository.createCase(tx, input) },
   )
 

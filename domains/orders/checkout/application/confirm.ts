@@ -169,19 +169,26 @@ export class PgConfirmService {
   }
 
   /** Cron fallback: any order resting in `placed`/`payment_pending` gets another push. */
-  async sweepUnconfirmed(tx: Tx, olderThanSeconds = 60): Promise<number> {
+  async sweepUnconfirmed(tx: Tx, olderThanSeconds = 60): Promise<{ confirmed: number; voidRefs: string[] }> {
     const client = asClient(tx)
 
     // PRR-H1: retries are capped — after 24h in payment_pending the order fails
     // honestly (stock was committed; the correction is a human's reason-coded
     // adjustment, and the alarm makes sure a human knows). Never silent, never eternal.
-    const { rows: stale } = await client.query<{ id: string; order_number: string; business_id: string; store_id: string }>(
+    const { rows: stale } = await client.query<{ id: string; order_number: string; business_id: string; store_id: string; attempt_key: string }>(
       `UPDATE orders SET state = 'payment_failed'
        WHERE state = 'payment_pending' AND placed_at < now() - interval '24 hours'
-       RETURNING id, order_number, business_id, store_id`)
+       RETURNING id, order_number, business_id, store_id, attempt_key`)
+    // RM-H2: the buyer's card hold dies WITH the order — collect the still-open
+    // authorizations; the CALLER voids them after this transaction closes (the
+    // provider boundary law: no network call while rows are locked).
+    const voidRefs: string[] = []
     for (const order of stale) {
       await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_state <> 'cancelled'`, [order.id])
       await this.timeline(client, order.id, 'note', { text: 'The payment could not be completed — this order is closed and nothing more will be charged.' })
+      const { rows: auths } = await client.query<{ provider_ref: string | null }>(
+        `SELECT provider_ref FROM payment_intents WHERE attempt_key = $1 AND state = 'authorized'`, [order.attempt_key])
+      if (auths[0]?.provider_ref) voidRefs.push(auths[0].provider_ref)
       this.alarm(`[orders] payment_pending exceeded 24h — order ${order.id} (${order.order_number}) marked payment_failed with COMMITTED stock; manual stock adjustment required (PRR-H1)`)
     }
 
@@ -193,7 +200,7 @@ export class PgConfirmService {
       const result = await this.confirmOrder(tx, row.id)
       if (result && result.ok && result.state === 'confirmed') confirmed += 1
     }
-    return confirmed
+    return { confirmed, voidRefs }
   }
 
   /**
