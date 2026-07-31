@@ -185,7 +185,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
             </DofButton>
           </div>
           <DofText role="caption" class="text-foreground/60">
-            Checkout is almost here — your cart is saved and follows you when you sign in.
+            You’re charged when {{ store.name }} confirms — and they aren’t paid until it ships.
           </DofText>
         </div>
       </section>

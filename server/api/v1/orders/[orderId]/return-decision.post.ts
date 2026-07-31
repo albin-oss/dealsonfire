@@ -45,6 +45,11 @@ export default defineCommandEndpoint({
       const target = cases.find((k) => k.state === 'requested' || k.state === 'authorized')
       if (!target) return err(domainError('CONFLICT', 'no open return here'))
 
+      // the maker's own words arrive as written — we never double their full stop
+      const said = (words: string | null | undefined) => {
+        const t = (words ?? '').trim()
+        return t ? (/[.!?…]$/.test(t) ? t : `${t}.`) : ''
+      }
       const timeline = (text: string) => c.pool.query(
         `INSERT INTO order_timeline (id, order_id, entry_type, message, actor) VALUES ($1, $2, 'note', $3, $4)`,
         [uuidv7(), orderId, JSON.stringify({ text }), JSON.stringify({ type: 'user', id: auth.userId })])
@@ -52,13 +57,15 @@ export default defineCommandEndpoint({
       if (body.action === 'authorize') {
         const done = await c.operations.returns.authorize(tx, target.id, body.instructions ?? null)
         if (!done.ok) return err(domainError('CONFLICT', `this return is already ${done.state}`))
-        await timeline(`Return authorized — send it back${body.instructions ? `: ${body.instructions}` : ' whenever suits you'}.`)
+        await timeline(body.instructions
+          ? `Return authorized — send it back: ${said(body.instructions)}`
+          : 'Return authorized — send it back whenever suits you.')
         return ok({ outcome: 'authorized' })
       }
       if (body.action === 'decline') {
         const done = await c.operations.returns.decline(tx, target.id, body.instructions ?? null)
         if (!done.ok) return err(domainError('CONFLICT', `this return is already ${done.state}`))
-        await timeline(`The maker looked at this return and is keeping the order as delivered${body.instructions ? ` — ${body.instructions}` : ''}. If that doesn’t sit right, support can take a look.`)
+        await timeline(`The maker looked at this return and is keeping the order as delivered.${body.instructions ? ` ${said(body.instructions)}` : ''} If that doesn’t sit right, support can take a look.`)
         return ok({ outcome: 'declined' })
       }
 
