@@ -20,6 +20,25 @@ let http: TestHttp
 const inTx = <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
   container.deps.uow.withTransaction(fn as never) as Promise<T>
 
+// §7 two-phase helpers: request (short tx) → drive (boundary, no tx) → re-enter.
+// Tests speak the same shape production does.
+async function authorize(attemptKey: string, amountMinor: number, businessId: string) {
+  let req = await inTx((tx) => container.payments.service.requestAuthorization(tx as never, { attemptKey, amountMinor, currency: 'EUR', businessId }))
+  if (req.state === 'pending') {
+    await container.payments.boundary.drive(req.opId!)
+    req = await inTx((tx) => container.payments.service.requestAuthorization(tx as never, { attemptKey, amountMinor, currency: 'EUR', businessId }))
+  }
+  return req
+}
+async function capture(attemptKey: string, amountMinor: number, orderId: string) {
+  let req = await inTx((tx) => container.payments.service.requestCapture(tx as never, { attemptKey, amountMinor, orderId }))
+  if (req.state === 'pending') {
+    await container.payments.boundary.drive(req.opId!)
+    req = await inTx((tx) => container.payments.service.requestCapture(tx as never, { attemptKey, amountMinor, orderId }))
+  }
+  return req
+}
+
 async function merchant() {
   const reg = await http.request('POST', '/api/v1/auth/register', { body: { email: `c4-${uuidv7()}@example.com`, password: 'a long passphrase' } })
   const set = reg.headers.get('set-cookie')!
@@ -39,31 +58,35 @@ describe('the money laws (ADR-008)', () => {
   it('P4: one intent per attempt key, forever — replays return the original', async () => {
     const attemptKey = uuidv7()
     const businessId = uuidv7()
-    const first = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 4500, currency: 'EUR', businessId }))
-    expect(first.ok).toBe(true)
-    const replay = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 4500, currency: 'EUR', businessId }))
-    expect(replay.ok && first.ok && replay.auth.authRef).toBe(first.ok ? first.auth.authRef : '')
+    const first = await authorize(attemptKey, 4500, businessId)
+    expect(first.state).toBe('authorized')
+    const replay = await authorize(attemptKey, 4500, businessId)
+    expect(replay.state).toBe('authorized')
+    expect(replay.providerRef).toBe(first.providerRef)
     const { rows } = await container.pool.query(`SELECT count(*)::int AS n FROM payment_intents`)
     expect(rows[0].n).toBe(1)
     const { rows: facts } = await container.pool.query(`SELECT kind FROM payment_facts ORDER BY occurred_at`)
     expect(facts.map((f) => f.kind)).toEqual(['authorized'])
+    // §7: exactly one journaled operation, settled
+    const { rows: ops } = await container.pool.query(`SELECT state FROM provider_operations`)
+    expect(ops).toEqual([{ state: 'succeeded' }])
   })
 
   it('capture: P2-bounded, idempotent, and the posting balances into merchant_holding', async () => {
     const attemptKey = uuidv7()
     const businessId = uuidv7()
     const orderId = uuidv7()
-    const auth = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 4500, currency: 'EUR', businessId }))
-    expect(auth.ok).toBe(true)
+    const auth = await authorize(attemptKey, 4500, businessId)
+    expect(auth.state).toBe('authorized')
 
-    // over-capture refused before any provider call (P2)
-    const over = await inTx((tx) => container.payments.service.capture(tx as never, { attemptKey, amountMinor: 5000, orderId }))
-    expect(over.ok).toBe(false)
+    // over-capture refused at phase 1 — before any journal, before any provider call (P2)
+    const over = await inTx((tx) => container.payments.service.requestCapture(tx as never, { attemptKey, amountMinor: 5000, orderId }))
+    expect(over.state).toBe('unavailable')
 
-    const captured = await inTx((tx) => container.payments.service.capture(tx as never, { attemptKey, amountMinor: 4500, orderId }))
-    expect(captured.ok).toBe(true)
-    const again = await inTx((tx) => container.payments.service.capture(tx as never, { attemptKey, amountMinor: 4500, orderId }))
-    expect(again.ok).toBe(true) // idempotent
+    const captured = await capture(attemptKey, 4500, orderId)
+    expect(captured.state).toBe('captured')
+    const again = await capture(attemptKey, 4500, orderId)
+    expect(again.state).toBe('captured') // idempotent
 
     // L1: the posting balances; the merchant's holding carries the money story
     const { rows: accounts } = await container.pool.query(
@@ -92,9 +115,9 @@ describe('the money laws (ADR-008)', () => {
 
   it('webhook dedupe: the same provider event lands exactly once (A8-7 layer 4)', async () => {
     const attemptKey = uuidv7()
-    const auth = await inTx((tx) => container.payments.service.authorize(tx as never, { attemptKey, amountMinor: 1200, currency: 'EUR', businessId: uuidv7() }))
-    expect(auth.ok).toBe(true)
-    const providerRef = auth.ok ? auth.auth.authRef : ''
+    const auth = await authorize(attemptKey, 1200, uuidv7())
+    expect(auth.state).toBe('authorized')
+    const providerRef = auth.providerRef ?? ''
 
     const ingest = (id: string) => inTx((tx) => container.payments.service.ingestProviderEvent(tx as never, {
       provider: 'stripe', eventId: id, intentRef: providerRef, kind: 'payment_intent.amount_capturable_updated' }))

@@ -21,13 +21,14 @@ import { uuidv7 } from '../../../../platform/uuid'
 
 export interface CancelPorts {
   listCases(tx: Tx, orderId: string): Promise<Array<{ state: string; lines: Array<{ line_no: number }> }>>
-  refund(tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }):
-    Promise<{ ok: true; refundId: string; alreadyDone: boolean } | { ok: false; detail: string }>
+  /** §7 phase 1: journals the refund (bounded, cause-keyed); the boundary drives it after this tx. */
+  prepareRefund(tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }):
+    Promise<{ ok: true; opId: string | null; alreadyDone: boolean } | { ok: false; detail: string }>
   restock(tx: Tx, reservationId: string, actor: { type: string; id: string }): Promise<{ restocked: boolean }>
 }
 
 export type CancelOutcome =
-  | { ok: true; outcome: 'cancelled'; refundedMinor: number }
+  | { ok: true; outcome: 'cancelled'; refundedMinor: number; refundOpId: string | null }
   | { ok: true; outcome: 'requested' }
   | { ok: true; outcome: 'already_requested' }
   | { ok: true; outcome: 'not_cancellable'; detail: string }
@@ -122,12 +123,15 @@ export class PgCancellationService {
     let refundMinor = cancellable.reduce((sum, l) => sum + Number(l.unit_price_minor) * l.quantity, 0)
     if (dispatchedLines.size === 0) refundMinor += Number(order.shipping_minor)
 
-    const refunded = await this.ports.refund(tx, {
+    // §7: the refund is journaled WITH the decision (same tx — a bounds violation
+    // still rolls the whole decision back); the provider executes after commit,
+    // driver-guaranteed, so the decision never stalls on a provider hiccup.
+    const refunded = await this.ports.prepareRefund(tx, {
       orderId: order.id, amountMinor: refundMinor,
       causeKey: `cancel:${reason}:${order.id}`,
       cause: { kind: reason, order_number: order.order_number },
     })
-    if (!refunded.ok) return { ok: false, detail: refunded.detail } // ROLLBACK — decision never outruns its money
+    if (!refunded.ok) return { ok: false, detail: refunded.detail } // ROLLBACK — an unpreparable refund voids the decision
 
     for (const l of cancellable) {
       await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_no = $2`, [order.id, l.line_no])
@@ -146,7 +150,7 @@ export class PgCancellationService {
           : 'The maker approved your cancellation — your money is on its way back.',
     })
     await this.events.append(tx, [this.orderEvent(order, 'orders.order.cancelled', { reason, refunded_minor: refundMinor })])
-    return { ok: true, outcome: 'cancelled', refundedMinor: refundMinor }
+    return { ok: true, outcome: 'cancelled', refundedMinor: refundMinor, refundOpId: refunded.opId }
   }
 
   private async timeline(client: ReturnType<typeof asClient>, orderId: string, entryType: string, message: Record<string, unknown>): Promise<void> {

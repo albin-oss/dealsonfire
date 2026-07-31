@@ -26,24 +26,51 @@ export default definePublicEndpoint({
     }
     const buyerId = getOrCreateVisitorId(event)
     const c = getContainer()
-    const result = await c.deps.uow.withTransaction((tx) =>
-      c.orders.checkout.checkout(tx, {
-        attemptKey: body.attempt_key,
-        buyerId,
-        cartId: body.cart_id,
-        contact: body.contact,
-        // pickup's DeliverySnapshot is the honest marker, not a fake address
-        delivery: body.delivery ?? { line1: 'Pickup at the shop', city: '', postal_code: '', country: '' },
-        method: body.method,
-      }))
-    if (result.ok) {
-      // C5: confirmation runs immediately in its OWN transaction — the order exists
-      // either way, and the cron sweep retries any straggler (placed is never a rest).
-      await c.deps.uow.withTransaction((tx) => c.orders.confirm.confirmOrder(tx, result.orderId)).catch((error) => {
+    const input = {
+      attemptKey: body.attempt_key,
+      buyerId,
+      cartId: body.cart_id,
+      contact: body.contact,
+      // pickup's DeliverySnapshot is the honest marker, not a fake address
+      delivery: body.delivery ?? { line1: 'Pickup at the shop', city: '', postal_code: '', country: '' },
+      method: body.method,
+    }
+    // §7 two-phase: the saga journals the authorization and commits; the boundary
+    // speaks to the provider OUTSIDE any transaction; the saga re-enters and
+    // converges on the recorded truth. A crash at any point is picked up by the
+    // recovery driver + the confirm sweep — the buyer can always retry the same key.
+    let result = await c.deps.uow.withTransaction((tx) => c.orders.checkout.checkout(tx, input))
+    if (result.ok && 'pendingAuthorization' in result) {
+      await c.payments.boundary.drive(result.opId).catch((error) =>
+        c.logger.error(`checkout authorize drive failed: ${(error as Error).message}`, { component: 'payments-boundary' }))
+      result = await c.deps.uow.withTransaction((tx) => c.orders.checkout.checkout(tx, input))
+    }
+    if (result.ok && 'pendingAuthorization' in result) {
+      // the provider is unreachable: honest words, nothing charged, driver converges later
+      return ok({ ok: false, code: 'PAYMENT_UNAVAILABLE', detail: 'The payment service is taking too long — nothing was charged. Try again in a moment; your cart is exactly as you left it.' })
+    }
+    if (result.ok && 'declined' in result) {
+      return ok({ ok: false, code: result.code, detail: result.detail })
+    }
+    if (result.ok && 'orderId' in result) {
+      const placed = result
+      // C5: confirmation runs immediately — §7 shape: journal (tx) → capture
+      // (boundary) → re-enter (tx). The cron sweep converges any straggler.
+      try {
+        let confirm = await c.deps.uow.withTransaction((tx) => c.orders.confirm.confirmOrder(tx, placed.orderId))
+        if (confirm?.ok && confirm.state === 'capturing') {
+          await c.payments.boundary.drive(confirm.opId)
+          confirm = await c.deps.uow.withTransaction((tx) => c.orders.confirm.confirmOrder(tx, placed.orderId))
+        }
+      } catch (error) {
         // PRR-H2: never silent — the sweep retries, but a crashing confirm is a bug someone must see
-        c.logger.error(`inline confirm failed for order ${result.orderId}: ${(error as Error).message}`, { component: 'orders-confirm' })
-      })
-      return ok({ ok: true, order_id: result.orderId, order_number: result.orderNumber })
+        c.logger.error(`inline confirm failed for order ${placed.orderId}: ${(error as Error).message}`, { component: 'orders-confirm' })
+      }
+      return ok({ ok: true, order_id: placed.orderId, order_number: placed.orderNumber })
+    }
+    if (result.ok) {
+      // exhaustiveness guard — pending/declined were answered above
+      return ok({ ok: false, code: 'ATTEMPT_FAILED', detail: 'This checkout could not finish — start again from your cart; nothing was charged.' })
     }
     return ok({ ok: false, code: result.code, detail: result.detail })
   },

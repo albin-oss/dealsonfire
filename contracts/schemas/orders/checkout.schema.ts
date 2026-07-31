@@ -33,7 +33,7 @@ export const checkoutResponse = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), order_id: z.string().uuid(), order_number: z.string() }),
   z.object({
     ok: z.literal(false),
-    code: z.enum(['CART_CHANGED', 'OUT_OF_STOCK', 'PAYMENT_DECLINED', 'ATTEMPT_FAILED']),
+    code: z.enum(['CART_CHANGED', 'OUT_OF_STOCK', 'PAYMENT_DECLINED', 'PAYMENT_UNAVAILABLE', 'ATTEMPT_FAILED']),
     detail: z.string(),
   }),
 ])

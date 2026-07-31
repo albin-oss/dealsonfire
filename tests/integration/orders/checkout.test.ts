@@ -111,7 +111,7 @@ describe('the checkout saga (ADR-007)', () => {
     expect(rows[0].n).toBe(1)
   })
 
-  it('payment declined: NOTHING persists (the strongest compensation), cart intact, retry honest', async () => {
+  it('payment declined: the decline PERSISTS honestly (§7 — a fact, not vapor), claims released, cart intact, replay converges', async () => {
     const m = await merchant()
     const { variantId } = await shelvedVariant(m, 'Cursed blanket', 66600) // sandbox decline amount
     const buyer = await filledCart(variantId)
@@ -122,15 +122,23 @@ describe('the checkout saga (ADR-007)', () => {
     expect(res.body.code).toBe('PAYMENT_DECLINED')
     expect(res.body.detail).toMatch(/Nothing was charged/)
 
-    // C3 single-tx law: a failed checkout leaves NO trace — no claims, no attempt
-    expect((await container.pool.query(`SELECT count(*)::int AS n FROM reservations`)).rows[0].n).toBe(0)
-    expect((await container.pool.query(`SELECT count(*)::int AS n FROM checkout_attempts`)).rows[0].n).toBe(0)
+    // §7 (supersedes the C3 vapor law): the decline is a RECORDED fact — a failed
+    // intent + declined fact + failed attempt persist; no claims stay active
+    expect((await container.pool.query(`SELECT count(*)::int AS n FROM reservations WHERE status = 'active'`)).rows[0].n).toBe(0)
+    const { rows: attempts } = await container.pool.query(`SELECT step, failure_code FROM checkout_attempts`)
+    expect(attempts).toEqual([{ step: 'failed', failure_code: 'PAYMENT_DECLINED' }])
+    const { rows: intents } = await container.pool.query(`SELECT state FROM payment_intents`)
+    expect(intents).toEqual([{ state: 'failed' }])
+    const { rows: facts } = await container.pool.query(`SELECT kind FROM payment_facts`)
+    expect(facts).toEqual([{ kind: 'declined' }])
     // the cart survives for another try
     const cart = await http.request('GET', '/api/v1/public/cart', { headers: { cookie: buyer.cookie } })
     expect(cart.body.carts).toHaveLength(1)
-    // a same-key retry re-runs and answers the same honest decline (deterministic)
+    // a same-key retry answers the same honest decline WITHOUT another provider call
     const replay = await checkout(buyer.cookie, buyer.cartId, attemptKey)
     expect(replay.body.code).toBe('PAYMENT_DECLINED')
+    const { rows: ops } = await container.pool.query(`SELECT count(*)::int AS n FROM provider_operations`)
+    expect(ops[0].n).toBe(1) // one journaled authorize, ever
     expect((await container.pool.query(`SELECT count(*)::int AS n FROM orders`)).rows[0].n).toBe(0)
   })
 

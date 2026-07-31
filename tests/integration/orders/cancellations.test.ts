@@ -147,26 +147,36 @@ describe('C8 — cancellations & refunds', () => {
     expect(rows[0].r).toBe(0)
   })
 
-  it('scenario 8: the provider refuses the refund — the DECISION rolls back whole; the retry converges', async () => {
+  it('scenario 8 (§7): the provider refuses the refund — the DECISION stands, the journaled money converges via the driver', async () => {
     const m = await merchant()
-    // price the order at exactly the twin's refund-fail injection amount
+    // price the order at exactly the twin's transient refund-fail injection amount
     const { variantId } = await shelved(m, 'Cursed scarf', SANDBOX_REFUND_FAIL_AMOUNT_MINOR)
     const { cookie, orderId } = await buy([{ id: variantId, qty: 1 }])
 
-    const failed = await http.request('POST', `/api/v1/public/orders/${orderId}/cancel`, { headers: { cookie } })
-    expect(failed.status).toBe(409) // honest conflict; nothing changed
+    // the tap decides; the provider refuses ONCE (transient): the decision COMMITS,
+    // the refund stays journaled-pending — never lost, never silently rolled back
+    const first = await http.request('POST', `/api/v1/public/orders/${orderId}/cancel`, { headers: { cookie } })
+    expect(first.body.outcome).toBe('cancelled')
     const order = await http.request('GET', `/api/v1/public/orders/${orderId}`, { headers: { cookie } })
-    expect(order.body.order.state).toBe('confirmed') // the decision never outran its money
-    expect(order.body.lines[0].line_state).toBe('committed')
+    expect(order.body.order.state).toBe('cancelled')
     const { rows } = await container.pool.query(`SELECT refunded_minor::int AS r FROM payment_intents`)
-    expect(rows[0].r).toBe(0)
+    expect(rows[0].r).toBe(0) // no money moved yet — the op is pending, not vapor
+    const { rows: ops } = await container.pool.query(
+      `SELECT state, last_error FROM provider_operations WHERE kind = 'refund'`)
+    expect(ops).toHaveLength(1)
+    expect(ops[0].state).toBe('pending')
+    expect(ops[0].last_error).toMatch(/refused/)
 
-    // the provider recovers (staged: the refund amount clears the injected value —
-    // 66600 ≤ captured 66601 keeps P2 honest) — the retry converges
-    await container.pool.query(`UPDATE order_lines SET unit_price_minor = unit_price_minor - 1 WHERE order_id = $1`, [orderId])
-    const retry = await http.request('POST', `/api/v1/public/orders/${orderId}/cancel`, { headers: { cookie } })
-    expect(retry.body.outcome).toBe('cancelled')
+    // the recovery driver (cron lane) re-drives; the provider recovers; money lands ONCE
+    await container.pool.query(`UPDATE provider_operations SET updated_at = now() - interval '2 minutes'`)
+    const swept = await container.payments.boundary.driveAll()
+    expect(swept.settled).toBe(1)
     const { rows: after } = await container.pool.query(`SELECT refunded_minor::int AS r, captured_minor::int AS c FROM payment_intents`)
-    expect(after[0].r).toBe(after[0].c - 1) // bounded, converged, once
+    expect(after[0].r).toBe(after[0].c) // bounded, converged, once
+    // a second sweep changes NOTHING (scenario 8's convergence, §7 shape)
+    const again = await container.payments.boundary.driveAll()
+    expect(again.settled).toBe(0)
+    const check = await inTx((tx) => container.payments.service.ledger.recomputeCheck(tx as never))
+    expect(check.clean).toBe(true)
   })
 })

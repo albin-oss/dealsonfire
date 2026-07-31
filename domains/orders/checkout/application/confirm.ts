@@ -20,8 +20,11 @@ import type { PgStockRepository } from '../../../operations/inventory/applicatio
 
 /** Structural port onto the Payments capture (no cross-domain import). */
 export interface CapturePort {
-  capture(tx: Tx, input: { attemptKey: string; amountMinor: number; orderId: string }):
-    Promise<{ ok: true; intentId: string } | { ok: false; detail: string }>
+  /** §7 phase 1: journals the capture (or answers 'captured' idempotently). */
+  requestCapture(tx: Tx, input: { attemptKey: string; amountMinor: number; orderId: string }):
+    Promise<{ state: 'captured' | 'pending' | 'unavailable'; opId: string | null; intentId: string | null; detail?: string }>
+  /** The 24h honest failure closes its pending provider work loudly, not eternally. */
+  abandonPending(tx: Tx, attemptKey: string): Promise<void>
 }
 
 /** Structural port onto Operations fulfillment (C6 — no cross-domain import). */
@@ -40,6 +43,8 @@ export interface FulfillmentCasePort {
  */
 export type ConfirmResult =
   | { ok: true; state: 'confirmed'; fallenLines: number }
+  /** §7: the capture is journaled; the caller drives the boundary and re-enters. */
+  | { ok: true; state: 'capturing'; opId: string }
   | { ok: true; state: 'payment_pending' }
   | { ok: true; state: 'cancelled'; reason: string }
 
@@ -87,8 +92,10 @@ export class PgConfirmService {
         survivingMinor += Number(line.unit_price_minor) * line.quantity
       } else {
         // the last unit went to someone else while this buyer paid attention elsewhere:
-        // the line falls, is never charged, and the timeline says so plainly
+        // the line falls, is never charged, and the timeline says so plainly — recorded
+        // HERE, at the fall (§7: a later pass must not lose the story)
         await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_no = $2`, [orderId, line.line_no])
+        await this.timeline(client, orderId, 'note', { text: `“${line.title}” sold out before confirmation — it was not charged.` })
         fallen.push({ line_no: line.line_no, title: line.title })
       }
     }
@@ -101,10 +108,16 @@ export class PgConfirmService {
     }
 
     // ——— the single capture (partial exactly when the race dropped a line);
-    // shipping rides with the goods: charged when anything survives to ship
+    // shipping rides with the goods: charged when anything survives to ship.
+    // §7 two-phase: phase 1 journals; the boundary captures OUTSIDE this tx;
+    // the saga re-enters (endpoint inline, cron as fallback) and finds truth.
     const captureMinor = survivingMinor + (survivingMinor > 0 ? Number(order.shipping_minor) : 0)
-    const captured = await this.payments.capture(tx, { attemptKey: order.attempt_key, amountMinor: captureMinor, orderId })
-    if (!captured.ok) {
+    const req = await this.payments.requestCapture(tx, { attemptKey: order.attempt_key, amountMinor: captureMinor, orderId })
+    if (req.state === 'pending') {
+      await client.query(`UPDATE orders SET state = 'payment_pending' WHERE id = $1`, [orderId])
+      return { ok: true, state: 'capturing', opId: req.opId! }
+    }
+    if (req.state === 'unavailable') {
       await client.query(`UPDATE orders SET state = 'payment_pending' WHERE id = $1`, [orderId])
       return { ok: true, state: 'payment_pending' } // the sweep retries; buyer copy stays calm
     }
@@ -112,9 +125,6 @@ export class PgConfirmService {
     // ——— certainty: the state, the story, the facts
     const newTotal = captureMinor
     await client.query(`UPDATE orders SET state = 'confirmed', total_minor = $2 WHERE id = $1`, [orderId, newTotal])
-    for (const f of fallen) {
-      await this.timeline(client, orderId, 'note', { text: `“${f.title}” sold out before confirmation — it was not charged.` })
-    }
     await this.timeline(client, orderId, 'confirmed', { order_number: order.order_number })
     await this.timeline(client, orderId, 'payment', { total_minor: newTotal, currency: order.currency })
 
@@ -169,7 +179,7 @@ export class PgConfirmService {
   }
 
   /** Cron fallback: any order resting in `placed`/`payment_pending` gets another push. */
-  async sweepUnconfirmed(tx: Tx, olderThanSeconds = 60): Promise<{ confirmed: number; voidRefs: string[] }> {
+  async sweepUnconfirmed(tx: Tx, olderThanSeconds = 60): Promise<{ confirmed: number; voidRefs: string[]; captureOps: string[] }> {
     const client = asClient(tx)
 
     // PRR-H1: retries are capped — after 24h in payment_pending the order fails
@@ -186,6 +196,7 @@ export class PgConfirmService {
     for (const order of stale) {
       await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_state <> 'cancelled'`, [order.id])
       await this.timeline(client, order.id, 'note', { text: 'The payment could not be completed — this order is closed and nothing more will be charged.' })
+      await this.payments.abandonPending(tx, order.attempt_key) // §7: closed orders leave no eternal pending ops
       const { rows: auths } = await client.query<{ provider_ref: string | null }>(
         `SELECT provider_ref FROM payment_intents WHERE attempt_key = $1 AND state = 'authorized'`, [order.attempt_key])
       if (auths[0]?.provider_ref) voidRefs.push(auths[0].provider_ref)
@@ -196,11 +207,13 @@ export class PgConfirmService {
       `SELECT id FROM orders WHERE state IN ('placed','payment_pending')
        AND placed_at < now() - ($1 || ' seconds')::interval LIMIT 20`, [olderThanSeconds])
     let confirmed = 0
+    const captureOps: string[] = []
     for (const row of rows) {
       const result = await this.confirmOrder(tx, row.id)
       if (result && result.ok && result.state === 'confirmed') confirmed += 1
+      if (result && result.ok && result.state === 'capturing') captureOps.push(result.opId)
     }
-    return { confirmed, voidRefs }
+    return { confirmed, voidRefs, captureOps }
   }
 
   /**
@@ -224,12 +237,13 @@ export class PgConfirmService {
    */
   async sweepAging(tx: Tx, deps: {
     listCases: (tx: Tx, orderId: string) => Promise<Array<{ state: string; lines: Array<{ line_no: number }> }>>
-    refund: (tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }) =>
-      Promise<{ ok: true; refundId: string; alreadyDone: boolean } | { ok: false; detail: string }>
-  }, now = new Date()): Promise<{ nudged: number; disclosed: number; refunded: number }> {
+    prepareRefund: (tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }) =>
+      Promise<{ ok: true; opId: string | null; alreadyDone: boolean } | { ok: false; detail: string }>
+  }, now = new Date()): Promise<{ nudged: number; disclosed: number; refunded: number; refundOps: string[] }> {
     const client = asClient(tx)
     const nowIso = now.toISOString()
-    const out = { nudged: 0, disclosed: 0, refunded: 0 }
+    const out: { nudged: number; disclosed: number; refunded: number; refundOps: string[] } =
+      { nudged: 0, disclosed: 0, refunded: 0, refundOps: [] }
 
     // Stage 1 — the calm nudge (merchant-facing only; no buyer alarm)
     const { rows: s1 } = await client.query<{ id: string }>(
@@ -279,15 +293,20 @@ export class PgConfirmService {
         // if NOTHING shipped, the shipping cost comes back too — the whole promise failed
         if (dispatchedLines.size === 0) refundMinor += Number(order.shipping_minor)
         if (refundMinor > 0) {
-          const refunded = await deps.refund(tx, {
+          // §7: the refund is JOURNALED here (a bounded, driver-guaranteed
+          // commitment) and executed by the boundary after this transaction —
+          // the keystone's automatic-refund promise now survives provider
+          // outages instead of stalling on them
+          const prepared = await deps.prepareRefund(tx, {
             orderId: order.id, amountMinor: refundMinor,
             causeKey: `no-ship-aging:${order.id}`,
             cause: { kind: 'no_ship_auto_refund', order_number: order.order_number },
           })
-          if (!refunded.ok) {
-            this.alarm(`[orders] KEYSTONE STAGE-3 REFUND FAILED for order ${order.id} (${order.order_number}): ${refunded.detail} — manual refund required NOW`)
+          if (!prepared.ok) {
+            this.alarm(`[orders] KEYSTONE STAGE-3 REFUND UNPREPARABLE for order ${order.id} (${order.order_number}): ${prepared.detail} — manual refund required NOW`)
             continue // ratchet stays at 2; next tick retries; the alarm is loud
           }
+          if (prepared.opId) out.refundOps.push(prepared.opId)
         }
         for (const l of undispatched) {
           await client.query(`UPDATE order_lines SET line_state = 'cancelled' WHERE order_id = $1 AND line_no = $2`, [order.id, l.line_no])

@@ -35,12 +35,31 @@ export const SANDBOX_REFUND_FAIL_AMOUNT_MINOR = 66601
 export interface ProviderAuthorization { providerRef: string }
 export interface ProviderPort {
   readonly name: 'sandbox' | 'stripe'
+  /** `retryable: true` marks infrastructure failures (network, 5xx) — the boundary
+   *  retries those; a decline is FINAL and settles as the operation's outcome. */
   authorize(input: { attemptKey: string; amountMinor: number; currency: string }):
-    Promise<{ ok: true; auth: ProviderAuthorization } | { ok: false; detail: string }>
+    Promise<{ ok: true; auth: ProviderAuthorization } | { ok: false; retryable?: boolean; detail: string }>
   capture(providerRef: string, amountMinor: number): Promise<{ ok: true } | { ok: false; detail: string }>
   void(providerRef: string): Promise<void>
   /** C6 (keystone enforcement): money back — idempotent per (intent, cause). */
   refund(providerRef: string, amountMinor: number, idempotencyKey: string): Promise<{ ok: true } | { ok: false; detail: string }>
+}
+
+/** One journaled provider operation (UPDATED_PAYMENT_LIFECYCLE §7 phase 1 row). */
+export interface ProviderOperation {
+  id: string
+  kind: 'authorize' | 'capture' | 'void' | 'refund' | 'transfer_reversal' | 'payout'
+  idempotency_key: string
+  attempt_key: string | null
+  intent_id: string | null
+  provider_ref: string | null
+  order_id: string | null
+  business_id: string | null
+  amount_minor: number | null
+  currency: string | null
+  state: 'pending' | 'succeeded' | 'abandoned'
+  attempts: number
+  detail: Record<string, unknown>
 }
 
 /** Deterministic twin (test law): declines SANDBOX_DECLINE_AMOUNT_MINOR, nothing else. */
@@ -55,9 +74,15 @@ export class SandboxProviderTwin implements ProviderPort {
   }
   async capture(_ref: string, _amount: number) { return { ok: true as const } }
   async void(_ref: string): Promise<void> { /* nothing held */ }
-  async refund(_ref: string, amount: number, _key: string) {
-    // failure injection (hostile scenario 8): one magic amount fails deterministically
-    if (amount === SANDBOX_REFUND_FAIL_AMOUNT_MINOR) return { ok: false as const, detail: 'The provider refused this refund (sandbox injection).' }
+  /** Scenario 8's injection is TRANSIENT (like a real provider hiccup): the magic
+   *  amount refuses each idempotency key ONCE, then succeeds — so tests can prove
+   *  the §7 driver's retry convergence instead of an eternal stall. */
+  private readonly refusedOnce = new Set<string>()
+  async refund(_ref: string, amount: number, key: string) {
+    if (amount === SANDBOX_REFUND_FAIL_AMOUNT_MINOR && !this.refusedOnce.has(key)) {
+      this.refusedOnce.add(key)
+      return { ok: false as const, detail: 'The provider refused this refund (sandbox injection — transient).' }
+    }
     return { ok: true as const }
   }
 }
@@ -104,7 +129,11 @@ export class StripeProviderAdapter implements ProviderPort {
       }, { idempotencyKey: `${input.attemptKey}:intent` })
       return { ok: true as const, auth: { providerRef: intent.id } }
     } catch (error) {
-      return { ok: false as const, detail: (error as Stripe.errors.StripeError).message ?? 'The payment could not be authorized.' }
+      const e = error as Stripe.errors.StripeError
+      // network/5xx/ratelimit are the provider being unreachable, not an answer —
+      // the boundary retries those under the same idempotency key (§7)
+      const retryable = ['StripeConnectionError', 'StripeAPIError', 'StripeRateLimitError'].includes(e.type ?? '')
+      return { ok: false as const, retryable, detail: e.message ?? 'The payment could not be authorized.' }
     }
   }
   async capture(providerRef: string, amountMinor: number) {
@@ -188,129 +217,171 @@ export class LedgerPoster {
 export class PaymentsService {
   constructor(
     private readonly events: EventStore,
-    private readonly provider: ProviderPort,
     readonly ledger: LedgerPoster,
+    private readonly providerName: 'sandbox' | 'stripe' = 'sandbox',
   ) {}
 
+  // ——— phase 1: the journal (one row per provider operation, unique by key)
+
+  private async journal(tx: Tx, op: {
+    kind: ProviderOperation['kind']; idempotencyKey: string
+    attemptKey?: string | null; intentId?: string | null; providerRef?: string | null
+    orderId?: string | null; businessId?: string | null
+    amountMinor?: number | null; currency?: string | null; detail?: Record<string, unknown>
+  }): Promise<{ opId: string; state: ProviderOperation['state'] }> {
+    const client = asClient(tx)
+    const id = uuidv7()
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO provider_operations (id, kind, provider, idempotency_key, attempt_key, intent_id, provider_ref, order_id, business_id, amount_minor, currency, detail)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
+      [id, op.kind, this.providerName, op.idempotencyKey, op.attemptKey ?? null, op.intentId ?? null,
+       op.providerRef ?? null, op.orderId ?? null, op.businessId ?? null, op.amountMinor ?? null,
+       op.currency ?? null, JSON.stringify(op.detail ?? {})])
+    if (inserted.rows[0]) return { opId: inserted.rows[0].id, state: 'pending' }
+    const { rows } = await client.query<{ id: string; state: ProviderOperation['state'] }>(
+      `SELECT id, state FROM provider_operations WHERE idempotency_key = $1`, [op.idempotencyKey])
+    return { opId: rows[0]!.id, state: rows[0]!.state }
+  }
+
   /**
-   * PaymentPort.authorize (structural): idempotent forever by attempt key (P4).
-   * Runs on the CALLER's transaction (PRR-C1 — an own-transaction here acquired a
-   * second pool connection while the checkout held its first; ≥ pool-size
-   * concurrent buyers deadlocked the whole app). The provider call is idempotent
-   * by attempt key, so a rolled-back tx replayed later re-lands on the SAME
-   * provider intent — no duplicate money objects exist even when our row was
-   * never written.
+   * Checkout's phase 1 (P4: idempotent forever by attempt key). Never touches the
+   * provider: reads the intent's recorded truth, or journals the intent-to-
+   * authorize for the boundary to drive OUTSIDE this transaction (§7).
    */
-  async authorize(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
-    Promise<{ ok: true; auth: { authRef: string } } | { ok: false; code: 'DECLINED'; detail: string }> {
-    {
-      const client = asClient(tx)
-      const { rows: existing } = await client.query<{ id: string; state: string; provider_ref: string | null }>(
-        `SELECT id, state, provider_ref FROM payment_intents WHERE attempt_key = $1 FOR UPDATE`, [input.attemptKey])
-      if (existing[0]) {
-        if (existing[0].state === 'authorized' || existing[0].state === 'captured') {
-          return { ok: true as const, auth: { authRef: existing[0].provider_ref ?? existing[0].id } }
-        }
-        return { ok: false as const, code: 'DECLINED' as const, detail: 'This payment attempt already failed — start a fresh checkout.' }
-      }
-      const result = await this.provider.authorize(input)
-      const intentId = uuidv7()
-      const businessId = input.businessId ?? null
-      if (!result.ok) {
-        await client.query(
-          `INSERT INTO payment_intents (id, attempt_key, business_id, amount_minor, currency, state, provider)
-           VALUES ($1, $2, $3, $4, $5, 'failed', $6)
-           ON CONFLICT (attempt_key) DO NOTHING`,
-          [intentId, input.attemptKey, businessId, input.amountMinor, input.currency, this.provider.name])
-        await client.query(
-          `INSERT INTO payment_facts (id, intent_id, kind, amount_minor, detail) VALUES ($1, $2, 'declined', $3, $4)`,
-          [uuidv7(), intentId, input.amountMinor, JSON.stringify({ detail: result.detail })])
-        await this.events.append(tx, [{
-          businessId, aggregate: { type: 'payment_intent', id: intentId },
-          eventType: PAYMENTS_EVENT.AUTHORIZATION_FAILED, schemaVersion: 1,
-          payload: { intent_id: intentId, amount_minor: input.amountMinor, currency: input.currency },
-          actor: { type: 'system', id: 'payments' },
-        }])
-        return { ok: false as const, code: 'DECLINED' as const, detail: result.detail }
-      }
+  async requestAuthorization(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
+    Promise<{ state: 'authorized' | 'captured' | 'failed' | 'pending'; opId: string | null; providerRef: string | null }> {
+    const client = asClient(tx)
+    const { rows: existing } = await client.query<{ id: string; state: string; provider_ref: string | null }>(
+      `SELECT id, state, provider_ref FROM payment_intents WHERE attempt_key = $1 FOR UPDATE`, [input.attemptKey])
+    if (existing[0]) {
+      const s = existing[0].state
+      if (s === 'authorized' || s === 'captured') return { state: s, opId: null, providerRef: existing[0].provider_ref }
+      return { state: 'failed', opId: null, providerRef: existing[0].provider_ref }
+    }
+    const op = await this.journal(tx, {
+      kind: 'authorize', idempotencyKey: `${input.attemptKey}:intent`,
+      attemptKey: input.attemptKey, businessId: input.businessId ?? null,
+      amountMinor: input.amountMinor, currency: input.currency,
+    })
+    return { state: 'pending', opId: op.opId, providerRef: null }
+  }
+
+  /** Phase 3 for authorize: record the provider's answer as intent + facts + event. */
+  async settleAuthorization(tx: Tx, op: ProviderOperation, result:
+    { ok: true; auth: ProviderAuthorization } | { ok: false; detail: string }): Promise<void> {
+    const client = asClient(tx)
+    const intentId = uuidv7()
+    const businessId = op.business_id
+    if (!result.ok) {
       await client.query(
-        `INSERT INTO payment_intents (id, attempt_key, business_id, amount_minor, currency, state, provider, provider_ref)
-         VALUES ($1, $2, $3, $4, $5, 'authorized', $6, $7)
-         ON CONFLICT (attempt_key) DO NOTHING`,
-        [intentId, input.attemptKey, businessId, input.amountMinor, input.currency, this.provider.name, result.auth.providerRef])
+        `INSERT INTO payment_intents (id, attempt_key, business_id, amount_minor, currency, state, provider)
+         VALUES ($1, $2, $3, $4, $5, 'failed', $6) ON CONFLICT (attempt_key) DO NOTHING`,
+        [intentId, op.attempt_key, businessId, op.amount_minor, op.currency, this.providerName])
       await client.query(
-        `INSERT INTO payment_facts (id, intent_id, kind, amount_minor) VALUES ($1, $2, 'authorized', $3)`,
-        [uuidv7(), intentId, input.amountMinor])
+        `INSERT INTO payment_facts (id, intent_id, kind, amount_minor, detail) VALUES ($1, $2, 'declined', $3, $4)`,
+        [uuidv7(), intentId, op.amount_minor, JSON.stringify({ detail: result.detail })])
       await this.events.append(tx, [{
         businessId, aggregate: { type: 'payment_intent', id: intentId },
-        eventType: PAYMENTS_EVENT.AUTHORIZATION_SUCCEEDED, schemaVersion: 1,
-        payload: { intent_id: intentId, amount_minor: input.amountMinor, currency: input.currency },
+        eventType: PAYMENTS_EVENT.AUTHORIZATION_FAILED, schemaVersion: 1,
+        payload: { intent_id: intentId, amount_minor: op.amount_minor, currency: op.currency },
         actor: { type: 'system', id: 'payments' },
       }])
-      return { ok: true as const, auth: { authRef: result.auth.providerRef } }
+      return
+    }
+    await client.query(
+      `INSERT INTO payment_intents (id, attempt_key, business_id, amount_minor, currency, state, provider, provider_ref)
+       VALUES ($1, $2, $3, $4, $5, 'authorized', $6, $7) ON CONFLICT (attempt_key) DO NOTHING`,
+      [intentId, op.attempt_key, businessId, op.amount_minor, op.currency, this.providerName, result.auth.providerRef])
+    await client.query(
+      `INSERT INTO payment_facts (id, intent_id, kind, amount_minor) VALUES ($1, $2, 'authorized', $3)`,
+      [uuidv7(), intentId, op.amount_minor])
+    await this.events.append(tx, [{
+      businessId, aggregate: { type: 'payment_intent', id: intentId },
+      eventType: PAYMENTS_EVENT.AUTHORIZATION_SUCCEEDED, schemaVersion: 1,
+      payload: { intent_id: intentId, amount_minor: op.amount_minor, currency: op.currency },
+      actor: { type: 'system', id: 'payments' },
+    }])
+  }
+
+  /** Phase 1 for void: journal the release of an authorization (compensation/24h path). */
+  async requestVoid(tx: Tx, providerRef: string): Promise<{ opId: string }> {
+    const { rows } = await asClient(tx).query<{ id: string }>(
+      `SELECT id FROM payment_intents WHERE provider_ref = $1`, [providerRef])
+    const op = await this.journal(tx, {
+      kind: 'void', idempotencyKey: `${providerRef}:void`,
+      intentId: rows[0]?.id ?? null, providerRef,
+    })
+    return { opId: op.opId }
+  }
+
+  /** Phase 3 for void. */
+  async settleVoid(tx: Tx, op: ProviderOperation): Promise<void> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{ id: string }>(
+      `UPDATE payment_intents SET state = 'voided', updated_at = now()
+       WHERE provider_ref = $1 AND state IN ('created','authorized') RETURNING id`, [op.provider_ref])
+    if (rows[0]) {
+      await client.query(`INSERT INTO payment_facts (id, intent_id, kind) VALUES ($1, $2, 'voided')`, [uuidv7(), rows[0].id])
     }
   }
 
-  /** PaymentPort.void (structural): compensation — release the authorization. */
-  async void(authRef: string): Promise<void> {
-    await this.provider.void(authRef)
-    await this.withTx(async (tx) => {
-      const client = asClient(tx)
-      const { rows } = await client.query<{ id: string }>(
-        `UPDATE payment_intents SET state = 'voided', updated_at = now()
-         WHERE provider_ref = $1 AND state IN ('created','authorized') RETURNING id`, [authRef])
-      if (rows[0]) {
-        await client.query(`INSERT INTO payment_facts (id, intent_id, kind) VALUES ($1, $2, 'voided')`, [uuidv7(), rows[0].id])
-      }
-    })
-  }
-
   /**
-   * The single full capture (AMENDMENT-001 A1; C5 calls this at `confirmed`).
-   * P2-guarded; posts the funds-flow legs (CONNECT_FUNDS_FLOW §1) — app fee is
-   * structurally present, VALUE zero until the Founder sets fee policy.
+   * The single full capture, phase 1 (AMENDMENT-001 A1; C5's confirm calls this).
+   * P2-guarded here (amount ≤ authorization); the provider call happens in the
+   * boundary; `captured` answers idempotently forever.
    */
-  async capture(tx: Tx, input: { attemptKey: string; amountMinor: number; orderId: string }):
-    Promise<{ ok: true; intentId: string } | { ok: false; detail: string }> {
+  async requestCapture(tx: Tx, input: { attemptKey: string; amountMinor: number; orderId: string }):
+    Promise<{ state: 'captured' | 'pending' | 'unavailable'; opId: string | null; intentId: string | null; detail?: string }> {
     const client = asClient(tx)
-    const { rows } = await client.query<{ id: string; state: string; amount_minor: string; captured_minor: string; provider_ref: string | null; business_id: string; currency: string }>(
-      `SELECT id, state, amount_minor::text, captured_minor::text, provider_ref, business_id, currency
+    const { rows } = await client.query<{ id: string; state: string; amount_minor: string; provider_ref: string | null; business_id: string; currency: string }>(
+      `SELECT id, state, amount_minor::text, provider_ref, business_id, currency
        FROM payment_intents WHERE attempt_key = $1 FOR UPDATE`, [input.attemptKey])
     const intent = rows[0]
-    if (!intent) return { ok: false, detail: 'no intent for this attempt' }
-    if (intent.state === 'captured') return { ok: true, intentId: intent.id } // idempotent
-    if (intent.state !== 'authorized') return { ok: false, detail: `intent is ${intent.state}` }
-    if (input.amountMinor > Number(intent.amount_minor)) return { ok: false, detail: 'capture exceeds authorization (P2)' }
+    if (!intent) return { state: 'unavailable', opId: null, intentId: null, detail: 'no intent for this attempt' }
+    if (intent.state === 'captured') return { state: 'captured', opId: null, intentId: intent.id } // idempotent
+    if (intent.state !== 'authorized') return { state: 'unavailable', opId: null, intentId: intent.id, detail: `intent is ${intent.state}` }
+    if (input.amountMinor > Number(intent.amount_minor)) return { state: 'unavailable', opId: null, intentId: intent.id, detail: 'capture exceeds authorization (P2)' }
+    const op = await this.journal(tx, {
+      kind: 'capture', idempotencyKey: `${intent.id}:capture:1`, // ONE capture — the verified law
+      attemptKey: input.attemptKey, intentId: intent.id, providerRef: intent.provider_ref,
+      orderId: input.orderId, businessId: intent.business_id,
+      amountMinor: input.amountMinor, currency: intent.currency,
+    })
+    return { state: 'pending', opId: op.opId, intentId: intent.id }
+  }
 
-    const captured = await this.provider.capture(intent.provider_ref ?? '', input.amountMinor)
-    if (!captured.ok) return { ok: false, detail: captured.detail }
-
+  /** Phase 3 for capture: the funds become truth — intent, facts, ledger, events. */
+  async settleCapture(tx: Tx, op: ProviderOperation): Promise<void> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{ state: string }>(
+      `SELECT state FROM payment_intents WHERE id = $1 FOR UPDATE`, [op.intent_id])
+    if (rows[0]?.state === 'captured') return // a racer already settled
     await client.query(
       `UPDATE payment_intents SET state = 'captured', captured_minor = $2, order_id = $3, updated_at = now() WHERE id = $1`,
-      [intent.id, input.amountMinor, input.orderId])
+      [op.intent_id, op.amount_minor, op.order_id])
     await client.query(
       `INSERT INTO payment_facts (id, intent_id, kind, amount_minor) VALUES ($1, $2, 'captured', $3)`,
-      [uuidv7(), intent.id, input.amountMinor])
+      [uuidv7(), op.intent_id, op.amount_minor])
     // the funds-flow posting: clearing → the merchant's holding (app fee = 0 until fee policy)
-    await this.ledger.post(tx, intent.currency, [
-      { kind: 'psp_clearing', businessId: null, deltaMinor: -input.amountMinor },
-      { kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: input.amountMinor },
-    ], { intent_id: intent.id, order_id: input.orderId, kind: 'capture' })
+    await this.ledger.post(tx, op.currency!, [
+      { kind: 'psp_clearing', businessId: null, deltaMinor: -op.amount_minor! },
+      { kind: 'merchant_holding', businessId: op.business_id, deltaMinor: op.amount_minor! },
+    ], { intent_id: op.intent_id, order_id: op.order_id, kind: 'capture' })
     await this.events.append(tx, [
       {
-        businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+        businessId: op.business_id, aggregate: { type: 'payment_intent', id: op.intent_id! },
         eventType: PAYMENTS_EVENT.CHARGE_SUCCEEDED, schemaVersion: 1,
-        payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: input.amountMinor, currency: intent.currency },
+        payload: { intent_id: op.intent_id, order_id: op.order_id, amount_minor: op.amount_minor, currency: op.currency },
         actor: { type: 'system', id: 'payments' },
       },
       {
-        businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+        businessId: op.business_id, aggregate: { type: 'payment_intent', id: op.intent_id! },
         eventType: PAYMENTS_EVENT.HOLD_OPENED, schemaVersion: 1,
-        payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: input.amountMinor, currency: intent.currency },
+        payload: { intent_id: op.intent_id, order_id: op.order_id, amount_minor: op.amount_minor, currency: op.currency },
         actor: { type: 'system', id: 'payments' },
       },
     ])
-    return { ok: true, intentId: intent.id }
   }
 
   /**
@@ -319,8 +390,8 @@ export class PaymentsService {
    * (intent, cause key), cause-linked, ledger-reversed: holding first, then
    * payable (evidence-order fairness, CONNECT_FUNDS_FLOW §2).
    */
-  async refund(tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }):
-    Promise<{ ok: true; refundId: string; alreadyDone: boolean } | { ok: false; detail: string }> {
+  async prepareRefund(tx: Tx, input: { orderId: string; amountMinor: number; causeKey: string; cause: Record<string, unknown> }):
+    Promise<{ ok: true; opId: string | null; alreadyDone: boolean } | { ok: false; detail: string }> {
     const client = asClient(tx)
     const { rows } = await client.query<{
       id: string; state: string; provider_ref: string | null; business_id: string; currency: string
@@ -330,46 +401,67 @@ export class PaymentsService {
        FROM payment_intents WHERE order_id = $1 FOR UPDATE`, [input.orderId])
     const intent = rows[0]
     if (!intent) return { ok: false, detail: 'no intent for this order' }
-    // idempotency by cause: the same cause never refunds twice
+    // idempotency by cause: the same cause never refunds twice — settled facts AND
+    // already-journaled operations both answer quietly
     const { rows: prior } = await client.query<{ id: string }>(
       `SELECT id FROM payment_facts WHERE intent_id = $1 AND kind = 'refunded' AND detail->>'cause_key' = $2`,
       [intent.id, input.causeKey])
-    if (prior[0]) return { ok: true, refundId: prior[0].id, alreadyDone: true }
+    if (prior[0]) return { ok: true, opId: null, alreadyDone: true }
+    const key = `${intent.id}:refund:${input.causeKey}`
+    const { rows: existingOp } = await client.query<{ id: string; state: string }>(
+      `SELECT id, state FROM provider_operations WHERE idempotency_key = $1`, [key])
+    if (existingOp[0]) {
+      return { ok: true, opId: existingOp[0].state === 'pending' ? existingOp[0].id : null, alreadyDone: existingOp[0].state === 'succeeded' }
+    }
+    // P2 bounds, counting money already COMMITTED to pending refund operations —
+    // two racing causes can never over-promise the captured amount
     const captured = Number(intent.captured_minor)
     const refunded = Number(intent.refunded_minor)
-    if (input.amountMinor <= 0 || refunded + input.amountMinor > captured) {
-      return { ok: false, detail: `refund exceeds captured (P2): ${refunded} + ${input.amountMinor} > ${captured}` }
+    const { rows: pend } = await client.query<{ pending: string }>(
+      `SELECT COALESCE(sum(amount_minor), 0)::text AS pending FROM provider_operations
+       WHERE intent_id = $1 AND kind = 'refund' AND state = 'pending'`, [intent.id])
+    const pendingMinor = Number(pend[0]?.pending ?? 0)
+    if (input.amountMinor <= 0 || refunded + pendingMinor + input.amountMinor > captured) {
+      return { ok: false, detail: `refund exceeds captured (P2): ${refunded} + ${pendingMinor} pending + ${input.amountMinor} > ${captured}` }
     }
+    const op = await this.journal(tx, {
+      kind: 'refund', idempotencyKey: key,
+      intentId: intent.id, providerRef: intent.provider_ref, orderId: input.orderId,
+      businessId: intent.business_id, amountMinor: input.amountMinor, currency: intent.currency,
+      detail: { cause_key: input.causeKey, ...input.cause },
+    })
+    return { ok: true, opId: op.opId, alreadyDone: false }
+  }
 
-    const done = await this.provider.refund(intent.provider_ref ?? '', input.amountMinor, `${intent.id}:refund:${input.causeKey}`)
-    if (!done.ok) return { ok: false, detail: done.detail }
-
+  /** Phase 3 for refund: facts, bounded counter, ledger reversal, event. */
+  async settleRefund(tx: Tx, op: ProviderOperation): Promise<void> {
+    const client = asClient(tx)
     const factId = uuidv7()
+    const causeKey = String(op.detail.cause_key ?? '')
     await client.query(
       `UPDATE payment_intents SET refunded_minor = refunded_minor + $2, updated_at = now() WHERE id = $1`,
-      [intent.id, input.amountMinor])
+      [op.intent_id, op.amount_minor])
     await client.query(
       `INSERT INTO payment_facts (id, intent_id, kind, amount_minor, detail) VALUES ($1, $2, 'refunded', $3, $4)`,
-      [factId, intent.id, input.amountMinor, JSON.stringify({ cause_key: input.causeKey, ...input.cause })])
-    // ledger reversal: pull back from holding first, then payable — never below zero either leg
+      [factId, op.intent_id, op.amount_minor, JSON.stringify(op.detail)])
+    // ledger reversal: pull back from holding first, then payable (evidence-order fairness)
     const { rows: bal } = await client.query<{ kind: string; balance: string }>(
       `SELECT kind, balance_minor::text AS balance FROM ledger_accounts
        WHERE business_id = $1 AND kind IN ('merchant_holding','merchant_payable') AND currency = $2`,
-      [intent.business_id, intent.currency])
+      [op.business_id, op.currency])
     const holding = Number(bal.find((b) => b.kind === 'merchant_holding')?.balance ?? 0)
-    const fromHolding = Math.min(input.amountMinor, Math.max(holding, 0))
-    const fromPayable = input.amountMinor - fromHolding
-    const legs: LedgerLeg[] = [{ kind: 'psp_clearing', businessId: null, deltaMinor: input.amountMinor }]
-    if (fromHolding > 0) legs.push({ kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: -fromHolding })
-    if (fromPayable > 0) legs.push({ kind: 'merchant_payable', businessId: intent.business_id, deltaMinor: -fromPayable })
-    await this.ledger.post(tx, intent.currency, legs, { intent_id: intent.id, order_id: input.orderId, kind: 'refund', cause_key: input.causeKey })
+    const fromHolding = Math.min(op.amount_minor!, Math.max(holding, 0))
+    const fromPayable = op.amount_minor! - fromHolding
+    const legs: LedgerLeg[] = [{ kind: 'psp_clearing', businessId: null, deltaMinor: op.amount_minor! }]
+    if (fromHolding > 0) legs.push({ kind: 'merchant_holding', businessId: op.business_id, deltaMinor: -fromHolding })
+    if (fromPayable > 0) legs.push({ kind: 'merchant_payable', businessId: op.business_id, deltaMinor: -fromPayable })
+    await this.ledger.post(tx, op.currency!, legs, { intent_id: op.intent_id, order_id: op.order_id, kind: 'refund', cause_key: causeKey })
     await this.events.append(tx, [{
-      businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+      businessId: op.business_id, aggregate: { type: 'payment_intent', id: op.intent_id! },
       eventType: PAYMENTS_EVENT.REFUND_ISSUED, schemaVersion: 1,
-      payload: { intent_id: intent.id, order_id: input.orderId, amount_minor: input.amountMinor, currency: intent.currency, cause_key: input.causeKey },
+      payload: { intent_id: op.intent_id, order_id: op.order_id, amount_minor: op.amount_minor, currency: op.currency, cause_key: causeKey },
       actor: { type: 'system', id: 'payments' },
     }])
-    return { ok: true, refundId: factId, alreadyDone: false }
   }
 
   /**
@@ -410,6 +502,13 @@ export class PaymentsService {
     return { ok: true, releasedMinor: releasable, alreadyDone: false }
   }
 
+  /** The 24h honest failure closes its pending provider work — visible, never eternal. */
+  async abandonPending(tx: Tx, attemptKey: string): Promise<void> {
+    await asClient(tx).query(
+      `UPDATE provider_operations SET state = 'abandoned', updated_at = now()
+       WHERE attempt_key = $1 AND state = 'pending'`, [attemptKey])
+  }
+
   /** Webhook ingestion: dedupe by provider event id (A8-7 layer 4), then record the fact. */
   async ingestProviderEvent(tx: Tx, input: { provider: string; eventId: string; intentRef: string | null; kind: string; detail?: Record<string, unknown> }):
     Promise<{ fresh: boolean }> {
@@ -429,7 +528,4 @@ export class PaymentsService {
     }
     return { fresh: true }
   }
-
-  /** Container injects the uow-bound runner (keeps this module import-clean). */
-  withTx!: <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>
 }

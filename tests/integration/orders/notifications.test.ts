@@ -90,10 +90,11 @@ describe('C7 — the letters', () => {
     mailbox().length = 0
 
     await container.pool.query(`UPDATE orders SET promise_ship_by = now() - interval '11 days' WHERE id = $1`, [orderId])
-    await inTx((tx) => container.orders.confirm.sweepAging(tx as never, {
+    const swept = await inTx((tx) => container.orders.confirm.sweepAging(tx as never, {
       listCases: (t, oid) => container.operations.fulfillment.listByOrder(t as never, oid),
-      refund: (t, input) => container.payments.service.refund(t as never, input),
+      prepareRefund: (t, input) => container.payments.service.prepareRefund(t as never, input),
     }))
+    for (const opId of swept.refundOps) await container.payments.boundary.drive(opId)
     await drain()
 
     const letters = mailbox().map((msg) => `${msg.to}|${msg.subject}`)

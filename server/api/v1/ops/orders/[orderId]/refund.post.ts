@@ -27,10 +27,11 @@ export default defineCommandEndpoint({
     const orderId = getRouterParam(event, 'orderId') ?? ''
     if (!isUuid(orderId)) return err(domainError('NOT_FOUND', 'not found'))
     const c = getContainer()
-    return c.deps.uow.withTransaction(async (tx): Promise<Result<{ refunded_minor: number }, DomainError>> => {
+    const prepared = await c.deps.uow.withTransaction(async (tx): Promise<Result<{ refunded_minor: number; op_id?: string | null }, DomainError>> => {
       const { rows } = await c.pool.query<{ currency: string }>(`SELECT currency FROM orders WHERE id = $1`, [orderId])
       if (!rows[0]) return err(domainError('NOT_FOUND', 'not found'))
-      const refunded = await c.payments.service.refund(tx, {
+      // §7: journal (bounded, cause-keyed); the boundary executes after commit
+      const refunded = await c.payments.service.prepareRefund(tx, {
         orderId, amountMinor: body.amount_minor,
         causeKey: `ops:${body.cause_key}`,
         cause: { kind: 'ops_refund', reason: body.reason, operator: auth.userId },
@@ -47,7 +48,21 @@ export default defineCommandEndpoint({
           amount_minor: body.amount_minor, currency: rows[0].currency,
           text: 'Support stepped in — a refund is on its way back to you.',
         }), JSON.stringify({ type: 'admin', id: auth.userId })])
-      return ok({ refunded_minor: body.amount_minor })
+      return ok({ refunded_minor: body.amount_minor, op_id: refunded.opId })
     })
+    // §7: the audited decision committed; the money executes at the boundary now
+    if (prepared.ok && prepared.value.op_id) {
+      const driven = await c.payments.boundary.drive(prepared.value.op_id)
+        .catch((error) => ({ settled: false as const, outcome: 'retrying' as const, detail: (error as Error).message }))
+      if (!driven.settled && driven.outcome === 'retrying') {
+        // ops deserves the unvarnished truth: journaled, not yet landed, driver retrying
+        return err(domainError('CONFLICT', `The provider refused just now (${'detail' in driven ? driven.detail : 'unknown'}) — the refund is journaled and the driver keeps retrying; check /ops/alarms if it persists.`))
+      }
+    }
+    if (prepared.ok) {
+      const { op_id: _omit, ...response } = prepared.value
+      return ok(response)
+    }
+    return prepared
   },
 })
