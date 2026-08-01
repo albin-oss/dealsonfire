@@ -18,7 +18,7 @@ export default defineQueryEndpoint({
     if (!isUuid(orderId)) return sendProblem(event, domainError('NOT_FOUND', 'not found'))
     const c = getContainer()
     return c.deps.uow.withTransaction(async (tx) => {
-      const [order, lines, timeline, intent, facts, ledger, reservations, cases, returns, events] = await Promise.all([
+      const [order, lines, timeline, intent, facts, ledger, reservations, cases, returns, events, providerOps] = await Promise.all([
         c.pool.query(`SELECT * FROM orders WHERE id = $1`, [orderId]),
         c.pool.query(`SELECT * FROM order_lines WHERE order_id = $1 ORDER BY line_no`, [orderId]),
         c.pool.query(`SELECT entry_type, message, actor, occurred_at FROM order_timeline WHERE order_id = $1 ORDER BY occurred_at`, [orderId]),
@@ -29,6 +29,9 @@ export default defineQueryEndpoint({
         c.operations.fulfillment.listByOrder(tx, orderId),
         c.operations.returns.listByOrder(tx, orderId),
         c.pool.query(`SELECT event_type, payload, occurred_at, correlation_id FROM orders_domain_events WHERE aggregate_id = $1 ORDER BY occurred_at`, [orderId]),
+        // C10 §7: the provider-operation journal IS part of the money story
+        c.pool.query(`SELECT kind, idempotency_key, state, attempts, amount_minor, currency, last_error, created_at, updated_at
+                      FROM provider_operations WHERE order_id = $1 ORDER BY created_at`, [orderId]),
       ])
       if (!order.rows[0]) return sendProblem(event, domainError('NOT_FOUND', 'not found'))
       const { buyer_contact, delivery, ...rest } = order.rows[0]
@@ -37,6 +40,7 @@ export default defineQueryEndpoint({
         lines: lines.rows, timeline: timeline.rows,
         payment: { intent: intent.rows[0] ?? null, facts: facts.rows, ledger: ledger.rows },
         reservations: reservations.rows, fulfillment_cases: cases, return_cases: returns,
+        provider_operations: providerOps.rows,
         events: events.rows,
       }
     })

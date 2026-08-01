@@ -38,6 +38,13 @@ someone's memory, and each burned that someone at least once.)
   `server/utils/container.ts` via structural typing (implement the port shape
   without importing it). `check:boundaries` enforces the imports; this note
   explains the pattern you'll see.
+- **No provider network call inside an open transaction (G2, C10 §7).** Every
+  Stripe-touching operation is journaled (`provider_operations`), driven by
+  `PaymentsBoundary` OUTSIDE any transaction, and settled behind a
+  pending→succeeded flip — `UPDATED_PAYMENT_LIFECYCLE.md §7` is the written law.
+  A violation THROWS at runtime (AsyncLocalStorage tripwire in `platform/db.ts`)
+  and fails `check:boundaries` statically. If your feature needs the provider,
+  you add a journal kind and a boundary case — you never call the port directly.
 - **Composition-root reads are not a boundary violation.** `server/utils/deals-feed.ts`
   and `momentum.ts` deliberately join across domain tables at the root — they are
   read-model composition, owned by the composition root. Do not "fix" them into a
