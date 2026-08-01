@@ -1082,6 +1082,44 @@
       ]
     },
     {
+      "table": "payment_disputes",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "financial record \u2014 7y",
+      "delete_class": "retain",
+      "cross_domain_refs": [
+        {
+          "column": "order_id",
+          "target_domain": "orders",
+          "target_concept": "order",
+          "cleanup_event": "none (financial record outlives the order)",
+          "reconciliation": "dispute\u2194intent by provider ref; external reconciliation cross-checks"
+        }
+      ]
+    },
+    {
+      "table": "reconciliation_runs",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 400d (a year of daily runs + slack)",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "reconciliation_items",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 400d; unmatched rows retained until explained",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
       "table": "merchant_payment_profiles",
       "owner": "payments",
       "class": "aggregate",

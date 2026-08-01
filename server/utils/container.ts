@@ -107,6 +107,7 @@ import { PgFulfillmentRepository } from '@domains/operations/fulfillment/applica
 import { PgReturnsRepository } from '@domains/operations/returns/application/returns'
 import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
 import { PaymentsBoundary } from '@domains/payments/application/boundary'
+import { ReconciliationService } from '@domains/payments/application/reconciliation'
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
 import { paymentsPayloadValidators } from '@contracts/schemas/events/payments-payloads'
@@ -216,6 +217,8 @@ export interface Container {
     service: PaymentsService
     /** §7: the ONE seam where the provider is spoken to — always outside transactions. */
     boundary: PaymentsBoundary
+    /** RM-H1: the daily "does Stripe agree with our books?" — cron lane + force for ops. */
+    reconciliation: ReconciliationService
     /** Which provider is live: 'stripe' when a secret key is configured, else the twin. */
     provider: ProviderPort['name']
     /** The live port instance (dev sandbox-confirm reaches the twin through this). */
@@ -472,12 +475,23 @@ export function buildContainer(databaseUrl: string): Container {
     : new SandboxProviderTwin(undefined, optionalEnv('NUXT_SANDBOX_CLIENT_CONFIRMATION') === '1')
   // Slice 3: the fee VALUE is the Founder's, in basis points; the structure ships at 0
   const feeBps = Number(optionalEnv('NUXT_PLATFORM_FEE_BPS', '0')) || 0
-  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name, feeBps)
+  // Slice 4 (approved policy §4): configurable exposure limits — 0 = unlimited
+  const riskLimits = {
+    maxOpenDisputesMinor: Number(optionalEnv('NUXT_RISK_MAX_MERCHANT_OPEN_DISPUTES_MINOR', '0')) || 0,
+    maxLossMinor: Number(optionalEnv('NUXT_RISK_MAX_MERCHANT_LOSS_MINOR', '0')) || 0,
+  }
+  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name, feeBps, riskLimits)
   // §7: the boundary is the ONLY place the provider is spoken to — outside every tx
   const paymentsBoundary = new PaymentsBoundary({
     runTx: (fn) => deps.uow.withTransaction(fn),
     provider: paymentsProvider,
     service: paymentsService,
+    alarm: opsAlarm,
+  })
+  // Slice 4 (RM-H1): does Stripe agree with our books? — a daily question, never a shrug
+  const reconciliation = new ReconciliationService({
+    runTx: (fn) => deps.uow.withTransaction(fn),
+    provider: paymentsProvider,
     alarm: opsAlarm,
   })
   // the Orders PaymentPort, structurally satisfied by the Payments domain (no cross-import)
@@ -661,6 +675,7 @@ export function buildContainer(databaseUrl: string): Container {
       dispatcher: paymentsDispatcher,
       service: paymentsService,
       boundary: paymentsBoundary,
+      reconciliation,
       provider: paymentsProvider.name,
       providerInstance: paymentsProvider,
     },

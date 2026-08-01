@@ -40,8 +40,13 @@ export default defineEventHandler(async (event) => {
     console.error(`[stripe-webhook] API VERSION MISMATCH: event ${stripeEvent.id} is ${stripeEvent.api_version}, pin is ${STRIPE_PINNED_API_VERSION} — rerun the pinned-version reverification before trusting new fields`)
   }
 
-  const object = stripeEvent.data.object as { id?: string; object?: string }
-  const intentRef = object.object === 'payment_intent' ? object.id ?? null : null
+  const object = stripeEvent.data.object as {
+    id?: string; object?: string; payment_intent?: string | { id: string }
+    amount?: number; currency?: string; reason?: string; status?: string
+    evidence_details?: { due_by?: number | null }
+  }
+  const objectIntentRef = typeof object.payment_intent === 'object' ? object.payment_intent?.id : object.payment_intent
+  const intentRef = object.object === 'payment_intent' ? object.id ?? null : objectIntentRef ?? null
   const c = getContainer()
   const result = await c.deps.uow.withTransaction((tx) =>
     c.payments.service.ingestProviderEvent(tx, {
@@ -49,6 +54,7 @@ export default defineEventHandler(async (event) => {
       eventId: stripeEvent.id,
       intentRef,
       kind: stripeEvent.type,
+      payload: stripeEvent.data.object, // RM-M1: the provider's exact words, kept
     }))
 
   // Slice 2 — the buyer's confirmation became provider truth: converge the order.
@@ -65,6 +71,27 @@ export default defineEventHandler(async (event) => {
     const state = await c.payments.boundary.connectReadAccount(object.id)
     await c.deps.uow.withTransaction((tx) =>
       c.payments.service.applyAccountSnapshot(tx, { accountId: object.id!, state }))
+  }
+
+  // Slice 4 — chargebacks (RM-C3): opened freezes the merchant's unreleased
+  // entitlement + letters the maker with the DEADLINE; closed settles per the
+  // approved loss policy. Both idempotent by the provider's dispute id.
+  if (result.fresh && object.object === 'dispute' && object.id) {
+    if (stripeEvent.type === 'charge.dispute.created') {
+      await c.deps.uow.withTransaction((tx) => c.payments.service.openDispute(tx, {
+        providerDisputeId: object.id!,
+        providerRef: objectIntentRef ?? null,
+        amountMinor: object.amount ?? 0,
+        currency: (object.currency ?? 'eur').toUpperCase(),
+        reason: object.reason ?? null,
+        evidenceDueAt: object.evidence_details?.due_by ? new Date(object.evidence_details.due_by * 1000).toISOString() : null,
+      }))
+    }
+    if (stripeEvent.type === 'charge.dispute.closed') {
+      const outcome = object.status === 'won' ? 'won' as const : 'lost' as const
+      await c.deps.uow.withTransaction((tx) =>
+        c.payments.service.resolveDispute(tx, { providerDisputeId: object.id!, outcome }))
+    }
   }
   return { received: true, fresh: result.fresh }
 })

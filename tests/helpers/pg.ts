@@ -23,7 +23,7 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
   await pool.query(`
     TRUNCATE TABLE
       payments_event_deliveries, payments_outbox_events, payments_domain_events, payments_audit_logs,
-      payment_facts, payment_intents, ledger_entries, ledger_accounts, provider_events, provider_operations, merchant_payment_profiles,
+      payment_facts, payment_intents, ledger_entries, ledger_accounts, provider_events, provider_operations, payment_disputes, reconciliation_runs, reconciliation_items, merchant_payment_profiles,
       orders_event_deliveries, orders_outbox_events, orders_domain_events, orders_audit_logs,
       order_timeline, order_lines, orders, order_counters, checkout_attempts,
       cart_lines, carts, reservations, stock_ledger, stock_items,

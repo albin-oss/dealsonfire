@@ -31,15 +31,35 @@ export default definePublicEndpoint({
     // a maker whose banking isn't ready cannot take money. Only the CHECKOUT DOOR
     // closes — the storefront, story, and Sparks stay on the street (experience law).
     const requireOnboarding = c.payments.provider === 'stripe' || process.env.NUXT_REQUIRE_MERCHANT_ONBOARDING === '1'
-    if (requireOnboarding) {
-      const { rows } = await c.pool.query<{ charges_enabled: boolean | null }>(
-        `SELECT p.charges_enabled FROM carts ct
-         LEFT JOIN merchant_payment_profiles p ON p.business_id = ct.business_id
-         WHERE ct.id = $1`, [body.cart_id])
-      if (rows[0] && !rows[0].charges_enabled) {
+    const { rows: till } = await c.pool.query<{ charges_enabled: boolean | null; risk_paused_at: string | null }>(
+      `SELECT p.charges_enabled, p.risk_paused_at::text AS risk_paused_at FROM carts ct
+       LEFT JOIN merchant_payment_profiles p ON p.business_id = ct.business_id
+       WHERE ct.id = $1`, [body.cart_id])
+    // Slice 4 (approved policy §5): a risk pause closes the checkout door for
+    // HUMAN review — storefront and buyer protections stand exactly as they were
+    if (till[0]?.risk_paused_at) {
+      return ok({
+        ok: false, code: 'CHECKOUT_CLOSED',
+        detail: 'This shop’s checkout is paused for a routine review. Everything stays browsable, and the door reopens shortly.',
+      })
+    }
+    if (requireOnboarding && till[0] && !till[0].charges_enabled) {
+      return ok({
+        ok: false, code: 'CHECKOUT_CLOSED',
+        detail: 'This maker’s till isn’t open yet — their banking setup isn’t finished. Everything here stays browsable, and the checkout door opens the moment it’s done.',
+      })
+    }
+    // Slice 4 (approved policy §4): max platform exposure per order — a launch
+    // training wheel, said honestly when it bites
+    const maxOrderMinor = Number(process.env.NUXT_RISK_MAX_ORDER_MINOR ?? '0') || 0
+    if (maxOrderMinor > 0) {
+      const { rows: sub } = await c.pool.query<{ subtotal: string }>(
+        `SELECT COALESCE(sum(COALESCE(v.sale_amount, v.price_amount) * cl.quantity), 0)::text AS subtotal
+         FROM cart_lines cl JOIN product_variants v ON v.id = cl.variant_id WHERE cl.cart_id = $1`, [body.cart_id])
+      if (Number(sub[0]?.subtotal ?? 0) > maxOrderMinor) {
         return ok({
-          ok: false, code: 'CHECKOUT_CLOSED',
-          detail: 'This maker’s till isn’t open yet — their banking setup isn’t finished. Everything here stays browsable, and the checkout door opens the moment it’s done.',
+          ok: false, code: 'ORDER_LIMIT',
+          detail: 'This order is larger than we take in one go while we’re new — split it into two smaller orders and both will sail through. Nothing was charged.',
         })
       }
     }

@@ -95,9 +95,11 @@ export default defineEventHandler(async (event) => {
   // §7: the recovery driver — re-drives anything pending past the grace window
   // (crashes between phases, provider hiccups, sweep-enqueued work)
   const boundary = await container.payments.boundary.driveAll().catch(() => ({ driven: -1, settled: -1 }))
+  // RM-H1: the daily reconciliation (self-gating — runs once per 24h of watermark)
+  const reconciled = await container.payments.reconciliation.maybeRun().catch(() => ({ ran: false, matched: -1, unmatched: -1 }))
   return {
     dispatched, failed,
     carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed,
-    carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging, boundary,
+    carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging, boundary, reconciled,
   }
 })

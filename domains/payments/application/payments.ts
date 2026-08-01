@@ -66,6 +66,20 @@ export interface ProviderPort {
   createConnectedAccount(input: { businessId: string; email: string | null }): Promise<{ accountId: string }>
   createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }): Promise<{ url: string }>
   readAccount(accountId: string): Promise<ProviderAccountState>
+  /** Slice 4 (RM-H1): the provider's own money movements since a watermark —
+   *  external reconciliation's raw material. */
+  listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]>
+}
+
+/** One provider-side money movement, as reconciliation sees it (Slice 4). */
+export interface ProviderBalanceTxn {
+  id: string
+  kind: 'charge' | 'refund' | 'payout' | 'fee' | 'other'
+  amountMinor: number
+  currency: string
+  occurredAt: string
+  /** the intent's provider ref where the provider knows it (charge/refund) */
+  sourceRef: string | null
 }
 
 /** One journaled provider operation (UPDATED_PAYMENT_LIFECYCLE §7 phase 1 row). */
@@ -120,8 +134,30 @@ export class SandboxProviderTwin implements ProviderPort {
     if (this.clientConfirmation) return { status: 'requires_confirmation' as const, clientSecret: `sandbox-cs-${providerRef}` }
     return { status: 'authorized' as const, clientSecret: null }
   }
-  async capture(_ref: string, _amount: number, _feeMinor?: number) { return { ok: true as const } }
+  async capture(ref: string, amount: number, _feeMinor?: number) {
+    this.recordTxn('charge', amount, ref)
+    return { ok: true as const }
+  }
   async void(ref: string): Promise<void> { this.voided.add(ref) }
+
+  // ——— reconciliation twin (Slice 4): the twin REMEMBERS its own money moves,
+  // so reconciliation can prove matching against a truthful outside record
+  private readonly balanceTxns: ProviderBalanceTxn[] = []
+  private txnSeq = 0
+  private recordTxn(kind: ProviderBalanceTxn['kind'], amountMinor: number, sourceRef: string | null): void {
+    this.txnSeq += 1
+    this.balanceTxns.push({
+      id: `sandbox-txn-${this.txnSeq}-${sourceRef ?? 'x'}`,
+      kind, amountMinor, currency: 'EUR', occurredAt: new Date().toISOString(), sourceRef,
+    })
+  }
+  /** Test hook: a movement OUR books know nothing about (the unmatched case). */
+  injectRogueTransaction(amountMinor: number): void { this.recordTxn('other', amountMinor, null) }
+  /** Test hook: the twin's memory resets with the database (truncateAll's partner). */
+  resetRecordedTransactions(): void { this.balanceTxns.length = 0 }
+  async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
+    return this.balanceTxns.filter((t) => t.occurredAt > sinceIso).slice(0, limit)
+  }
 
   // ——— Connect twin (Slice 3): onboarding completes the moment the link is
   // walked (the return URL IS the walk); tests stage restriction explicitly.
@@ -152,11 +188,12 @@ export class SandboxProviderTwin implements ProviderPort {
    *  amount refuses each idempotency key ONCE, then succeeds — so tests can prove
    *  the §7 driver's retry convergence instead of an eternal stall. */
   private readonly refusedOnce = new Set<string>()
-  async refund(_ref: string, amount: number, key: string) {
+  async refund(ref: string, amount: number, key: string) {
     if (amount === SANDBOX_REFUND_FAIL_AMOUNT_MINOR && !this.refusedOnce.has(key)) {
       this.refusedOnce.add(key)
       return { ok: false as const, detail: 'The provider refused this refund (sandbox injection — transient).' }
     }
+    this.recordTxn('refund', -amount, ref)
     return { ok: true as const }
   }
 }
@@ -255,6 +292,28 @@ export class StripeProviderAdapter implements ProviderPort {
       disabledReason: account.requirements?.disabled_reason ?? null,
     }
   }
+
+  /** Slice 4 (RM-H1): Stripe's balance transactions with sources expanded so
+   *  charges and refunds carry their PaymentIntent ref for matching. */
+  async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
+    const since = Math.floor(new Date(sinceIso).getTime() / 1000)
+    const page = await this.stripe.balanceTransactions.list(
+      { created: { gt: since }, limit, expand: ['data.source'] })
+    return page.data.map((t) => {
+      const source = t.source as { object?: string; payment_intent?: string | { id: string } } | null
+      const intentRef = typeof source?.payment_intent === 'object' ? source.payment_intent?.id : source?.payment_intent ?? null
+      const kind: ProviderBalanceTxn['kind'] =
+        t.type === 'charge' || t.type === 'payment' ? 'charge'
+        : t.type === 'refund' || t.type === 'payment_refund' ? 'refund'
+        : t.type === 'payout' ? 'payout'
+        : t.type === 'stripe_fee' || t.type === 'application_fee' ? 'fee'
+        : 'other'
+      return {
+        id: t.id, kind, amountMinor: t.amount, currency: t.currency.toUpperCase(),
+        occurredAt: new Date(t.created * 1000).toISOString(), sourceRef: intentRef ?? null,
+      }
+    })
+  }
   async capture(providerRef: string, amountMinor: number, applicationFeeMinor?: number) {
     try {
       await this.stripe.paymentIntents.capture(providerRef,
@@ -344,6 +403,9 @@ export class PaymentsService {
     /** Fee policy (Slice 3): basis points on the CAPTURED amount. VALUE is the
      *  Founder's (NUXT_PLATFORM_FEE_BPS); the structure ships at zero. */
     private readonly feeBps = 0,
+    /** Risk limits (Slice 4, approved dispute-loss policy §4): 0 = unlimited. */
+    private readonly riskLimits: { maxOpenDisputesMinor: number; maxLossMinor: number } =
+      { maxOpenDisputesMinor: 0, maxLossMinor: 0 },
   ) {}
 
   /** The one fee computation — the provider call and the ledger legs both use it. */
@@ -744,6 +806,166 @@ export class PaymentsService {
     return profile.payouts_enabled && payableMinor - frozenMinor > 0
   }
 
+  // ——— Disputes (Slice 4, RM-C3): the record, the freeze, the settlement.
+  // Approved loss policy: a filing alone never makes the merchant liable; DOF
+  // absorbs ordinary good-faith losses; recovery is a HUMAN's documented act.
+
+  /**
+   * A chargeback arrived (webhook `charge.dispute.created` or test-mode staging).
+   * Idempotent per provider dispute id. Freezes what's still in the merchant's
+   * holding — up to the disputed amount — into dispute_reserve, and speaks:
+   * the event → the merchant's letter with the DEADLINE; state feeds /ops/alarms.
+   */
+  async openDispute(tx: Tx, input: {
+    providerDisputeId: string; providerRef: string | null
+    amountMinor: number; currency: string; reason: string | null; evidenceDueAt: string | null
+  }): Promise<{ opened: boolean; disputeId: string | null; riskPaused: boolean }> {
+    const client = asClient(tx)
+    const { rows: dup } = await client.query<{ id: string }>(
+      `SELECT id FROM payment_disputes WHERE provider_dispute_id = $1`, [input.providerDisputeId])
+    if (dup[0]) return { opened: false, disputeId: dup[0].id, riskPaused: false }
+
+    const { rows: intents } = await client.query<{ id: string; order_id: string | null; business_id: string }>(
+      `SELECT id, order_id, business_id FROM payment_intents WHERE provider_ref = $1 FOR UPDATE`,
+      [input.providerRef ?? ''])
+    const intent = intents[0] ?? null
+    const businessId = intent?.business_id ?? null
+
+    // the freeze: holding → dispute_reserve, bounded by what holding still has
+    let frozen = 0
+    if (businessId) {
+      const { rows: bal } = await client.query<{ balance: string }>(
+        `SELECT balance_minor::text AS balance FROM ledger_accounts
+         WHERE business_id = $1 AND kind = 'merchant_holding' AND currency = $2`, [businessId, input.currency])
+      const holding = Number(bal[0]?.balance ?? 0)
+      frozen = Math.min(Math.max(holding, 0), input.amountMinor)
+      if (frozen > 0) {
+        await this.ledger.post(tx, input.currency, [
+          { kind: 'merchant_holding', businessId, deltaMinor: -frozen },
+          { kind: 'dispute_reserve', businessId, deltaMinor: frozen },
+        ], { kind: 'dispute_freeze', dispute: input.providerDisputeId, intent_id: intent?.id ?? null })
+      }
+    }
+
+    const disputeId = uuidv7()
+    await client.query(
+      `INSERT INTO payment_disputes (id, provider_dispute_id, intent_id, order_id, business_id, amount_minor, currency, reason, evidence_due_at, frozen_minor)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [disputeId, input.providerDisputeId, intent?.id ?? null, intent?.order_id ?? null, businessId,
+       input.amountMinor, input.currency, input.reason, input.evidenceDueAt, frozen])
+    if (intent?.order_id) {
+      await client.query(
+        `INSERT INTO order_timeline (id, order_id, entry_type, message, actor) VALUES ($1, $2, 'note', $3, $4)`,
+        [uuidv7(), intent.order_id,
+         JSON.stringify({ text: `Payment dispute opened (${input.providerDisputeId}) — evidence due ${input.evidenceDueAt ?? 'unknown'}. Handled in the Stripe dashboard; runbook: disputes.`, ops: true, internal: true }),
+         JSON.stringify({ type: 'system', id: 'payments' })])
+    }
+    await this.events.append(tx, [{
+      businessId, aggregate: { type: 'payment_dispute', id: disputeId },
+      eventType: PAYMENTS_EVENT.DISPUTE_OPENED, schemaVersion: 1,
+      payload: {
+        dispute_id: disputeId, business_id: businessId, order_id: intent?.order_id ?? null,
+        amount_minor: input.amountMinor, currency: input.currency,
+        reason: input.reason, evidence_due_at: input.evidenceDueAt,
+      },
+      actor: { type: 'system', id: 'payments' },
+    }])
+
+    // the exposure limits (approved policy §4–5): crossing pauses the till for HUMAN review
+    let riskPaused = false
+    if (businessId) {
+      const { rows: exposure } = await client.query<{ open_sum: string; lost_sum: string }>(
+        `SELECT COALESCE(sum(amount_minor) FILTER (WHERE state = 'open'), 0)::text AS open_sum,
+                COALESCE(sum(amount_minor) FILTER (WHERE state = 'lost'), 0)::text AS lost_sum
+         FROM payment_disputes WHERE business_id = $1`, [businessId])
+      const openSum = Number(exposure[0]?.open_sum ?? 0)
+      const lostSum = Number(exposure[0]?.lost_sum ?? 0)
+      const overOpen = this.riskLimits.maxOpenDisputesMinor > 0 && openSum > this.riskLimits.maxOpenDisputesMinor
+      const overLoss = this.riskLimits.maxLossMinor > 0 && lostSum > this.riskLimits.maxLossMinor
+      if (overOpen || overLoss) {
+        await this.riskPause(tx, businessId,
+          overOpen ? `open dispute exposure ${openSum} exceeds limit ${this.riskLimits.maxOpenDisputesMinor}`
+                   : `cumulative dispute losses ${lostSum} exceed limit ${this.riskLimits.maxLossMinor}`)
+        riskPaused = true
+      }
+    }
+    return { opened: true, disputeId, riskPaused }
+  }
+
+  /**
+   * The bank's answer. WON → the frozen entitlement returns to holding.
+   * LOST → the provider debited us: the reserve covers what it froze and the
+   * PLATFORM absorbs the remainder (approved policy §1 — psp_fee_expense),
+   * never the good-faith merchant.
+   */
+  async resolveDispute(tx: Tx, input: { providerDisputeId: string; outcome: 'won' | 'lost' }):
+    Promise<{ resolved: boolean; alreadyResolved: boolean }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{
+      id: string; state: string; business_id: string | null; order_id: string | null
+      amount_minor: string; currency: string; frozen_minor: string
+    }>(
+      `SELECT id, state, business_id, order_id, amount_minor::text, currency, frozen_minor::text
+       FROM payment_disputes WHERE provider_dispute_id = $1 FOR UPDATE`, [input.providerDisputeId])
+    const dispute = rows[0]
+    if (!dispute) return { resolved: false, alreadyResolved: false }
+    if (dispute.state !== 'open') return { resolved: false, alreadyResolved: true }
+    const frozen = Number(dispute.frozen_minor)
+    const amount = Number(dispute.amount_minor)
+
+    if (input.outcome === 'won' && frozen > 0 && dispute.business_id) {
+      await this.ledger.post(tx, dispute.currency, [
+        { kind: 'dispute_reserve', businessId: dispute.business_id, deltaMinor: -frozen },
+        { kind: 'merchant_holding', businessId: dispute.business_id, deltaMinor: frozen },
+      ], { kind: 'dispute_won', dispute: input.providerDisputeId })
+    }
+    if (input.outcome === 'lost') {
+      // APPROVED POLICY §1: DOF absorbs ordinary good-faith losses — the frozen
+      // entitlement RETURNS to the merchant and the WHOLE loss lands on the
+      // platform (psp_fee_expense). Recovery for PROVEN merchant-caused loss
+      // (§3) is a later, documented, human act — never this automatic path.
+      const legs: LedgerLeg[] = [{ kind: 'psp_clearing', businessId: null, deltaMinor: amount }]
+      if (frozen > 0 && dispute.business_id) {
+        legs.push({ kind: 'dispute_reserve', businessId: dispute.business_id, deltaMinor: -frozen })
+        legs.push({ kind: 'merchant_holding', businessId: dispute.business_id, deltaMinor: frozen })
+      }
+      legs.push({ kind: 'psp_fee_expense', businessId: null, deltaMinor: -amount })
+      await this.ledger.post(tx, dispute.currency, legs, { kind: 'dispute_lost', dispute: input.providerDisputeId })
+    }
+    await client.query(
+      `UPDATE payment_disputes SET state = $2, updated_at = now() WHERE id = $1`,
+      [dispute.id, input.outcome])
+    await this.events.append(tx, [{
+      businessId: dispute.business_id, aggregate: { type: 'payment_dispute', id: dispute.id },
+      eventType: PAYMENTS_EVENT.DISPUTE_CLOSED, schemaVersion: 1,
+      payload: {
+        dispute_id: dispute.id, business_id: dispute.business_id, order_id: dispute.order_id,
+        amount_minor: amount, currency: dispute.currency, outcome: input.outcome,
+      },
+      actor: { type: 'system', id: 'payments' },
+    }])
+    return { resolved: true, alreadyResolved: false }
+  }
+
+  /** Approved policy §5: the pause preserves the storefront and buyer protection;
+   *  only checkout and payouts stop; a human's audited act resumes. */
+  async riskPause(tx: Tx, businessId: string, reason: string): Promise<void> {
+    await asClient(tx).query(
+      `INSERT INTO merchant_payment_profiles (business_id, provider, risk_paused_at, risk_pause_reason)
+       VALUES ($1, $2, now(), $3)
+       ON CONFLICT (business_id) DO UPDATE
+       SET risk_paused_at = COALESCE(merchant_payment_profiles.risk_paused_at, now()),
+           risk_pause_reason = COALESCE(merchant_payment_profiles.risk_pause_reason, EXCLUDED.risk_pause_reason),
+           updated_at = now()`,
+      [businessId, this.providerName, reason])
+  }
+
+  async riskResume(tx: Tx, businessId: string): Promise<void> {
+    await asClient(tx).query(
+      `UPDATE merchant_payment_profiles SET risk_paused_at = NULL, risk_pause_reason = NULL, updated_at = now()
+       WHERE business_id = $1`, [businessId])
+  }
+
   /** The intent's recorded state, by attempt (Slice 2 — confirm's Element gate). */
   async peekIntentState(tx: Tx, attemptKey: string): Promise<string | null> {
     const { rows } = await asClient(tx).query<{ state: string }>(
@@ -758,14 +980,15 @@ export class PaymentsService {
        WHERE attempt_key = $1 AND state = 'pending'`, [attemptKey])
   }
 
-  /** Webhook ingestion: dedupe by provider event id (A8-7 layer 4), then record the fact. */
-  async ingestProviderEvent(tx: Tx, input: { provider: string; eventId: string; intentRef: string | null; kind: string; detail?: Record<string, unknown> }):
+  /** Webhook ingestion: dedupe by provider event id (A8-7 layer 4), then record the
+   *  fact — WITH the provider's exact payload preserved (RM-M1: forensics). */
+  async ingestProviderEvent(tx: Tx, input: { provider: string; eventId: string; intentRef: string | null; kind: string; payload?: unknown; detail?: Record<string, unknown> }):
     Promise<{ fresh: boolean }> {
     const client = asClient(tx)
     const inserted = await client.query(
-      `INSERT INTO provider_events (provider, event_id, intent_ref) VALUES ($1, $2, $3)
+      `INSERT INTO provider_events (provider, event_id, intent_ref, payload) VALUES ($1, $2, $3, $4)
        ON CONFLICT (provider, event_id) DO NOTHING`,
-      [input.provider, input.eventId, input.intentRef])
+      [input.provider, input.eventId, input.intentRef, input.payload === undefined ? null : JSON.stringify(input.payload)])
     if (inserted.rowCount === 0) return { fresh: false }
     if (input.intentRef) {
       const { rows } = await client.query<{ id: string }>(`SELECT id FROM payment_intents WHERE provider_ref = $1`, [input.intentRef])
