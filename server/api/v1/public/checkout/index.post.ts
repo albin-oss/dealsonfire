@@ -26,6 +26,23 @@ export default definePublicEndpoint({
     }
     const buyerId = getOrCreateVisitorId(event)
     const c = getContainer()
+
+    // Slice 3 — the till gate (RM-H4): with real Stripe (or the onboarding knob),
+    // a maker whose banking isn't ready cannot take money. Only the CHECKOUT DOOR
+    // closes — the storefront, story, and Sparks stay on the street (experience law).
+    const requireOnboarding = c.payments.provider === 'stripe' || process.env.NUXT_REQUIRE_MERCHANT_ONBOARDING === '1'
+    if (requireOnboarding) {
+      const { rows } = await c.pool.query<{ charges_enabled: boolean | null }>(
+        `SELECT p.charges_enabled FROM carts ct
+         LEFT JOIN merchant_payment_profiles p ON p.business_id = ct.business_id
+         WHERE ct.id = $1`, [body.cart_id])
+      if (rows[0] && !rows[0].charges_enabled) {
+        return ok({
+          ok: false, code: 'CHECKOUT_CLOSED',
+          detail: 'This maker’s till isn’t open yet — their banking setup isn’t finished. Everything here stays browsable, and the checkout door opens the moment it’s done.',
+        })
+      }
+    }
     const input = {
       attemptKey: body.attempt_key,
       buyerId,

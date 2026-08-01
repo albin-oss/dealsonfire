@@ -49,6 +49,8 @@ import opsOrderRefundPost from '../../server/api/v1/ops/orders/[orderId]/refund.
 import opsAlarmsGet from '../../server/api/v1/ops/alarms.get'
 import checkoutCompletePost from '../../server/api/v1/public/checkout/complete.post'
 import checkoutSandboxConfirmPost from '../../server/api/v1/public/checkout/sandbox-confirm.post'
+import paymentsOnboardingPost from '../../server/api/v1/businesses/[businessId]/payments/onboarding.post'
+import paymentsStatusGet from '../../server/api/v1/businesses/[businessId]/payments/index.get'
 import ordersGet from '../../server/api/v1/public/orders/index.get'
 import orderGet from '../../server/api/v1/public/orders/[orderId].get'
 import shopsGet from '../../server/api/v1/public/shops.get'
@@ -159,6 +161,8 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/ops/alarms', opsAlarmsGet)
   router.post('/api/v1/public/checkout/complete', checkoutCompletePost)
   router.post('/api/v1/public/checkout/sandbox-confirm', checkoutSandboxConfirmPost)
+  router.post('/api/v1/businesses/:businessId/payments/onboarding', paymentsOnboardingPost)
+  router.get('/api/v1/businesses/:businessId/payments', paymentsStatusGet)
   router.put('/api/v1/stores/:storeId/shipping', shippingPut)
   router.get('/api/v1/public/orders', ordersGet)
   router.get('/api/v1/public/orders/:orderId', orderGet)

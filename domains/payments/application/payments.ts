@@ -35,23 +35,37 @@ export const SANDBOX_REFUND_FAIL_AMOUNT_MINOR = 66601
 export interface ProviderAuthorization { providerRef: string }
 /** What a provider intent looks like from outside (Slice 2 — the read seam). */
 export type ProviderIntentStatus = 'requires_confirmation' | 'authorized' | 'captured' | 'canceled' | 'failed'
+/** The connected account's capability snapshot as the provider tells it (Slice 3). */
+export interface ProviderAccountState {
+  chargesEnabled: boolean
+  payoutsEnabled: boolean
+  detailsSubmitted: boolean
+  disabledReason: string | null
+}
 export interface ProviderPort {
   readonly name: 'sandbox' | 'stripe'
   /** `retryable: true` marks infrastructure failures (network, 5xx) — the boundary
    *  retries those; a decline is FINAL and settles as the operation's outcome.
    *  `ok: 'requires_confirmation'` = the intent EXISTS but the BUYER's browser must
-   *  confirm it (Payment Element) — authorization arrives via webhook or return. */
-  authorize(input: { attemptKey: string; amountMinor: number; currency: string }):
+   *  confirm it (Payment Element) — authorization arrives via webhook or return.
+   *  `destinationAccount` makes it a DESTINATION charge (CONNECT_FUNDS_FLOW §1). */
+  authorize(input: { attemptKey: string; amountMinor: number; currency: string; destinationAccount?: string | null }):
     Promise<
       | { ok: true; auth: ProviderAuthorization }
       | { ok: 'requires_confirmation'; providerRef: string }
       | { ok: false; retryable?: boolean; detail: string }>
   /** Read-only provider truth (client-return convergence + client_secret handoff). */
   readIntent(providerRef: string): Promise<{ status: ProviderIntentStatus; clientSecret: string | null }>
-  capture(providerRef: string, amountMinor: number): Promise<{ ok: true } | { ok: false; detail: string }>
+  /** `applicationFeeMinor` joins at capture (fee policy on the CAPTURED amount). */
+  capture(providerRef: string, amountMinor: number, applicationFeeMinor?: number): Promise<{ ok: true } | { ok: false; detail: string }>
   void(providerRef: string): Promise<void>
   /** C6 (keystone enforcement): money back — idempotent per (intent, cause). */
   refund(providerRef: string, amountMinor: number, idempotencyKey: string): Promise<{ ok: true } | { ok: false; detail: string }>
+  // ——— Connect (Slice 3): the bank teller's window — Stripe asks the legal
+  // questions; DOF never sees the papers. All three are network calls (G2 applies).
+  createConnectedAccount(input: { businessId: string; email: string | null }): Promise<{ accountId: string }>
+  createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }): Promise<{ url: string }>
+  readAccount(accountId: string): Promise<ProviderAccountState>
 }
 
 /** One journaled provider operation (UPDATED_PAYMENT_LIFECYCLE §7 phase 1 row). */
@@ -85,7 +99,7 @@ export class SandboxProviderTwin implements ProviderPort {
     private readonly declineAmounts: number[] = [SANDBOX_DECLINE_AMOUNT_MINOR],
     private readonly clientConfirmation = false,
   ) {}
-  async authorize(input: { attemptKey: string; amountMinor: number; currency: string }) {
+  async authorize(input: { attemptKey: string; amountMinor: number; currency: string; destinationAccount?: string | null }) {
     if (this.clientConfirmation) {
       return { ok: 'requires_confirmation' as const, providerRef: `sandbox-pi-${input.attemptKey}` }
     }
@@ -106,8 +120,34 @@ export class SandboxProviderTwin implements ProviderPort {
     if (this.clientConfirmation) return { status: 'requires_confirmation' as const, clientSecret: `sandbox-cs-${providerRef}` }
     return { status: 'authorized' as const, clientSecret: null }
   }
-  async capture(_ref: string, _amount: number) { return { ok: true as const } }
+  async capture(_ref: string, _amount: number, _feeMinor?: number) { return { ok: true as const } }
   async void(ref: string): Promise<void> { this.voided.add(ref) }
+
+  // ——— Connect twin (Slice 3): onboarding completes the moment the link is
+  // walked (the return URL IS the walk); tests stage restriction explicitly.
+  private readonly accounts = new Map<string, ProviderAccountState>()
+  async createConnectedAccount(input: { businessId: string; email: string | null }) {
+    const accountId = `sandbox-acct-${input.businessId.slice(-12)}`
+    if (!this.accounts.has(accountId)) {
+      this.accounts.set(accountId, { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, disabledReason: 'onboarding not finished' })
+    }
+    return { accountId }
+  }
+  async createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }) {
+    // walking the sandbox link "completes" onboarding — the return sync reads it
+    this.accounts.set(accountId, { chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true, disabledReason: null })
+    return { url: urls.returnUrl }
+  }
+  async readAccount(accountId: string): Promise<ProviderAccountState> {
+    return this.accounts.get(accountId)
+      ?? { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, disabledReason: 'no such account' }
+  }
+  /** Test hook: stage restriction/recovery. */
+  setAccountState(accountId: string, state: Partial<ProviderAccountState>): void {
+    const current = this.accounts.get(accountId)
+      ?? { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, disabledReason: null }
+    this.accounts.set(accountId, { ...current, ...state })
+  }
   /** Scenario 8's injection is TRANSIENT (like a real provider hiccup): the magic
    *  amount refuses each idempotency key ONCE, then succeeds — so tests can prove
    *  the §7 driver's retry convergence instead of an eternal stall. */
@@ -153,7 +193,7 @@ export class StripeProviderAdapter implements ProviderPort {
   constructor(secretKey: string) {
     this.stripe = new Stripe(secretKey, { apiVersion: STRIPE_PINNED_API_VERSION as Stripe.LatestApiVersion })
   }
-  async authorize(input: { attemptKey: string; amountMinor: number; currency: string }) {
+  async authorize(input: { attemptKey: string; amountMinor: number; currency: string; destinationAccount?: string | null }) {
     try {
       // Slice 2: the intent is BORN UNCONFIRMED — the buyer's browser confirms it
       // in the Payment Element (SAQ-A: card data never transits DOF). Cards only
@@ -163,6 +203,9 @@ export class StripeProviderAdapter implements ProviderPort {
         currency: input.currency.toLowerCase(),
         capture_method: 'manual',
         automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+        // Slice 3: a DESTINATION charge — the funds route to the maker's
+        // connected account; the app fee joins at capture (fee-on-captured policy)
+        ...(input.destinationAccount ? { transfer_data: { destination: input.destinationAccount } } : {}),
       }, { idempotencyKey: `${input.attemptKey}:intent` })
       return { ok: 'requires_confirmation' as const, providerRef: intent.id }
     } catch (error) {
@@ -182,10 +225,43 @@ export class StripeProviderAdapter implements ProviderPort {
       : 'requires_confirmation' // requires_payment_method / requires_confirmation / requires_action / processing
     return { status, clientSecret: intent.client_secret ?? null }
   }
-  async capture(providerRef: string, amountMinor: number) {
+
+  // ——— Connect (Slice 3): Express + HOSTED onboarding only — no KYC data ever
+  // transits DOF (privacy posture + SAQ-A both preserved). Payouts are MANUAL:
+  // payout eligibility follows fulfillment evidence, never Stripe's daily clock.
+  async createConnectedAccount(input: { businessId: string; email: string | null }) {
+    const account = await this.stripe.accounts.create({
+      type: 'express',
+      email: input.email ?? undefined,
+      metadata: { dof_business_id: input.businessId },
+      settings: { payouts: { schedule: { interval: 'manual' } } },
+      capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+    }, { idempotencyKey: `connect:${input.businessId}` })
+    return { accountId: account.id }
+  }
+  async createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }) {
+    const link = await this.stripe.accountLinks.create({
+      account: accountId, type: 'account_onboarding',
+      refresh_url: urls.refreshUrl, return_url: urls.returnUrl,
+    })
+    return { url: link.url }
+  }
+  async readAccount(accountId: string): Promise<ProviderAccountState> {
+    const account = await this.stripe.accounts.retrieve(accountId)
+    return {
+      chargesEnabled: account.charges_enabled ?? false,
+      payoutsEnabled: account.payouts_enabled ?? false,
+      detailsSubmitted: account.details_submitted ?? false,
+      disabledReason: account.requirements?.disabled_reason ?? null,
+    }
+  }
+  async capture(providerRef: string, amountMinor: number, applicationFeeMinor?: number) {
     try {
       await this.stripe.paymentIntents.capture(providerRef,
-        { amount_to_capture: amountMinor },
+        {
+          amount_to_capture: amountMinor,
+          ...(applicationFeeMinor && applicationFeeMinor > 0 ? { application_fee_amount: applicationFeeMinor } : {}),
+        },
         { idempotencyKey: `${providerRef}:capture:1` }) // ONE capture — the verified law
       return { ok: true as const }
     } catch (error) {
@@ -265,7 +341,15 @@ export class PaymentsService {
     private readonly events: EventStore,
     readonly ledger: LedgerPoster,
     private readonly providerName: 'sandbox' | 'stripe' = 'sandbox',
+    /** Fee policy (Slice 3): basis points on the CAPTURED amount. VALUE is the
+     *  Founder's (NUXT_PLATFORM_FEE_BPS); the structure ships at zero. */
+    private readonly feeBps = 0,
   ) {}
+
+  /** The one fee computation — the provider call and the ledger legs both use it. */
+  feeFor(amountMinor: number): number {
+    return Math.floor((amountMinor * this.feeBps) / 10_000)
+  }
 
   // ——— phase 1: the journal (one row per provider operation, unique by key)
 
@@ -452,11 +536,15 @@ export class PaymentsService {
     await client.query(
       `INSERT INTO payment_facts (id, intent_id, kind, amount_minor) VALUES ($1, $2, 'captured', $3)`,
       [uuidv7(), op.intent_id, op.amount_minor])
-    // the funds-flow posting: clearing → the merchant's holding (app fee = 0 until fee policy)
-    await this.ledger.post(tx, op.currency!, [
+    // the funds-flow posting (CONNECT_FUNDS_FLOW §1): clearing → the merchant's
+    // holding, with the platform fee peeled off when the Founder's policy sets one
+    const fee = this.feeFor(op.amount_minor!)
+    const legs: LedgerLeg[] = [
       { kind: 'psp_clearing', businessId: null, deltaMinor: -op.amount_minor! },
-      { kind: 'merchant_holding', businessId: op.business_id, deltaMinor: op.amount_minor! },
-    ], { intent_id: op.intent_id, order_id: op.order_id, kind: 'capture' })
+      { kind: 'merchant_holding', businessId: op.business_id, deltaMinor: op.amount_minor! - fee },
+    ]
+    if (fee > 0) legs.push({ kind: 'platform_fees', businessId: null, deltaMinor: fee })
+    await this.ledger.post(tx, op.currency!, legs, { intent_id: op.intent_id, order_id: op.order_id, kind: 'capture' })
     await this.events.append(tx, [
       {
         businessId: op.business_id, aggregate: { type: 'payment_intent', id: op.intent_id! },
@@ -589,6 +677,71 @@ export class PaymentsService {
       actor: { type: 'system', id: 'payments' },
     }])
     return { ok: true, releasedMinor: releasable, alreadyDone: false }
+  }
+
+  // ——— Connect profile (Slice 3): the capability snapshot — a small state table,
+  // never inference from cached API calls (RM-H4).
+
+  async getPaymentProfile(tx: Tx, businessId: string):
+    Promise<{ provider_account: string | null; charges_enabled: boolean; payouts_enabled: boolean; onboarding_state: string } | null> {
+    const { rows } = await asClient(tx).query<{ provider_account: string | null; charges_enabled: boolean; payouts_enabled: boolean; onboarding_state: string }>(
+      `SELECT provider_account, charges_enabled, payouts_enabled, onboarding_state
+       FROM merchant_payment_profiles WHERE business_id = $1`, [businessId])
+    return rows[0] ?? null
+  }
+
+  /** Record the connected account the boundary just created (phase 3 of onboarding start). */
+  async recordConnectedAccount(tx: Tx, businessId: string, accountId: string): Promise<void> {
+    await asClient(tx).query(
+      `INSERT INTO merchant_payment_profiles (business_id, provider, provider_account, onboarding_state)
+       VALUES ($1, $2, $3, 'started')
+       ON CONFLICT (business_id) DO UPDATE SET provider_account = COALESCE(merchant_payment_profiles.provider_account, EXCLUDED.provider_account), updated_at = now()`,
+      [businessId, this.providerName, accountId])
+  }
+
+  /**
+   * The provider's account truth lands in the snapshot (webhook `account.updated`
+   * or the onboarding-return sync — idempotent from either). Emits
+   * payments.account.updated ONLY when a capability actually changed, so the
+   * merchant's letter says something that just became true.
+   */
+  async applyAccountSnapshot(tx: Tx, input: { accountId: string; state: ProviderAccountState }):
+    Promise<{ businessId: string | null; changed: boolean; chargesEnabled: boolean }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{ business_id: string; charges_enabled: boolean; payouts_enabled: boolean }>(
+      `SELECT business_id, charges_enabled, payouts_enabled FROM merchant_payment_profiles WHERE provider_account = $1 FOR UPDATE`,
+      [input.accountId])
+    const profile = rows[0]
+    if (!profile) return { businessId: null, changed: false, chargesEnabled: false }
+    const changed = profile.charges_enabled !== input.state.chargesEnabled || profile.payouts_enabled !== input.state.payoutsEnabled
+    const onboardingState = input.state.detailsSubmitted ? (input.state.chargesEnabled ? 'complete' : 'submitted') : 'started'
+    await client.query(
+      `UPDATE merchant_payment_profiles
+       SET charges_enabled = $2, payouts_enabled = $3, onboarding_state = $4, updated_at = now()
+       WHERE provider_account = $1`,
+      [input.accountId, input.state.chargesEnabled, input.state.payoutsEnabled, onboardingState])
+    if (changed) {
+      await this.events.append(tx, [{
+        businessId: profile.business_id, aggregate: { type: 'payment_profile', id: profile.business_id },
+        eventType: PAYMENTS_EVENT.ACCOUNT_UPDATED, schemaVersion: 1,
+        payload: {
+          business_id: profile.business_id,
+          charges_enabled: input.state.chargesEnabled,
+          payouts_enabled: input.state.payoutsEnabled,
+          disabled_reason: input.state.disabledReason,
+        },
+        actor: { type: 'system', id: 'payments' },
+      }])
+    }
+    return { businessId: profile.business_id, changed, chargesEnabled: input.state.chargesEnabled }
+  }
+
+  /**
+   * RM-H5/RM-H6 — the payout gate (structure now, sweep later): payouts initiate
+   * only for enabled accounts with strictly positive payable net of frozen funds.
+   */
+  payoutAllowed(profile: { payouts_enabled: boolean }, payableMinor: number, frozenMinor = 0): boolean {
+    return profile.payouts_enabled && payableMinor - frozenMinor > 0
   }
 
   /** The intent's recorded state, by attempt (Slice 2 — confirm's Element gate). */

@@ -57,5 +57,14 @@ export default defineEventHandler(async (event) => {
   if (result.fresh && intentRef && stripeEvent.type === 'payment_intent.amount_capturable_updated') {
     await completePaymentAuthorization(c, intentRef)
   }
+
+  // Slice 3 — the connected account's capabilities changed: land the snapshot
+  // (idempotent with the onboarding-return sync in either order); the letter to
+  // the maker rides the payments outbox when something actually changed.
+  if (result.fresh && stripeEvent.type === 'account.updated' && object.object === 'account' && object.id) {
+    const state = await c.payments.boundary.connectReadAccount(object.id)
+    await c.deps.uow.withTransaction((tx) =>
+      c.payments.service.applyAccountSnapshot(tx, { accountId: object.id!, state }))
+  }
   return { received: true, fresh: result.fresh }
 })

@@ -15,7 +15,7 @@
  */
 import type { Tx } from '../../../platform/types'
 import { asClient, assertOutsideTransaction } from '../../../platform/db'
-import type { PaymentsService, ProviderOperation, ProviderPort, ProviderIntentStatus } from './payments'
+import type { PaymentsService, ProviderOperation, ProviderPort, ProviderIntentStatus, ProviderAccountState } from './payments'
 
 const ALARM_AT_ATTEMPTS = 5
 const RECOVERY_GRACE_SECONDS = 30
@@ -60,14 +60,26 @@ export class PaymentsBoundary {
     try {
       switch (op.kind) {
         case 'authorize': {
+          // Slice 3: destination charge when the maker's till is open — resolved
+          // from the snapshot in a SHORT read tx, closed before the network call
+          const destination = op.business_id
+            ? await this.deps.runTx(async (tx) => {
+                const { rows } = await asClient(tx).query<{ provider_account: string | null; charges_enabled: boolean }>(
+                  `SELECT provider_account, charges_enabled FROM merchant_payment_profiles WHERE business_id = $1`, [op.business_id])
+                return rows[0]?.charges_enabled ? rows[0].provider_account : null
+              })
+            : null
           const r = await this.deps.provider.authorize({
             attemptKey: op.attempt_key!, amountMinor: op.amount_minor!, currency: op.currency!,
+            destinationAccount: destination,
           })
           result = r.ok === false && r.retryable ? { kind: 'retry', detail: r.detail } : { kind: 'settle', payload: r }
           break
         }
         case 'capture': {
-          const r = await this.deps.provider.capture(op.provider_ref ?? '', op.amount_minor!)
+          // Slice 3: the app fee joins at capture — ONE computation (service.feeFor)
+          // shared by the provider call and the ledger legs
+          const r = await this.deps.provider.capture(op.provider_ref ?? '', op.amount_minor!, this.deps.service.feeFor(op.amount_minor!))
           // capture failures retry (bounded by the order's 24h honest failure)
           result = r.ok ? { kind: 'settle', payload: null } : { kind: 'retry', detail: r.detail }
           break
@@ -122,6 +134,20 @@ export class PaymentsBoundary {
   async readIntent(providerRef: string): Promise<{ status: ProviderIntentStatus; clientSecret: string | null }> {
     assertOutsideTransaction(`boundary.readIntent(${providerRef})`)
     return this.deps.provider.readIntent(providerRef)
+  }
+
+  // ——— Connect (Slice 3): the bank teller's window, spoken to outside every tx.
+  async connectCreateAccount(input: { businessId: string; email: string | null }): Promise<{ accountId: string }> {
+    assertOutsideTransaction('boundary.connectCreateAccount')
+    return this.deps.provider.createConnectedAccount(input)
+  }
+  async connectOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }): Promise<{ url: string }> {
+    assertOutsideTransaction('boundary.connectOnboardingLink')
+    return this.deps.provider.createOnboardingLink(accountId, urls)
+  }
+  async connectReadAccount(accountId: string): Promise<ProviderAccountState> {
+    assertOutsideTransaction('boundary.connectReadAccount')
+    return this.deps.provider.readAccount(accountId)
   }
 
   /** The recovery sweep — cron lane. Re-drives pending work past the grace window. */

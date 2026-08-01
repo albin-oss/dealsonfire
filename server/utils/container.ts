@@ -470,7 +470,9 @@ export function buildContainer(databaseUrl: string): Container {
   const paymentsProvider: ProviderPort = stripeSecretKey
     ? new StripeProviderAdapter(stripeSecretKey)
     : new SandboxProviderTwin(undefined, optionalEnv('NUXT_SANDBOX_CLIENT_CONFIRMATION') === '1')
-  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name)
+  // Slice 3: the fee VALUE is the Founder's, in basis points; the structure ships at 0
+  const feeBps = Number(optionalEnv('NUXT_PLATFORM_FEE_BPS', '0')) || 0
+  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name, feeBps)
   // §7: the boundary is the ONLY place the provider is spoken to — outside every tx
   const paymentsBoundary = new PaymentsBoundary({
     runTx: (fn) => deps.uow.withTransaction(fn),

@@ -51,7 +51,7 @@ const money = (minor: number, currency: string) =>
 
 export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; payments: OutboxConsumer[]; operations: OutboxConsumer[] } {
   const orderLink = (orderId: string) => `${deps.appBaseUrl}/o/${orderId}`
-  const workshopLink = () => `${deps.appBaseUrl}/orders`
+  const workshopLink = (path = '/orders') => `${deps.appBaseUrl}${path}`
 
   const send = (to: string | null, subject: string, body: string) =>
     to ? deps.mail.send({ to, subject, body }) : Promise.resolve()
@@ -178,6 +178,35 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
           `Delivery settled for ${facts.buyer_name}'s order — the money is released for payout.\n\n` +
           `What happens next: it arrives with your normal payout. Nothing to do.\n\n` +
           `The bench: ${workshopLink()}`)
+      },
+    },
+    {
+      // C10 Slice 3 — the till's door: open or paused, said plainly, with the way back
+      consumer: 'notify.account-updated',
+      eventTypes: ['payments.account.updated'],
+      async handle(tx, event) {
+        const payload = event.payload as { business_id?: string; charges_enabled?: boolean; disabled_reason?: string | null }
+        const { rows } = await asClient(tx as never).query<{ email: string | null }>(
+          `SELECT u.email FROM users u
+           JOIN staff_memberships sm ON sm.principal_type = 'user' AND sm.principal_id = u.id
+           WHERE sm.business_id = $1 AND 'owner' = ANY(sm.roles) AND sm.status = 'active' LIMIT 1`,
+          [String(payload.business_id ?? '')])
+        const email = rows[0]?.email
+        if (!email) return
+        if (payload.charges_enabled) {
+          await send(email,
+            'Your till is open — you can take orders now',
+            `Your banking setup is complete and buyers can check out from your store.\n\n` +
+            `What happens next: nothing — sell. Money you earn becomes payable when orders ship.\n\n` +
+            `The bench: ${workshopLink()}`)
+        } else {
+          await send(email,
+            'Your till is paused — a banking detail needs you',
+            `Checkout on your store is closed for the moment${payload.disabled_reason ? ` (the payment partner says: ${payload.disabled_reason})` : ''}.\n\n` +
+            `Your storefront, story, and Sparks stay exactly where they are — only the checkout door is closed.\n\n` +
+            `What you can do: open Settings → Getting paid and finish what the payment partner asks for; the door reopens on its own.\n\n` +
+            `Settings: ${workshopLink('/settings')}`)
+        }
       },
     },
   ]
