@@ -88,6 +88,13 @@ export class ReconciliationService {
     if (txn.kind === 'payout' || txn.kind === 'fee') {
       return { state: 'matched', intentId: null, note: `${txn.kind}: provider-side mechanics` }
     }
+    // CERTIFICATION FINDING: a chargeback withdrawal arrives as an 'adjustment'
+    // whose source is the dispute — it matches OUR dispute record, not a fact
+    if (txn.kind === 'other' && txn.sourceRef?.startsWith('du_')) {
+      const { rows } = await client.query<{ intent_id: string | null }>(
+        `SELECT intent_id FROM payment_disputes WHERE provider_dispute_id = $1`, [txn.sourceRef])
+      if (rows[0]) return { state: 'matched', intentId: rows[0].intent_id, note: 'chargeback withdrawal ↔ dispute record' }
+    }
     if ((txn.kind === 'charge' || txn.kind === 'refund') && txn.sourceRef) {
       const factKind = txn.kind === 'charge' ? 'captured' : 'refunded'
       const expectAmount = Math.abs(txn.amountMinor)

@@ -294,22 +294,35 @@ export class StripeProviderAdapter implements ProviderPort {
   }
 
   /** Slice 4 (RM-H1): Stripe's balance transactions with sources expanded so
-   *  charges and refunds carry their PaymentIntent ref for matching. */
+   *  charges and refunds carry their PaymentIntent ref for matching.
+   *  CERTIFICATION FINDING (cross-currency): balance transactions report in the
+   *  SETTLEMENT currency (e.g. CAD for a CAD-based account) while DOF's facts
+   *  are PRESENTMENT truth (EUR) — matching therefore uses the expanded
+   *  source's amount/currency, falling back to the txn only when no source. */
   async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
     const since = Math.floor(new Date(sinceIso).getTime() / 1000)
     const page = await this.stripe.balanceTransactions.list(
       { created: { gt: since }, limit, expand: ['data.source'] })
     return page.data.map((t) => {
-      const source = t.source as { object?: string; payment_intent?: string | { id: string } } | null
-      const intentRef = typeof source?.payment_intent === 'object' ? source.payment_intent?.id : source?.payment_intent ?? null
+      const source = t.source as { id?: string; object?: string; amount?: number; currency?: string; payment_intent?: string | { id: string } } | null
+      // a dispute-sourced movement (chargeback withdrawal) matches our DISPUTE
+      // record — carry the du_ id; everything else matches facts by intent ref
+      const intentRef = source?.object === 'dispute'
+        ? source.id ?? null
+        : typeof source?.payment_intent === 'object' ? source.payment_intent?.id : source?.payment_intent ?? null
       const kind: ProviderBalanceTxn['kind'] =
         t.type === 'charge' || t.type === 'payment' ? 'charge'
         : t.type === 'refund' || t.type === 'payment_refund' ? 'refund'
         : t.type === 'payout' ? 'payout'
         : t.type === 'stripe_fee' || t.type === 'application_fee' ? 'fee'
         : 'other'
+      // presentment truth from the source (charge/refund amounts are presentment);
+      // the balance txn's sign carries direction
+      const usePresentment = (source?.object === 'charge' || source?.object === 'refund') && typeof source.amount === 'number'
+      const amountMinor = usePresentment ? Math.sign(t.amount || 1) * source!.amount! : t.amount
+      const currency = usePresentment && source?.currency ? source.currency.toUpperCase() : t.currency.toUpperCase()
       return {
-        id: t.id, kind, amountMinor: t.amount, currency: t.currency.toUpperCase(),
+        id: t.id, kind, amountMinor, currency,
         occurredAt: new Date(t.created * 1000).toISOString(), sourceRef: intentRef ?? null,
       }
     })
