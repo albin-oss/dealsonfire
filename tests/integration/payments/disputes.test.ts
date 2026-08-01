@@ -49,7 +49,7 @@ async function soldWorld() {
   expect(co.body.ok).toBe(true)
   const { rows } = await container.pool.query<{ provider_ref: string }>(
     `SELECT provider_ref FROM payment_intents WHERE order_id = $1`, [co.body.order_id])
-  return { merchant: m, businessId: biz.body.business_id as string, orderId: co.body.order_id as string, providerRef: rows[0].provider_ref, handle, variantId: pub.body.product.variants[0].id as string }
+  return { merchant: m, businessId: biz.body.business_id as string, orderId: co.body.order_id as string, providerRef: rows[0]!.provider_ref, handle, variantId: pub.body.product.variants[0].id as string }
 }
 
 const balances = async (businessId: string) => {

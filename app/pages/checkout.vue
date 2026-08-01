@@ -68,14 +68,17 @@ async function mountElement(clientSecret: string, publishableKey: string) {
   const { loadStripe } = await import('@stripe/stripe-js')
   const stripe = await loadStripe(publishableKey)
   if (!stripe) throw new Error('payment library failed to load')
+  // the Element wears DOF's clothes: computed token values only (token law —
+  // no literals; an empty var falls back to Stripe's neutral default)
   const styles = getComputedStyle(document.documentElement)
+  const tokenVar = (name: string) => styles.getPropertyValue(name).trim() || undefined
   const elements = stripe.elements({
     clientSecret,
     appearance: {
       variables: {
-        colorPrimary: styles.getPropertyValue('--dof-accent').trim() || '#7c5cff',
-        colorText: styles.getPropertyValue('--dof-foreground').trim() || '#1a1a1a',
-        colorBackground: styles.getPropertyValue('--dof-surface').trim() || '#ffffff',
+        colorPrimary: tokenVar('--dof-accent'),
+        colorText: tokenVar('--dof-foreground'),
+        colorBackground: tokenVar('--dof-surface'),
         borderRadius: '10px',
         fontFamily: 'inherit',
       },
