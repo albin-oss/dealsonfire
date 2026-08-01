@@ -15,7 +15,7 @@
  */
 import type { Tx } from '../../../platform/types'
 import { asClient, assertOutsideTransaction } from '../../../platform/db'
-import type { PaymentsService, ProviderOperation, ProviderPort } from './payments'
+import type { PaymentsService, ProviderOperation, ProviderPort, ProviderIntentStatus } from './payments'
 
 const ALARM_AT_ATTEMPTS = 5
 const RECOVERY_GRACE_SECONDS = 30
@@ -119,7 +119,7 @@ export class PaymentsBoundary {
 
   /** Read-only provider truth (Slice 2): client_secret handoff + return-path
    *  convergence. A read is still a network call — the G2 tripwire stays armed. */
-  async readIntent(providerRef: string): Promise<{ status: import('./payments').ProviderIntentStatus; clientSecret: string | null }> {
+  async readIntent(providerRef: string): Promise<{ status: ProviderIntentStatus; clientSecret: string | null }> {
     assertOutsideTransaction(`boundary.readIntent(${providerRef})`)
     return this.deps.provider.readIntent(providerRef)
   }

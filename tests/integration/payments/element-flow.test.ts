@@ -14,7 +14,7 @@ import { newTestContainer, truncateAll } from '../../helpers/pg'
 import { startTestApp, type TestHttp } from '../../helpers/app'
 import { SESSION_COOKIE } from '@domains/identity/application/session-service'
 import { completePaymentAuthorization } from '../../../server/utils/payment-completion'
-import { SandboxProviderTwin } from '@domains/payments/application/payments'
+import type { SandboxProviderTwin } from '@domains/payments/application/payments'
 import { uuidv7 } from '@platform/uuid'
 
 let container: Container

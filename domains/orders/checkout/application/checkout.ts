@@ -184,7 +184,7 @@ export class PgCheckoutService {
     // ——— authorize (§7 two-phase): phase 1 journals; the boundary drives the
     // provider OUTSIDE this transaction; the saga re-enters and reads the truth
     let authRef = attempt.auth_ref
-    let awaitingPayment = false
+    let awaitingPayment: boolean
     if (!authRef) {
       const req = await this.payments.requestAuthorization(tx, { attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
       if (req.state === 'pending') {
