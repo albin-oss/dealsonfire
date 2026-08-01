@@ -5,7 +5,7 @@
  * The attempt key is minted once per cart in sessionStorage — refreshes, double
  * taps, and dead networks all converge on the same single order (A7-2).
  */
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { DofText, DofButton, DofChip, DofInput, DofMoney, DofSkeleton, DofProblem, DofEmptyState, announce } from '@ds/index'
 import type { CartsResponse, CartView } from '@contracts/schemas/orders/cart.schema'
 import type { CheckoutResponse } from '@contracts/schemas/orders/checkout.schema'
@@ -56,6 +56,81 @@ function attemptKey(): string {
 
 const placing = ref(false)
 const problem = ref<{ code: string; detail: string } | null>(null)
+
+// ——— Slice 2: the Payment Element step (real provider) or the sandbox stand-in.
+// The page stays ONE quiet column: the payment fields appear in place of the
+// button once the order exists; the words stay street, never Stripe's.
+const paymentStep = ref<{ orderId: string; clientSecret: string | null; publishableKey: string | null; provider: string } | null>(null)
+const paying = ref(false)
+let stripeCtx: { stripe: import('@stripe/stripe-js').Stripe; elements: import('@stripe/stripe-js').StripeElements } | null = null
+
+async function mountElement(clientSecret: string, publishableKey: string) {
+  const { loadStripe } = await import('@stripe/stripe-js')
+  const stripe = await loadStripe(publishableKey)
+  if (!stripe) throw new Error('payment library failed to load')
+  const styles = getComputedStyle(document.documentElement)
+  const elements = stripe.elements({
+    clientSecret,
+    appearance: {
+      variables: {
+        colorPrimary: styles.getPropertyValue('--dof-accent').trim() || '#7c5cff',
+        colorText: styles.getPropertyValue('--dof-foreground').trim() || '#1a1a1a',
+        colorBackground: styles.getPropertyValue('--dof-surface').trim() || '#ffffff',
+        borderRadius: '10px',
+        fontFamily: 'inherit',
+      },
+    },
+  })
+  elements.create('payment').mount('#dof-payment-element')
+  stripeCtx = { stripe, elements }
+}
+
+async function settleAndGo(orderId: string) {
+  // the provider's truth decides — poll briefly while 3DS/processing settles
+  for (let i = 0; i < 10; i += 1) {
+    const done = await $fetch<{ status: string }>('/api/v1/public/checkout/complete', {
+      method: 'POST', body: { attempt_key: attemptKey() },
+    }).catch(() => ({ status: 'pending' }))
+    if (done.status === 'settled') {
+      window.sessionStorage.removeItem(`dof.checkout-attempt.${cartId.value}`)
+      announce('Your order is placed.')
+      await router.push(`/o/${orderId}?welcome=1`)
+      return
+    }
+    if (done.status === 'failed') {
+      problem.value = { code: 'PAYMENT_DECLINED', detail: 'The payment didn’t go through — nothing was charged. Another card, another try; your order is saved right here.' }
+      paying.value = false
+      return
+    }
+    await new Promise((r) => setTimeout(r, 1200))
+  }
+  // still settling: the order page tells the story as it lands
+  await router.push(`/o/${orderId}`)
+}
+
+async function confirmPayment() {
+  if (!paymentStep.value || paying.value) return
+  paying.value = true
+  problem.value = null
+  try {
+    if (stripeCtx) {
+      const { error } = await stripeCtx.stripe.confirmPayment({ elements: stripeCtx.elements, redirect: 'if_required' })
+      if (error) {
+        problem.value = { code: 'PAYMENT_DECLINED', detail: error.message ?? 'The payment didn’t go through — nothing was charged.' }
+        paying.value = false
+        return
+      }
+    } else {
+      // sandbox stand-in: the dev endpoint plays the buyer's bank
+      await $fetch('/api/v1/public/checkout/sandbox-confirm', { method: 'POST', body: { attempt_key: attemptKey() } })
+    }
+    await settleAndGo(paymentStep.value.orderId)
+  } catch {
+    problem.value = { code: 'NETWORK', detail: 'That didn’t go through — nothing was charged. Check your connection and try again.' }
+    paying.value = false
+  }
+}
+
 async function placeOrder() {
   if (!formComplete.value || !cart.value || placing.value) return
   placing.value = true
@@ -65,7 +140,20 @@ async function placeOrder() {
       method: 'POST',
       body: { attempt_key: attemptKey(), cart_id: cart.value.cart_id, contact: contact.value, method: method.value, ...(method.value === 'ship' ? { delivery: delivery.value } : {}) },
     })
-    if (res.ok) {
+    if (res.ok && res.payment) {
+      // the order exists; now the payment — one more quiet field, same column
+      paymentStep.value = {
+        orderId: res.order_id,
+        clientSecret: res.payment.client_secret,
+        publishableKey: res.payment.publishable_key,
+        provider: res.payment.provider,
+      }
+      if (res.payment.provider === 'stripe' && res.payment.client_secret && res.payment.publishable_key) {
+        await nextTick()
+        await mountElement(res.payment.client_secret, res.payment.publishable_key)
+      }
+      announce('One more step — your payment details.')
+    } else if (res.ok) {
       window.sessionStorage.removeItem(`dof.checkout-attempt.${cartId.value}`)
       announce('Your order is placed.')
       await router.push(`/o/${res.order_id}?welcome=1`)
@@ -159,8 +247,22 @@ async function placeOrder() {
           </NuxtLink>
         </DofProblem>
 
+        <!-- ——— the payment (Slice 2): one more quiet field, same column, DOF's words -->
+        <section v-if="paymentStep" aria-label="payment" class="flex flex-col gap-3">
+          <DofText role="emphasis" as="h2">How you’re paying</DofText>
+          <div v-if="paymentStep.provider === 'stripe'" id="dof-payment-element" class="rounded-large border border-foreground/10 bg-foreground/[0.02] p-4" />
+          <div v-else class="flex flex-col gap-2 rounded-large border border-dashed border-accent/40 bg-accent/5 p-4">
+            <DofText role="caption" class="uppercase tracking-widest text-accent">Sandbox till</DofText>
+            <DofText role="body" class="text-foreground/80">No real money here — this button plays your bank saying yes.</DofText>
+          </div>
+          <DofButton tone="accent" size="lg" icon="check" class="w-full" :loading="paying" @click="confirmPayment">
+            Pay<template v-if="cart.currency"> — <DofMoney :amount="totalMinor" :currency="cart.currency" /></template>
+          </DofButton>
+          <KeystoneNote />
+        </section>
+
         <!-- ——— the commitment (DP-3/DP-4: consequence named above, keystone beside) -->
-        <section aria-label="place order" class="flex flex-col gap-3">
+        <section v-else aria-label="place order" class="flex flex-col gap-3">
           <DofButton tone="accent" size="lg" icon="check" class="w-full" :disabled="!formComplete" :loading="placing" @click="placeOrder">
             Place order<template v-if="cart.currency"> — <DofMoney :amount="totalMinor" :currency="cart.currency" /></template>
           </DofButton>

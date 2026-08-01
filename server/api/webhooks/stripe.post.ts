@@ -9,6 +9,7 @@ import { defineEventHandler, readRawBody, getHeader, setResponseStatus } from 'h
 import Stripe from 'stripe'
 import { getContainer } from '../../utils/container'
 import { getServerConfig } from '../../utils/config'
+import { completePaymentAuthorization } from '../../utils/payment-completion'
 import { STRIPE_PINNED_API_VERSION, apiVersionMismatch } from '@domains/payments/application/payments'
 
 export default defineEventHandler(async (event) => {
@@ -49,5 +50,12 @@ export default defineEventHandler(async (event) => {
       intentRef,
       kind: stripeEvent.type,
     }))
+
+  // Slice 2 — the buyer's confirmation became provider truth: converge the order.
+  // Runs AFTER the ingest transaction (§7); idempotent with the client's return
+  // in either order. A failure here answers 500 → Stripe retries → convergence.
+  if (result.fresh && intentRef && stripeEvent.type === 'payment_intent.amount_capturable_updated') {
+    await completePaymentAuthorization(c, intentRef)
+  }
   return { received: true, fresh: result.fresh }
 })

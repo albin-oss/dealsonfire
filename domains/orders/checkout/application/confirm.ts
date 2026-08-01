@@ -23,6 +23,9 @@ export interface CapturePort {
   /** §7 phase 1: journals the capture (or answers 'captured' idempotently). */
   requestCapture(tx: Tx, input: { attemptKey: string; amountMinor: number; orderId: string }):
     Promise<{ state: 'captured' | 'pending' | 'unavailable'; opId: string | null; intentId: string | null; detail?: string }>
+  /** Slice 2: the intent's recorded state — confirm must NOT commit stock while
+   *  the buyer is still holding the Payment Element. */
+  peekIntentState(tx: Tx, attemptKey: string): Promise<string | null>
   /** The 24h honest failure closes its pending provider work loudly, not eternally. */
   abandonPending(tx: Tx, attemptKey: string): Promise<void>
 }
@@ -45,6 +48,8 @@ export type ConfirmResult =
   | { ok: true; state: 'confirmed'; fallenLines: number }
   /** §7: the capture is journaled; the caller drives the boundary and re-enters. */
   | { ok: true; state: 'capturing'; opId: string }
+  /** Slice 2: the buyer is still in the Payment Element — nothing commits yet. */
+  | { ok: true; state: 'awaiting_payment' }
   | { ok: true; state: 'payment_pending' }
   | { ok: true; state: 'cancelled'; reason: string }
 
@@ -71,6 +76,12 @@ export class PgConfirmService {
     if (!order) return null
     if (order.state === 'confirmed') return { ok: true, state: 'confirmed', fallenLines: 0 } // idempotent
     if (order.state !== 'placed' && order.state !== 'payment_pending') return null
+
+    // Slice 2: while the buyer holds the Payment Element, the order rests in
+    // `placed` — no reservation commits, no stock certainty, no charge. The
+    // webhook or the client's return moves the intent; only then does confirm run.
+    const intentState = await this.payments.peekIntentState(tx, order.attempt_key)
+    if (intentState === 'requires_action') return { ok: true, state: 'awaiting_payment' }
 
     const { rows: lines } = await client.query<{
       line_no: number; title: string; unit_price_minor: string; quantity: number
@@ -185,9 +196,11 @@ export class PgConfirmService {
     // PRR-H1: retries are capped — after 24h in payment_pending the order fails
     // honestly (stock was committed; the correction is a human's reason-coded
     // adjustment, and the alarm makes sure a human knows). Never silent, never eternal.
+    // Slice 2 widens the net: an order abandoned INSIDE the Payment Element rests
+    // in `placed` forever unless this closes it — same honest failure, same void.
     const { rows: stale } = await client.query<{ id: string; order_number: string; business_id: string; store_id: string; attempt_key: string }>(
       `UPDATE orders SET state = 'payment_failed'
-       WHERE state = 'payment_pending' AND placed_at < now() - interval '24 hours'
+       WHERE state IN ('payment_pending','placed') AND placed_at < now() - interval '24 hours'
        RETURNING id, order_number, business_id, store_id, attempt_key`)
     // RM-H2: the buyer's card hold dies WITH the order — collect the still-open
     // authorizations; the CALLER voids them after this transaction closes (the
@@ -198,7 +211,7 @@ export class PgConfirmService {
       await this.timeline(client, order.id, 'note', { text: 'The payment could not be completed — this order is closed and nothing more will be charged.' })
       await this.payments.abandonPending(tx, order.attempt_key) // §7: closed orders leave no eternal pending ops
       const { rows: auths } = await client.query<{ provider_ref: string | null }>(
-        `SELECT provider_ref FROM payment_intents WHERE attempt_key = $1 AND state = 'authorized'`, [order.attempt_key])
+        `SELECT provider_ref FROM payment_intents WHERE attempt_key = $1 AND state IN ('authorized','requires_action')`, [order.attempt_key])
       if (auths[0]?.provider_ref) voidRefs.push(auths[0].provider_ref)
       this.alarm(`[orders] payment_pending exceeded 24h — order ${order.id} (${order.order_number}) marked payment_failed with COMMITTED stock; manual stock adjustment required (PRR-H1)`)
     }

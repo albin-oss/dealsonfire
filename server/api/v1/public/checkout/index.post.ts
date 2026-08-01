@@ -52,6 +52,21 @@ export default definePublicEndpoint({
     if (result.ok && 'declined' in result) {
       return ok({ ok: false, code: result.code, detail: result.detail })
     }
+    if (result.ok && 'orderId' in result && result.awaitingPayment && result.providerRef) {
+      // Slice 2: the order exists; the BUYER's browser now confirms the payment
+      // (Element). The client_secret is read from the provider — never stored.
+      const placed = result
+      const session = await c.payments.boundary.readIntent(placed.providerRef!)
+        .catch(() => ({ status: 'requires_confirmation' as const, clientSecret: null }))
+      return ok({
+        ok: true, order_id: placed.orderId, order_number: placed.orderNumber,
+        payment: {
+          provider: c.payments.provider,
+          client_secret: session.clientSecret,
+          publishable_key: config.stripePublishableKey || null,
+        },
+      })
+    }
     if (result.ok && 'orderId' in result) {
       const placed = result
       // C5: confirmation runs immediately — §7 shape: journal (tx) → capture

@@ -30,7 +30,16 @@ export const checkoutRequest = z.object({
 export type CheckoutRequest = z.infer<typeof checkoutRequest>
 
 export const checkoutResponse = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), order_id: z.string().uuid(), order_number: z.string() }),
+  z.object({
+    ok: z.literal(true), order_id: z.string().uuid(), order_number: z.string(),
+    /** Slice 2: present when the BUYER's browser must confirm (Payment Element).
+     *  client_secret is a handoff, never stored; sandbox sessions carry the twin's marker. */
+    payment: z.object({
+      provider: z.enum(['sandbox', 'stripe']),
+      client_secret: z.string().nullable(),
+      publishable_key: z.string().nullable(),
+    }).optional(),
+  }),
   z.object({
     ok: z.literal(false),
     code: z.enum(['CART_CHANGED', 'OUT_OF_STOCK', 'PAYMENT_DECLINED', 'PAYMENT_UNAVAILABLE', 'ATTEMPT_FAILED']),

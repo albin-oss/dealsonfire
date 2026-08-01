@@ -55,7 +55,7 @@ export class PaymentsBoundary {
 
     // ——— phase 2: the provider, OUTSIDE any transaction, under the stable key
     let result:
-      | { kind: 'settle'; payload: { ok: true; auth: { providerRef: string } } | { ok: false; detail: string } | null }
+      | { kind: 'settle'; payload: { ok: true; auth: { providerRef: string } } | { ok: 'requires_confirmation'; providerRef: string } | { ok: false; detail: string } | null }
       | { kind: 'retry'; detail: string }
     try {
       switch (op.kind) {
@@ -63,7 +63,7 @@ export class PaymentsBoundary {
           const r = await this.deps.provider.authorize({
             attemptKey: op.attempt_key!, amountMinor: op.amount_minor!, currency: op.currency!,
           })
-          result = !r.ok && r.retryable ? { kind: 'retry', detail: r.detail } : { kind: 'settle', payload: r }
+          result = r.ok === false && r.retryable ? { kind: 'retry', detail: r.detail } : { kind: 'settle', payload: r }
           break
         }
         case 'capture': {
@@ -115,6 +115,13 @@ export class PaymentsBoundary {
       return true
     })
     return settled ? { settled: true, outcome: 'succeeded' } : { settled: false, outcome: 'already_settled' }
+  }
+
+  /** Read-only provider truth (Slice 2): client_secret handoff + return-path
+   *  convergence. A read is still a network call — the G2 tripwire stays armed. */
+  async readIntent(providerRef: string): Promise<{ status: import('./payments').ProviderIntentStatus; clientSecret: string | null }> {
+    assertOutsideTransaction(`boundary.readIntent(${providerRef})`)
+    return this.deps.provider.readIntent(providerRef)
   }
 
   /** The recovery sweep — cron lane. Re-drives pending work past the grace window. */

@@ -33,12 +33,21 @@ export const SANDBOX_REFUND_FAIL_AMOUNT_MINOR = 66601
 // ————————————————————————————————————————————— provider port (ACL — ADR-008 §6)
 
 export interface ProviderAuthorization { providerRef: string }
+/** What a provider intent looks like from outside (Slice 2 — the read seam). */
+export type ProviderIntentStatus = 'requires_confirmation' | 'authorized' | 'captured' | 'canceled' | 'failed'
 export interface ProviderPort {
   readonly name: 'sandbox' | 'stripe'
   /** `retryable: true` marks infrastructure failures (network, 5xx) — the boundary
-   *  retries those; a decline is FINAL and settles as the operation's outcome. */
+   *  retries those; a decline is FINAL and settles as the operation's outcome.
+   *  `ok: 'requires_confirmation'` = the intent EXISTS but the BUYER's browser must
+   *  confirm it (Payment Element) — authorization arrives via webhook or return. */
   authorize(input: { attemptKey: string; amountMinor: number; currency: string }):
-    Promise<{ ok: true; auth: ProviderAuthorization } | { ok: false; retryable?: boolean; detail: string }>
+    Promise<
+      | { ok: true; auth: ProviderAuthorization }
+      | { ok: 'requires_confirmation'; providerRef: string }
+      | { ok: false; retryable?: boolean; detail: string }>
+  /** Read-only provider truth (client-return convergence + client_secret handoff). */
+  readIntent(providerRef: string): Promise<{ status: ProviderIntentStatus; clientSecret: string | null }>
   capture(providerRef: string, amountMinor: number): Promise<{ ok: true } | { ok: false; detail: string }>
   void(providerRef: string): Promise<void>
   /** C6 (keystone enforcement): money back — idempotent per (intent, cause). */
@@ -62,18 +71,43 @@ export interface ProviderOperation {
   detail: Record<string, unknown>
 }
 
-/** Deterministic twin (test law): declines SANDBOX_DECLINE_AMOUNT_MINOR, nothing else. */
+/**
+ * Deterministic twin (test law): declines SANDBOX_DECLINE_AMOUNT_MINOR, nothing
+ * else. With `clientConfirmation` on (NUXT_SANDBOX_CLIENT_CONFIRMATION=1) it
+ * mirrors the Element flow: authorize births an unconfirmed intent; the BUYER
+ * (a test, or the dev sandbox-confirm endpoint) confirms it; reads tell truth.
+ */
 export class SandboxProviderTwin implements ProviderPort {
   readonly name = 'sandbox' as const
-  constructor(private readonly declineAmounts: number[] = [SANDBOX_DECLINE_AMOUNT_MINOR]) {}
+  private readonly confirmed = new Map<string, 'authorized' | 'failed'>()
+  private readonly voided = new Set<string>()
+  constructor(
+    private readonly declineAmounts: number[] = [SANDBOX_DECLINE_AMOUNT_MINOR],
+    private readonly clientConfirmation = false,
+  ) {}
   async authorize(input: { attemptKey: string; amountMinor: number; currency: string }) {
+    if (this.clientConfirmation) {
+      return { ok: 'requires_confirmation' as const, providerRef: `sandbox-pi-${input.attemptKey}` }
+    }
     if (this.declineAmounts.includes(input.amountMinor)) {
       return { ok: false as const, detail: 'The payment method declined.' }
     }
     return { ok: true as const, auth: { providerRef: `sandbox-pi-${input.attemptKey}` } }
   }
+  /** The buyer's browser, played by a test or the dev endpoint. */
+  confirmClientSide(providerRef: string, outcome: 'authorized' | 'failed' = 'authorized'): void {
+    this.confirmed.set(providerRef, outcome)
+  }
+  async readIntent(providerRef: string) {
+    if (this.voided.has(providerRef)) return { status: 'canceled' as const, clientSecret: null }
+    const c = this.confirmed.get(providerRef)
+    if (c === 'authorized') return { status: 'authorized' as const, clientSecret: null }
+    if (c === 'failed') return { status: 'failed' as const, clientSecret: null }
+    if (this.clientConfirmation) return { status: 'requires_confirmation' as const, clientSecret: `sandbox-cs-${providerRef}` }
+    return { status: 'authorized' as const, clientSecret: null }
+  }
   async capture(_ref: string, _amount: number) { return { ok: true as const } }
-  async void(_ref: string): Promise<void> { /* nothing held */ }
+  async void(ref: string): Promise<void> { this.voided.add(ref) }
   /** Scenario 8's injection is TRANSIENT (like a real provider hiccup): the magic
    *  amount refuses each idempotency key ONCE, then succeeds — so tests can prove
    *  the §7 driver's retry convergence instead of an eternal stall. */
@@ -121,13 +155,16 @@ export class StripeProviderAdapter implements ProviderPort {
   }
   async authorize(input: { attemptKey: string; amountMinor: number; currency: string }) {
     try {
+      // Slice 2: the intent is BORN UNCONFIRMED — the buyer's browser confirms it
+      // in the Payment Element (SAQ-A: card data never transits DOF). Cards only
+      // at launch (allow_redirects never); 3DS runs in-context via next_action.
       const intent = await this.stripe.paymentIntents.create({
         amount: input.amountMinor,
         currency: input.currency.toLowerCase(),
         capture_method: 'manual',
         automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
       }, { idempotencyKey: `${input.attemptKey}:intent` })
-      return { ok: true as const, auth: { providerRef: intent.id } }
+      return { ok: 'requires_confirmation' as const, providerRef: intent.id }
     } catch (error) {
       const e = error as Stripe.errors.StripeError
       // network/5xx/ratelimit are the provider being unreachable, not an answer —
@@ -135,6 +172,15 @@ export class StripeProviderAdapter implements ProviderPort {
       const retryable = ['StripeConnectionError', 'StripeAPIError', 'StripeRateLimitError'].includes(e.type ?? '')
       return { ok: false as const, retryable, detail: e.message ?? 'The payment could not be authorized.' }
     }
+  }
+  async readIntent(providerRef: string) {
+    const intent = await this.stripe.paymentIntents.retrieve(providerRef)
+    const status: ProviderIntentStatus =
+      intent.status === 'requires_capture' ? 'authorized'
+      : intent.status === 'succeeded' ? 'captured'
+      : intent.status === 'canceled' ? 'canceled'
+      : 'requires_confirmation' // requires_payment_method / requires_confirmation / requires_action / processing
+    return { status, clientSecret: intent.client_secret ?? null }
   }
   async capture(providerRef: string, amountMinor: number) {
     try {
@@ -250,13 +296,15 @@ export class PaymentsService {
    * authorize for the boundary to drive OUTSIDE this transaction (§7).
    */
   async requestAuthorization(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
-    Promise<{ state: 'authorized' | 'captured' | 'failed' | 'pending'; opId: string | null; providerRef: string | null }> {
+    Promise<{ state: 'authorized' | 'captured' | 'failed' | 'pending' | 'requires_action'; opId: string | null; providerRef: string | null }> {
     const client = asClient(tx)
     const { rows: existing } = await client.query<{ id: string; state: string; provider_ref: string | null }>(
       `SELECT id, state, provider_ref FROM payment_intents WHERE attempt_key = $1 FOR UPDATE`, [input.attemptKey])
     if (existing[0]) {
       const s = existing[0].state
       if (s === 'authorized' || s === 'captured') return { state: s, opId: null, providerRef: existing[0].provider_ref }
+      // Slice 2: the intent awaits the BUYER's confirmation in the Element
+      if (s === 'requires_action') return { state: 'requires_action', opId: null, providerRef: existing[0].provider_ref }
       return { state: 'failed', opId: null, providerRef: existing[0].provider_ref }
     }
     const op = await this.journal(tx, {
@@ -269,10 +317,24 @@ export class PaymentsService {
 
   /** Phase 3 for authorize: record the provider's answer as intent + facts + event. */
   async settleAuthorization(tx: Tx, op: ProviderOperation, result:
-    { ok: true; auth: ProviderAuthorization } | { ok: false; detail: string }): Promise<void> {
+    | { ok: true; auth: ProviderAuthorization }
+    | { ok: 'requires_confirmation'; providerRef: string }
+    | { ok: false; detail: string }): Promise<void> {
     const client = asClient(tx)
     const intentId = uuidv7()
     const businessId = op.business_id
+    if (result.ok === 'requires_confirmation') {
+      // Slice 2: the intent is born awaiting the buyer's browser — the 'created'
+      // fact cites the birth (P3); authorization arrives via webhook or return
+      await client.query(
+        `INSERT INTO payment_intents (id, attempt_key, business_id, amount_minor, currency, state, provider, provider_ref)
+         VALUES ($1, $2, $3, $4, $5, 'requires_action', $6, $7) ON CONFLICT (attempt_key) DO NOTHING`,
+        [intentId, op.attempt_key, businessId, op.amount_minor, op.currency, this.providerName, result.providerRef])
+      await client.query(
+        `INSERT INTO payment_facts (id, intent_id, kind, amount_minor) VALUES ($1, $2, 'created', $3)`,
+        [uuidv7(), intentId, op.amount_minor])
+      return
+    }
     if (!result.ok) {
       await client.query(
         `INSERT INTO payment_intents (id, attempt_key, business_id, amount_minor, currency, state, provider)
@@ -304,6 +366,33 @@ export class PaymentsService {
     }])
   }
 
+  /**
+   * Slice 2 — the buyer's confirmation became provider truth: flip
+   * requires_action → authorized (row-locked, idempotent — webhook and client
+   * return may both arrive, in either order; the second changes nothing).
+   */
+  async completeClientAuthorization(tx: Tx, providerRef: string):
+    Promise<{ completed: boolean; attemptKey: string | null }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<{ id: string; state: string; attempt_key: string; business_id: string; amount_minor: string; currency: string }>(
+      `SELECT id, state, attempt_key, business_id, amount_minor::text, currency
+       FROM payment_intents WHERE provider_ref = $1 FOR UPDATE`, [providerRef])
+    const intent = rows[0]
+    if (!intent) return { completed: false, attemptKey: null }
+    if (intent.state !== 'requires_action') return { completed: false, attemptKey: intent.attempt_key } // already converged
+    await client.query(`UPDATE payment_intents SET state = 'authorized', updated_at = now() WHERE id = $1`, [intent.id])
+    await client.query(
+      `INSERT INTO payment_facts (id, intent_id, kind, amount_minor) VALUES ($1, $2, 'authorized', $3)`,
+      [uuidv7(), intent.id, intent.amount_minor])
+    await this.events.append(tx, [{
+      businessId: intent.business_id, aggregate: { type: 'payment_intent', id: intent.id },
+      eventType: PAYMENTS_EVENT.AUTHORIZATION_SUCCEEDED, schemaVersion: 1,
+      payload: { intent_id: intent.id, amount_minor: Number(intent.amount_minor), currency: intent.currency },
+      actor: { type: 'system', id: 'payments' },
+    }])
+    return { completed: true, attemptKey: intent.attempt_key }
+  }
+
   /** Phase 1 for void: journal the release of an authorization (compensation/24h path). */
   async requestVoid(tx: Tx, providerRef: string): Promise<{ opId: string }> {
     const { rows } = await asClient(tx).query<{ id: string }>(
@@ -320,7 +409,7 @@ export class PaymentsService {
     const client = asClient(tx)
     const { rows } = await client.query<{ id: string }>(
       `UPDATE payment_intents SET state = 'voided', updated_at = now()
-       WHERE provider_ref = $1 AND state IN ('created','authorized') RETURNING id`, [op.provider_ref])
+       WHERE provider_ref = $1 AND state IN ('created','authorized','requires_action') RETURNING id`, [op.provider_ref])
     if (rows[0]) {
       await client.query(`INSERT INTO payment_facts (id, intent_id, kind) VALUES ($1, $2, 'voided')`, [uuidv7(), rows[0].id])
     }
@@ -500,6 +589,13 @@ export class PaymentsService {
       actor: { type: 'system', id: 'payments' },
     }])
     return { ok: true, releasedMinor: releasable, alreadyDone: false }
+  }
+
+  /** The intent's recorded state, by attempt (Slice 2 — confirm's Element gate). */
+  async peekIntentState(tx: Tx, attemptKey: string): Promise<string | null> {
+    const { rows } = await asClient(tx).query<{ state: string }>(
+      `SELECT state FROM payment_intents WHERE attempt_key = $1`, [attemptKey])
+    return rows[0]?.state ?? null
   }
 
   /** The 24h honest failure closes its pending provider work — visible, never eternal. */

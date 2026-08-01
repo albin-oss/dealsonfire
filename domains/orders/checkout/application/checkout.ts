@@ -32,7 +32,9 @@ export interface PaymentPort {
    * outside this transaction; the saga re-enters afterwards and converges).
    */
   requestAuthorization(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
-    Promise<{ state: 'authorized' | 'captured' | 'failed' | 'pending'; opId: string | null; providerRef: string | null }>
+    Promise<{ state: 'authorized' | 'captured' | 'failed' | 'pending' | 'requires_action'; opId: string | null; providerRef: string | null }>
+  /** Slice 2: a refreshed browser re-asks — the recorded intent answers. */
+  peekIntent(tx: Tx, attemptKey: string): Promise<{ state: string; providerRef: string | null } | null>
 }
 
 // ————————————————————————————————————————————— shapes
@@ -67,7 +69,7 @@ export interface ShippingQuotePort {
 }
 
 export type CheckoutResult =
-  | { ok: true; orderId: string; orderNumber: string; alreadyPlaced: boolean }
+  | { ok: true; orderId: string; orderNumber: string; alreadyPlaced: boolean; awaitingPayment?: boolean; providerRef?: string | null }
   /** §7: reservations + journal COMMIT; the endpoint drives the boundary, then re-enters. */
   | { ok: true; pendingAuthorization: true; opId: string }
   /** §7: a decline recorded AFTER commit must persist its cleanup — ok:true shape (rollback law). */
@@ -113,7 +115,12 @@ export class PgCheckoutService {
 
     if (attempt?.step === 'placed' && attempt.order_id) {
       const { rows } = await client.query<{ order_number: string }>(`SELECT order_number FROM orders WHERE id = $1`, [attempt.order_id])
-      return { ok: true, orderId: attempt.order_id, orderNumber: rows[0]!.order_number, alreadyPlaced: true }
+      // Slice 2: a refreshed browser must get its payment session back
+      const peek = await this.payments.peekIntent(tx, input.attemptKey)
+      return {
+        ok: true, orderId: attempt.order_id, orderNumber: rows[0]!.order_number, alreadyPlaced: true,
+        awaitingPayment: peek?.state === 'requires_action', providerRef: peek?.providerRef ?? null,
+      }
     }
     if (attempt?.step === 'failed') {
       // a recorded decline replays as the same honest decline (P3: facts persist)
@@ -177,6 +184,7 @@ export class PgCheckoutService {
     // ——— authorize (§7 two-phase): phase 1 journals; the boundary drives the
     // provider OUTSIDE this transaction; the saga re-enters and reads the truth
     let authRef = attempt.auth_ref
+    let awaitingPayment = false
     if (!authRef) {
       const req = await this.payments.requestAuthorization(tx, { attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
       if (req.state === 'pending') {
@@ -189,8 +197,15 @@ export class PgCheckoutService {
         await this.fail(client, attempt.id, 'PAYMENT_DECLINED')
         return { ok: true, declined: true, code: 'PAYMENT_DECLINED', detail: 'The payment method declined. Nothing was charged; your cart is exactly as you left it.' }
       }
+      // 'authorized'/'captured' proceed to place; 'requires_action' (Slice 2 —
+      // Payment Element) ALSO places: the order exists while the buyer confirms,
+      // and nothing commits or charges until the intent moves.
+      awaitingPayment = req.state === 'requires_action'
       authRef = req.providerRef ?? 'recorded'
       await client.query(`UPDATE checkout_attempts SET step = 'placing', auth_ref = $2, updated_at = now() WHERE id = $1`, [attempt.id, authRef])
+    } else {
+      const peek = await this.payments.peekIntent(tx, input.attemptKey)
+      awaitingPayment = peek?.state === 'requires_action'
     }
 
     // ——— place (the last gate: UNIQUE attempt_key on orders makes storms converge)
@@ -226,7 +241,7 @@ export class PgCheckoutService {
         payload: { order_id: orderId, business_id: attempt.business_id, store_id: attempt.store_id, total_minor: quote.total_minor, currency: quote.currency, line_count: quote.lines.length },
         actor: { type: 'guest', id: input.buyerId },
       }])
-      return { ok: true, orderId, orderNumber, alreadyPlaced: false }
+      return { ok: true, orderId, orderNumber, alreadyPlaced: false, awaitingPayment, providerRef: authRef }
     } catch (error) {
       // place-fail compensation (K2): release the claims; the orphaned
       // authorization is reclaimed by the boundary's orphan-void sweep (§7 —

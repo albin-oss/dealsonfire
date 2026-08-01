@@ -218,6 +218,8 @@ export interface Container {
     boundary: PaymentsBoundary
     /** Which provider is live: 'stripe' when a secret key is configured, else the twin. */
     provider: ProviderPort['name']
+    /** The live port instance (dev sandbox-confirm reaches the twin through this). */
+    providerInstance: ProviderPort
   }
   commands: {
     createBusiness: ReturnType<typeof createBusinessCommand>
@@ -463,9 +465,11 @@ export function buildContainer(databaseUrl: string): Container {
     { logError: (message) => logger.error(message, { component: 'payments-outbox' }) },
   )
   const { stripeSecretKey } = getServerConfig()
+  // Slice 2: NUXT_SANDBOX_CLIENT_CONFIRMATION=1 makes the twin mirror the Element
+  // flow (intent born unconfirmed; a test or the dev endpoint plays the buyer)
   const paymentsProvider: ProviderPort = stripeSecretKey
     ? new StripeProviderAdapter(stripeSecretKey)
-    : new SandboxProviderTwin()
+    : new SandboxProviderTwin(undefined, optionalEnv('NUXT_SANDBOX_CLIENT_CONFIRMATION') === '1')
   const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name)
   // §7: the boundary is the ONLY place the provider is spoken to — outside every tx
   const paymentsBoundary = new PaymentsBoundary({
@@ -477,6 +481,13 @@ export function buildContainer(databaseUrl: string): Container {
   // the Orders PaymentPort, structurally satisfied by the Payments domain (no cross-import)
   const paymentPort: PaymentPort = {
     requestAuthorization: (tx, input) => paymentsService.requestAuthorization(tx, input),
+    peekIntent: async (tx, attemptKey) => {
+      const state = await paymentsService.peekIntentState(tx, attemptKey)
+      if (state === null) return null
+      const { rows } = await pool.query<{ provider_ref: string | null }>(
+        `SELECT provider_ref FROM payment_intents WHERE attempt_key = $1`, [attemptKey])
+      return { state, providerRef: rows[0]?.provider_ref ?? null }
+    },
   }
   const fulfillmentRepository = new PgFulfillmentRepository()
   const returnsRepository = new PgReturnsRepository(operationsEventStoreForStock)
@@ -494,6 +505,7 @@ export function buildContainer(databaseUrl: string): Container {
     stockRepository,
     {
       requestCapture: (tx, input) => paymentsService.requestCapture(tx, input),
+      peekIntentState: (tx, attemptKey) => paymentsService.peekIntentState(tx, attemptKey),
       abandonPending: (tx, attemptKey) => paymentsService.abandonPending(tx, attemptKey),
     },
     opsAlarm, // RM-H3: keystone alarms reach a human, not just stdout
@@ -648,6 +660,7 @@ export function buildContainer(databaseUrl: string): Container {
       service: paymentsService,
       boundary: paymentsBoundary,
       provider: paymentsProvider.name,
+      providerInstance: paymentsProvider,
     },
     commands: {
       createBusiness: createBusinessCommand(deps, entitlements),
