@@ -51,7 +51,7 @@ const money = (minor: number, currency: string) =>
 
 export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; payments: OutboxConsumer[]; operations: OutboxConsumer[] } {
   const orderLink = (orderId: string) => `${deps.appBaseUrl}/o/${orderId}`
-  const workshopLink = () => `${deps.appBaseUrl}/orders`
+  const workshopLink = (path = '/orders') => `${deps.appBaseUrl}${path}`
 
   const send = (to: string | null, subject: string, body: string) =>
     to ? deps.mail.send({ to, subject, body }) : Promise.resolve()
@@ -178,6 +178,78 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
           `Delivery settled for ${facts.buyer_name}'s order — the money is released for payout.\n\n` +
           `What happens next: it arrives with your normal payout. Nothing to do.\n\n` +
           `The bench: ${workshopLink()}`)
+      },
+    },
+    {
+      // C10 Slice 4 — a chargeback is a DEADLINE: the maker hears it immediately,
+      // with the policy said plainly (a filing alone never makes them liable)
+      consumer: 'notify.dispute-opened',
+      eventTypes: ['payments.dispute.opened'],
+      async handle(tx, event) {
+        const payload = event.payload as { business_id?: string | null; amount_minor?: number; currency?: string; reason?: string | null; evidence_due_at?: string | null }
+        if (!payload.business_id) return
+        const { rows } = await asClient(tx as never).query<{ email: string | null }>(
+          `SELECT u.email FROM users u
+           JOIN staff_memberships sm ON sm.principal_type = 'user' AND sm.principal_id = u.id
+           WHERE sm.business_id = $1 AND 'owner' = ANY(sm.roles) AND sm.status = 'active' LIMIT 1`,
+          [payload.business_id])
+        if (!rows[0]?.email) return
+        const due = payload.evidence_due_at ? new Date(payload.evidence_due_at).toDateString() : 'soon'
+        await send(rows[0].email,
+          `A buyer's bank opened a dispute — evidence is due ${due}`,
+          `A payment of ${money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))} on one of your orders is being disputed${payload.reason ? ` (reason given: ${payload.reason})` : ''}.\n\n` +
+          `What this means: nothing is decided yet, and a dispute alone never makes you liable — DOF carries ordinary good-faith losses.\n\n` +
+          `What you can do: if you have photos, tracking, or messages that tell the story, send them to support before ${due} — evidence wins disputes.\n\n` +
+          `The bench: ${workshopLink()}`)
+      },
+    },
+    {
+      consumer: 'notify.dispute-closed',
+      eventTypes: ['payments.dispute.closed'],
+      async handle(tx, event) {
+        const payload = event.payload as { business_id?: string | null; amount_minor?: number; currency?: string; outcome?: string }
+        if (!payload.business_id) return
+        const { rows } = await asClient(tx as never).query<{ email: string | null }>(
+          `SELECT u.email FROM users u
+           JOIN staff_memberships sm ON sm.principal_type = 'user' AND sm.principal_id = u.id
+           WHERE sm.business_id = $1 AND 'owner' = ANY(sm.roles) AND sm.status = 'active' LIMIT 1`,
+          [payload.business_id])
+        if (!rows[0]?.email) return
+        const amount = money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))
+        await send(rows[0].email,
+          payload.outcome === 'won' ? `Dispute won — ${amount} is yours again` : `Dispute lost — and it isn't coming out of your pocket`,
+          payload.outcome === 'won'
+            ? `The bank sided with the sale. The ${amount} that was set aside is back in your balance.\n\nNothing to do — carry on.\n\nThe bench: ${workshopLink()}`
+            : `The bank sided with the buyer on the ${amount} dispute. Under DOF's launch policy, ordinary good-faith losses are ours, not yours — your balance is not being debited.\n\nNothing to do. If disputes repeat we may reach out to look at causes together.\n\nThe bench: ${workshopLink()}`)
+      },
+    },
+    {
+      // C10 Slice 3 — the till's door: open or paused, said plainly, with the way back
+      consumer: 'notify.account-updated',
+      eventTypes: ['payments.account.updated'],
+      async handle(tx, event) {
+        const payload = event.payload as { business_id?: string; charges_enabled?: boolean; disabled_reason?: string | null }
+        const { rows } = await asClient(tx as never).query<{ email: string | null }>(
+          `SELECT u.email FROM users u
+           JOIN staff_memberships sm ON sm.principal_type = 'user' AND sm.principal_id = u.id
+           WHERE sm.business_id = $1 AND 'owner' = ANY(sm.roles) AND sm.status = 'active' LIMIT 1`,
+          [String(payload.business_id ?? '')])
+        const email = rows[0]?.email
+        if (!email) return
+        if (payload.charges_enabled) {
+          await send(email,
+            'Your till is open — you can take orders now',
+            `Your banking setup is complete and buyers can check out from your store.\n\n` +
+            `What happens next: nothing — sell. Money you earn becomes payable when orders ship.\n\n` +
+            `The bench: ${workshopLink()}`)
+        } else {
+          await send(email,
+            'Your till is paused — a banking detail needs you',
+            `Checkout on your store is closed for the moment${payload.disabled_reason ? ` (the payment partner says: ${payload.disabled_reason})` : ''}.\n\n` +
+            `Your storefront, story, and Sparks stay exactly where they are — only the checkout door is closed.\n\n` +
+            `What you can do: open Settings → Getting paid and finish what the payment partner asks for; the door reopens on its own.\n\n` +
+            `Settings: ${workshopLink('/settings')}`)
+        }
       },
     },
   ]

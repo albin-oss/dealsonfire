@@ -19,6 +19,13 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | BUYER_* (trust + emotional sets) · MERCHANT_* set · THE_DOF_FEELING · THE_DOF_WORKSHOP · DOF_SIGNATURE_EXPERIENCES · MOMENTS_WORTH_SHARING | **ACTIVE** (founder-approved experience corpus; the checklists bind C3–C12) |
 | UI_IMPLEMENTATION_CONTRACT | **ACTIVE — binding on every increment** |
 | PRR_C3_C5 · OPERATIONS_REALITY_REVIEW · LONG_TERM_MAINTAINABILITY_REVIEW | **ACTIVE** (review verdicts + their standing gates: no real Stripe keys pre-restructure; C6 definition-of-done) |
+| **REAL_MONEY_READINESS_REVIEW** | **ACTIVE** — the C10 launch gates G1–G9 (binding DoD); its two-phase boundary amendment is written law in UPDATED_PAYMENT_LIFECYCLE §7 |
+| **C10_REPOSITORY_READINESS_REVIEW** | **ACTIVE** — the pre-certification repository audit + the C11 debt register |
+| FOUNDER_REVIEW_C6_C9 | **RECORD** (the operational campaign's closing packet) |
+
+Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
+reconstructs any order without SQL, incl. the §7 provider-operation journal) and
+`reconciliation.md` (disputes, external reconciliation, risk pause/resume).
 
 ## Everything else (top level)
 Blueprints (`BLUEPRINT-*`), reviews (`REVIEW-*`), UX packages (`UX-*`), and execution

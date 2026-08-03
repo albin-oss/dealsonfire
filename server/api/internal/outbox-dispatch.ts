@@ -51,13 +51,21 @@ export default defineEventHandler(async (event) => {
     container.deps.uow.withTransaction((tx) => container.operations.stock.sweepExpired(tx)).catch(() => -1),
     container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepUnconfirmed(tx))
       .then(async (swept) => {
-        // RM-H2: release the card holds of orders the 24h path just closed —
-        // AFTER the sweep's transaction, never inside it (provider boundary law).
-        // void() is provider-idempotent; a crash here re-derives nothing worse
-        // than an already-cancelled intent on the next authorization-expiry pass.
+        // RM-H2 + §7: release the card holds of orders the 24h path just closed —
+        // journaled in a short tx, driven at the boundary, never inside the sweep.
         for (const ref of swept.voidRefs) {
-          await container.payments.service.void(ref).catch((error) =>
+          const { opId } = await container.deps.uow.withTransaction((tx) => container.payments.service.requestVoid(tx, ref))
+          await container.payments.boundary.drive(opId).catch((error) =>
             console.error(`[orders] void after 24h failure failed for ${ref}:`, (error as Error).message))
+        }
+        // §7: drive the sweep's journaled captures, then re-enter once so orders
+        // confirm in THIS tick instead of the next
+        for (const opId of swept.captureOps) {
+          await container.payments.boundary.drive(opId).catch(() => {})
+        }
+        if (swept.captureOps.length > 0) {
+          const again = await container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepUnconfirmed(tx)).catch(() => null)
+          return swept.confirmed + (again?.confirmed ?? 0)
         }
         return swept.confirmed
       })
@@ -65,11 +73,18 @@ export default defineEventHandler(async (event) => {
     // PRR-M1: the manifest's PII retention promises, kept on the same clock
     container.deps.uow.withTransaction((tx) => container.orders.carts.purgeTerminal(tx)).catch(() => -1),
     container.deps.uow.withTransaction((tx) => container.orders.checkout.purgeTerminalAttempts(tx)).catch(() => -1),
-    // C6: the keystone's clock — the three-stage no-ship aging path
+    // C6: the keystone's clock — §7: stage 3 journals its refunds; we drive them here
     container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepAging(tx, {
       listCases: (t, orderId) => container.operations.fulfillment.listByOrder(t, orderId),
-      refund: (t, input) => container.payments.service.refund(t, input),
-    })).catch(() => ({ nudged: -1, disclosed: -1, refunded: -1 })),
+      prepareRefund: (t, input) => container.payments.service.prepareRefund(t, input),
+    }))
+      .then(async (swept) => {
+        for (const opId of swept.refundOps) {
+          await container.payments.boundary.drive(opId).catch(() => {})
+        }
+        return { nudged: swept.nudged, disclosed: swept.disclosed, refunded: swept.refunded }
+      })
+      .catch(() => ({ nudged: -1, disclosed: -1, refunded: -1 })),
     // C6: the payout-hold clock — ONE policy (hold-policy.ts), one movement site
     container.deps.uow.withTransaction((tx) => container.orders.confirm.sweepHoldRelease(tx, {
       listCases: (t, orderId) => container.operations.fulfillment.listByOrder(t, orderId),
@@ -77,9 +92,14 @@ export default defineEventHandler(async (event) => {
       policy: holdReleaseDue,
     })).catch(() => -1),
   ])
+  // §7: the recovery driver — re-drives anything pending past the grace window
+  // (crashes between phases, provider hiccups, sweep-enqueued work)
+  const boundary = await container.payments.boundary.driveAll().catch(() => ({ driven: -1, settled: -1 }))
+  // RM-H1: the daily reconciliation (self-gating — runs once per 24h of watermark)
+  const reconciled = await container.payments.reconciliation.maybeRun().catch(() => ({ ran: false, matched: -1, unmatched: -1 }))
   return {
     dispatched, failed,
     carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed,
-    carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging,
+    carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging, boundary, reconciled,
   }
 })

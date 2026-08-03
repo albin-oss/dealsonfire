@@ -22,10 +22,16 @@ let http: TestHttp
 const inTx = <T>(fn: (tx: unknown) => Promise<T>): Promise<T> =>
   container.deps.uow.withTransaction(fn as never) as Promise<T>
 
-const sweepAging = () => inTx((tx) => container.orders.confirm.sweepAging(tx as never, {
-  listCases: (t, orderId) => container.operations.fulfillment.listByOrder(t as never, orderId),
-  refund: (t, input) => container.payments.service.refund(t as never, input),
-}))
+// §7: the sweep journals stage-3 refunds; driving the boundary afterwards is
+// exactly what the cron does — tests mirror production's two-phase shape
+const sweepAging = async () => {
+  const swept = await inTx((tx) => container.orders.confirm.sweepAging(tx as never, {
+    listCases: (t, orderId) => container.operations.fulfillment.listByOrder(t as never, orderId),
+    prepareRefund: (t, input) => container.payments.service.prepareRefund(t as never, input),
+  }))
+  for (const opId of swept.refundOps) await container.payments.boundary.drive(opId)
+  return swept
+}
 const sweepHold = () => inTx((tx) => container.orders.confirm.sweepHoldRelease(tx as never, {
   listCases: (t, orderId) => container.operations.fulfillment.listByOrder(t as never, orderId),
   releaseHold: (t, input) => container.payments.service.releaseHold(t as never, input),
@@ -156,9 +162,10 @@ describe('C6 — fulfillment & shipping', () => {
 
     // scenario 9's ideal: ONE resumed tick walks every DUE stage to convergence
     const pass1 = await sweepAging()
-    expect(pass1).toEqual({ nudged: 1, disclosed: 1, refunded: 1 })
+    expect(pass1).toMatchObject({ nudged: 1, disclosed: 1, refunded: 1 })
+    expect(pass1.refundOps).toHaveLength(1) // §7: the keystone refund was journaled AND driven
     const pass2 = await sweepAging() // idempotent: the ratchet is done
-    expect(pass2).toEqual({ nudged: 0, disclosed: 0, refunded: 0 })
+    expect(pass2).toMatchObject({ nudged: 0, disclosed: 0, refunded: 0 })
 
     const order = await http.request('GET', `/api/v1/public/orders/${orderId}`, { headers: { cookie } })
     expect(order.body.order.state).toBe('cancelled')

@@ -76,3 +76,13 @@ Everything above is now one authenticated call for users listed in `NUXT_OPS_USE
 - `POST /api/v1/ops/orders/:orderId/refund` — `{amount_minor, cause_key, reason}` — failed-refund retry, goodwill, exceptional cancellation. Bounded by schema (refunded ≤ captured), idempotent per `cause_key`, audited as `ops.order.refund` (sensitive).
 
 Money is fixed HERE, never in the provider dashboard and never in SQL.
+
+## C10 — the provider-operation journal (§7)
+
+`GET /api/v1/ops/orders/:orderId` now includes `provider_operations` — every
+journaled provider call for the order (kind, idempotency key, state, attempts,
+last_error). A row stuck `pending` means the driver is still retrying (alarm at
+5 attempts); `abandoned` means the 24h honest failure closed it deliberately.
+The recovery driver (`boundary.driveAll`, cron lane) re-drives pending work —
+the safe operator move for stuck money is ALWAYS "let the driver retry" or the
+audited ops refund; never SQL, never the provider dashboard.

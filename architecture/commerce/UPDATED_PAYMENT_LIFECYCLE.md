@@ -69,3 +69,25 @@ No Stripe network request may run while a database transaction or row lock is op
 **Recovery sweep:** a cron lane re-drives any journal row stuck in `pending` past a grace window — re-running phase 2 (idempotent) and completing phase 3. A crash between phases 2 and 3 therefore converges instead of drifting; external reconciliation (§C10 slice 4) is the final tripwire for anything the sweep cannot see.
 
 Domain decisions (cancel, return, keystone refund) keep their atomicity by *sequencing*, not by wrapping: decide → phase 1 → commit decision tx → phases 2/3 → outcome facts. A provider failure after a committed decision is an *operational* state (journal row failed, alarm raised, sweep retries), never a silent rollback of money that already moved.
+
+## 8. Element correction (C10 as-built — supersedes the authorize rows above)
+
+Real Stripe made the authorization a TWO-ACTOR act, and the tables above read
+accordingly:
+
+- The checkout saga **creates** the intent (born `requires_action`, fact
+  `created`) — it never authorizes. The BUYER'S BROWSER authorizes by
+  confirming in the Payment Element (SAQ-A: card data never transits DOF).
+- `authorized` is recorded when the provider says so — webhook
+  (`payment_intent.amount_capturable_updated`) or the client's return, either
+  order, both idempotent (`completeClientAuthorization`, row-locked flip).
+- Capture still happens ONCE at system order confirmation (unchanged); the
+  application fee joins at capture on the captured amount.
+- The sandbox twin mirrors this flow under `NUXT_SANDBOX_CLIENT_CONFIRMATION=1`;
+  without it the twin authorizes instantly (the pre-C10 test shape).
+
+Validated against real Stripe test mode (C10 certification): the settlement
+currency of the platform account (e.g. CAD) differs from presentment (EUR) —
+**balance transactions report settlement amounts**; reconciliation therefore
+matches on the expanded source's presentment amount/currency, and chargeback
+withdrawals (`adjustment` sourced by a dispute) match the dispute record.

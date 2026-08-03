@@ -21,6 +21,31 @@ export const PAYMENTS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   // C6: money back (frozen taxonomy name) + the hold release on fulfillment evidence
   'payments.refund.issued': moneyFact.and(z.object({ order_id: uuid, cause_key: z.string() }).passthrough()),
   'payments.hold.released': moneyFact.and(z.object({ order_id: uuid }).passthrough()),
+  // C10 Slice 3: the connected account's capabilities changed (Connect truth)
+  'payments.account.updated': z.object({
+    business_id: uuid,
+    charges_enabled: z.boolean(),
+    payouts_enabled: z.boolean(),
+    disabled_reason: z.string().nullable(),
+  }).passthrough(),
+  // C10 Slice 4: chargebacks — the deadline is the payload's loudest fact
+  'payments.dispute.opened': z.object({
+    dispute_id: uuid,
+    business_id: uuid.nullable(),
+    order_id: uuid.nullable(),
+    amount_minor: z.number().int().nonnegative(),
+    currency: z.string().length(3),
+    reason: z.string().nullable(),
+    evidence_due_at: z.string().nullable(),
+  }).passthrough(),
+  'payments.dispute.closed': z.object({
+    dispute_id: uuid,
+    business_id: uuid.nullable(),
+    order_id: uuid.nullable(),
+    amount_minor: z.number().int().nonnegative(),
+    currency: z.string().length(3),
+    outcome: z.enum(['won', 'lost']),
+  }).passthrough(),
 }
 
 export function paymentsPayloadValidators(): Record<string, PayloadValidator> {

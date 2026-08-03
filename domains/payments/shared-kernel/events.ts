@@ -18,4 +18,9 @@ export const PAYMENTS_EVENT = {
   /** C6: money back (frozen name) and the hold release on fulfillment evidence. */
   REFUND_ISSUED: 'payments.refund.issued',
   HOLD_RELEASED: 'payments.hold.released',
+  /** C10 Slice 3: the connected account's capabilities changed (Connect truth). */
+  ACCOUNT_UPDATED: 'payments.account.updated',
+  /** C10 Slice 4: chargebacks — opened freezes entitlement; closed settles it. */
+  DISPUTE_OPENED: 'payments.dispute.opened',
+  DISPUTE_CLOSED: 'payments.dispute.closed',
 } as const

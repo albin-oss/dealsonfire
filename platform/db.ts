@@ -3,6 +3,7 @@
  * infrastructure in Batch 1 — behavior byte-identical). `Tx` resolves to a pg.PoolClient
  * here and only here.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
 import type { Tx, UnitOfWork } from './types'
 
@@ -12,6 +13,23 @@ export function createPool(connectionString: string): pg.Pool {
 
 export function asClient(tx: Tx): pg.PoolClient {
   return tx as pg.PoolClient
+}
+
+/**
+ * G2 — the provider-boundary tripwire (UPDATED_PAYMENT_LIFECYCLE §7): every
+ * withTransaction body runs inside this context, so code that must NEVER run
+ * while a transaction is open (Stripe network calls) can prove it isn't.
+ */
+const txContext = new AsyncLocalStorage<{ open: true }>()
+
+export function insideTransaction(): boolean {
+  return txContext.getStore()?.open === true
+}
+
+export function assertOutsideTransaction(what: string): void {
+  if (insideTransaction()) {
+    throw new Error(`provider boundary violation (G2): ${what} attempted inside an open database transaction — UPDATED_PAYMENT_LIFECYCLE §7`)
+  }
 }
 
 export class PgUnitOfWork implements UnitOfWork {
@@ -29,7 +47,7 @@ export class PgUnitOfWork implements UnitOfWork {
     const client = await this.pool.connect()
     try {
       await client.query('BEGIN')
-      const result = await fn(client)
+      const result = await txContext.run({ open: true }, () => fn(client))
       // Result-shaped business failures also roll back: a command that returns an error
       // must leave no partial writes (commands return Result, they don't throw).
       if (isErrResult(result)) {

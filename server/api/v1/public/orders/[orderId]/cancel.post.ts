@@ -24,6 +24,12 @@ export default definePublicEndpoint({
     const result = await c.deps.uow.withTransaction((tx) => c.orders.cancel.requestCancel(tx, { orderId, buyerId }))
     if (!result) return err(domainError('NOT_FOUND', 'this order does not exist'))
     if (!result.ok) return err(domainError('CONFLICT', `${result.detail} Nothing changed — try again shortly.`))
+    // §7: the decision committed; the money executes at the boundary now (driver
+    // + alarm guarantee it even if this request dies here)
+    if (result.outcome === 'cancelled' && result.refundOpId) {
+      await c.payments.boundary.drive(result.refundOpId).catch((error) =>
+        c.logger.error(`cancel refund drive failed for order ${orderId}: ${(error as Error).message}`, { component: 'payments-boundary' }))
+    }
     return ok({ outcome: result.outcome, ...('detail' in result ? { detail: result.detail } : {}) })
   },
 })

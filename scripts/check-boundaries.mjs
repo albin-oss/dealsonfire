@@ -161,6 +161,19 @@ for (const file of dsFiles) {
   }
 }
 
+// ————— G2 (C10 §7): the provider is spoken to ONLY in the boundary driver.
+// Any `<something>.provider.authorize/capture/refund/void(` outside boundary.ts
+// is a payment provider call that could sit inside an open transaction.
+const providerCallRe = /\.provider\.(authorize|capture|refund|void)\s*\(/
+for (const file of [...domainFiles, ...walk(join(ROOT, 'server'))]) {
+  const rel = relative(ROOT, file)
+  if (rel.endsWith('domains/payments/application/boundary.ts')) continue
+  const source = readFileSync(file, 'utf8')
+  if (providerCallRe.test(source)) {
+    violations.push(`${rel}: provider network call outside the boundary driver — UPDATED_PAYMENT_LIFECYCLE §7 (G2)`)
+  }
+}
+
 if (violations.length) {
   console.error('Boundary violations:')
   for (const v of violations) console.error('  ✗ ' + v)

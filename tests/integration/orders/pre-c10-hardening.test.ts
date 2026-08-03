@@ -78,8 +78,12 @@ describe('pre-C10 hardening', () => {
       container.orders.confirm.sweepUnconfirmed(tx as never))
     expect(swept.voidRefs).toHaveLength(1)
 
-    // the caller's half (outbox-dispatch does exactly this after the tx)
-    for (const ref of swept.voidRefs) await container.payments.service.void(ref)
+    // the caller's half (outbox-dispatch does exactly this after the tx): §7 —
+    // journal the void in a short tx, drive it at the boundary
+    for (const ref of swept.voidRefs) {
+      const { opId } = await container.deps.uow.withTransaction((tx) => container.payments.service.requestVoid(tx, ref))
+      await container.payments.boundary.drive(opId)
+    }
 
     const { rows } = await container.pool.query(
       `SELECT state FROM payment_intents WHERE provider_ref = $1`, [swept.voidRefs[0]])

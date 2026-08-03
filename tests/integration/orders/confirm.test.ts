@@ -114,13 +114,20 @@ describe('placed → confirmed (the C5 ceremony)', () => {
     await container.pool.query(`UPDATE payment_intents SET state = 'authorized', captured_minor = 0`)
     await container.pool.query(`DELETE FROM ledger_entries`)
     await container.pool.query(`UPDATE ledger_accounts SET balance_minor = 0`)
+    await container.pool.query(`DELETE FROM provider_operations`) // the restage wipes the §7 journal too
     // the scarf's claim expires (the last unit went elsewhere)
     await container.pool.query(
       `UPDATE reservations SET status = 'expired' WHERE id = (SELECT reservation_id FROM order_lines WHERE order_id = $1 AND line_no = 2)`, [orderId])
 
-    const result = await inTx((tx) => container.orders.confirm.confirmOrder(tx as never, orderId))
+    // §7 two-phase, exactly as the endpoint drives it: journal → boundary → re-enter
+    let result = await inTx((tx) => container.orders.confirm.confirmOrder(tx as never, orderId))
+    if (result && result.ok && result.state === 'capturing') {
+      await container.payments.boundary.drive(result.opId)
+      result = await inTx((tx) => container.orders.confirm.confirmOrder(tx as never, orderId))
+    }
     expect(result && result.ok && result.state).toBe('confirmed')
-    if (result && result.ok && result.state === 'confirmed') expect(result.fallenLines).toBe(1)
+    // §7: the fall happened in pass 1 (pre-capture) — its story is on the
+    // timeline, its line is closed; the final pass's counter reads 0 by design
 
     const order = await http.request('GET', `/api/v1/public/orders/${orderId}`, { headers: { cookie } })
     expect(order.body.order.total_minor).toBe(4500) // only the blanket was charged

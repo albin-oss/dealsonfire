@@ -1,5 +1,5 @@
 {
-  "_comment": "ADR-004 rules 20/25 — the table manifest: the single machine-readable stewardship record. Every table has exactly one owner; migrations may only touch owned tables; CI fails on unmanifested tables. Classes: aggregate|ledger|event|read_model|operational|registry. PII tiers: P0 none, P1 pseudonymous ids, P2 personal, P3 sensitive. Delete classes: tombstone|transition|windowed|never.",
+  "_comment": "ADR-004 rules 20/25 \u2014 the table manifest: the single machine-readable stewardship record. Every table has exactly one owner; migrations may only touch owned tables; CI fails on unmanifested tables. Classes: aggregate|ledger|event|read_model|operational|registry. PII tiers: P0 none, P1 pseudonymous ids, P2 personal, P3 sensitive. Delete classes: tombstone|transition|windowed|never.",
   "tables": [
     {
       "table": "merchant_accounts",
@@ -52,7 +52,7 @@
       "pii_columns": [
         "display_name"
       ],
-      "pii_note": "sole-proprietor business names are frequently personal names — treated as P2 conservatively",
+      "pii_note": "sole-proprietor business names are frequently personal names \u2014 treated as P2 conservatively",
       "retention": "permanent",
       "delete_class": "tombstone",
       "cross_domain_refs": []
@@ -157,7 +157,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard and cannot include a partition key",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard and cannot include a partition key",
       "cross_domain_refs": []
     },
     {
@@ -199,7 +199,7 @@
     {
       "table": "request_idempotency_keys",
       "owner": "platform",
-      "ownership_note": "K2 (BLUEPRINT-002 §0): (key, endpoint, actor) carries no domain data; one table serves every domain",
+      "ownership_note": "K2 (BLUEPRINT-002 \u00a70): (key, endpoint, actor) carries no domain data; one table serves every domain",
       "class": "operational",
       "tenancy_key": null,
       "scope_key": "actor_key",
@@ -229,7 +229,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
       "cross_domain_refs": []
     },
     {
@@ -275,7 +275,7 @@
       "pii_tier": "P0",
       "retention": "permanent",
       "delete_class": "tombstone",
-      "partitioning_note": "hash-partition-ready on business_id (BLUEPRINT-002 §2.1); PK gains business_id at partition time",
+      "partitioning_note": "hash-partition-ready on business_id (BLUEPRINT-002 \u00a72.1); PK gains business_id at partition time",
       "cross_domain_refs": [
         {
           "column": "business_id",
@@ -352,7 +352,7 @@
       "pii_columns": [],
       "retention": "permanent",
       "delete_class": "transition",
-      "note": "VISIBILITY_CONTRACT: one row per product×channel; ended is the archive transition, never deleted",
+      "note": "VISIBILITY_CONTRACT: one row per product\u00d7channel; ended is the archive transition, never deleted",
       "cross_domain_refs": [
         {
           "column": "channel_id",
@@ -470,7 +470,7 @@
     {
       "table": "media_assets",
       "owner": "platform",
-      "ownership_note": "Media Port registry (UX-AUTHOR-002 §D): media is cross-capability; the C9 Media capability inherits this table through the same port",
+      "ownership_note": "Media Port registry (UX-AUTHOR-002 \u00a7D): media is cross-capability; the C9 Media capability inherits this table through the same port",
       "class": "registry",
       "tenancy_key": "business_id",
       "scope_key": "business_id",
@@ -490,7 +490,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
       "cross_domain_refs": []
     },
     {
@@ -558,7 +558,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type,aggregate_id,sequence) guard",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type,aggregate_id,sequence) guard",
       "cross_domain_refs": []
     },
     {
@@ -617,7 +617,7 @@
       "pii_columns": [
         "password_hash"
       ],
-      "pii_note": "argon2id hash — irreversible; finance-grade secret handling",
+      "pii_note": "argon2id hash \u2014 irreversible; finance-grade secret handling",
       "retention": "with user",
       "delete_class": "cascade-with-user (RESTRICT + app tombstone)",
       "cross_domain_refs": []
@@ -705,7 +705,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
       "cross_domain_refs": []
     },
     {
@@ -755,7 +755,7 @@
           "column": "store_id",
           "target_domain": "merchant",
           "target_concept": "store",
-          "cleanup_event": "none — carts age out via the abandonment sweep; a dead store renders lines unavailable honestly",
+          "cleanup_event": "none \u2014 carts age out via the abandonment sweep; a dead store renders lines unavailable honestly",
           "reconciliation": "none required (read-side conjunction handles it)"
         },
         {
@@ -781,8 +781,8 @@
         {
           "column": "variant_id",
           "target_domain": "commerce",
-          "target_concept": "product_variant (by value — no FK by design)",
-          "cleanup_event": "none — the re-quoting read renders vanished variants as unavailable",
+          "target_concept": "product_variant (by value \u2014 no FK by design)",
+          "cleanup_event": "none \u2014 the re-quoting read renders vanished variants as unavailable",
           "reconciliation": "none required"
         },
         {
@@ -806,8 +806,8 @@
         {
           "column": "variant_id",
           "target_domain": "commerce",
-          "target_concept": "product_variant (by value — no FK by design)",
-          "cleanup_event": "none — orphaned stock rows are inert; a future reconciler may archive them",
+          "target_concept": "product_variant (by value \u2014 no FK by design)",
+          "cleanup_event": "none \u2014 orphaned stock rows are inert; a future reconciler may archive them",
           "reconciliation": "none required at this scale"
         }
       ]
@@ -836,7 +836,7 @@
         {
           "column": "order_line_id",
           "target_domain": "orders",
-          "target_concept": "order line (the CDC-001 natural idempotency key; Orders does not exist yet — C3)",
+          "target_concept": "order line (the CDC-001 natural idempotency key; Orders does not exist yet \u2014 C3)",
           "cleanup_event": "orders release/commit via the frozen commands",
           "reconciliation": "the TTL sweep is the reconciler"
         },
@@ -860,7 +860,7 @@
         "contact",
         "delivery"
       ],
-      "pii_note": "buyer contact + address snapshots — masked in logs (D-26); attempt rows purge after terminal + 30d",
+      "pii_note": "buyer contact + address snapshots \u2014 masked in logs (D-26); attempt rows purge after terminal + 30d",
       "retention": "terminal + 30d, then purgeable",
       "delete_class": "purge",
       "cross_domain_refs": [
@@ -884,7 +884,7 @@
         "buyer_contact",
         "delivery"
       ],
-      "pii_note": "frozen snapshots (O1) — encrypted-at-rest posture, retention-scheduled per ADR-007 §10",
+      "pii_note": "frozen snapshots (O1) \u2014 encrypted-at-rest posture, retention-scheduled per ADR-007 \u00a710",
       "retention": "permanent (the promise record)",
       "delete_class": "never (immutable header)",
       "cross_domain_refs": [
@@ -892,7 +892,7 @@
           "column": "store_id",
           "target_domain": "merchant",
           "target_concept": "store (by value)",
-          "cleanup_event": "store closure blocked with open orders (CONNECT_FUNDS_FLOW §5)",
+          "cleanup_event": "store closure blocked with open orders (CONNECT_FUNDS_FLOW \u00a75)",
           "reconciliation": "closure policy"
         },
         {
@@ -918,7 +918,7 @@
         {
           "column": "variant_id",
           "target_domain": "commerce",
-          "target_concept": "product_variant (by value — snapshot survives deletion)",
+          "target_concept": "product_variant (by value \u2014 snapshot survives deletion)",
           "cleanup_event": "none",
           "reconciliation": "none required"
         },
@@ -964,7 +964,7 @@
       "retention": "permanent",
       "delete_class": "never",
       "immutability": "app role: INSERT+SELECT only (db/grants)",
-      "partitioning_exception": "D-02: unpartitioned — UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
+      "partitioning_exception": "D-02: unpartitioned \u2014 UNIQUE(aggregate_type, aggregate_id, sequence) is the concurrency guard",
       "cross_domain_refs": []
     },
     {
@@ -1005,7 +1005,7 @@
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_note": "provider tokens only — no PAN field exists (A8-4)",
+      "pii_note": "provider tokens only \u2014 no PAN field exists (A8-4)",
       "retention": "permanent (money truth)",
       "delete_class": "never",
       "cross_domain_refs": [
@@ -1013,7 +1013,7 @@
           "column": "order_id",
           "target_domain": "orders",
           "target_concept": "order (by value)",
-          "cleanup_event": "none — orders are permanent too",
+          "cleanup_event": "none \u2014 orders are permanent too",
           "reconciliation": "none required"
         }
       ]
@@ -1064,12 +1064,68 @@
       "cross_domain_refs": []
     },
     {
+      "table": "provider_operations",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 90d after settle (boundary journal; pending rows never purge)",
+      "delete_class": "purge",
+      "cross_domain_refs": [
+        {
+          "column": "order_id",
+          "target_domain": "orders",
+          "target_concept": "order",
+          "cleanup_event": "none (journal is settlement evidence; retention window purges)",
+          "reconciliation": "external reconciliation (C10 slice 4) matches settled ops to provider truth"
+        }
+      ]
+    },
+    {
+      "table": "payment_disputes",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": "business_id",
+      "pii_tier": "P0",
+      "retention": "financial record \u2014 7y",
+      "delete_class": "retain",
+      "cross_domain_refs": [
+        {
+          "column": "order_id",
+          "target_domain": "orders",
+          "target_concept": "order",
+          "cleanup_event": "none (financial record outlives the order)",
+          "reconciliation": "dispute\u2194intent by provider ref; external reconciliation cross-checks"
+        }
+      ]
+    },
+    {
+      "table": "reconciliation_runs",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 400d (a year of daily runs + slack)",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
+      "table": "reconciliation_items",
+      "owner": "payments",
+      "class": "operational",
+      "tenancy_key": null,
+      "pii_tier": "P0",
+      "retention": "windowed 400d; unmatched rows retained until explained",
+      "delete_class": "purge",
+      "cross_domain_refs": []
+    },
+    {
       "table": "merchant_payment_profiles",
       "owner": "payments",
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_note": "provider account refs by value; no bank data — Stripe holds it",
+      "pii_note": "provider account refs by value; no bank data \u2014 Stripe holds it",
       "retention": "permanent",
       "delete_class": "tombstone",
       "cross_domain_refs": [
@@ -1077,7 +1133,7 @@
           "column": "business_id",
           "target_domain": "merchant",
           "target_concept": "business",
-          "cleanup_event": "account closure policy (CONNECT_FUNDS_FLOW §5)",
+          "cleanup_event": "account closure policy (CONNECT_FUNDS_FLOW \u00a75)",
           "reconciliation": "closure blocked with balances"
         }
       ]
@@ -1114,7 +1170,7 @@
           "column": "order_id",
           "target_domain": "orders",
           "target_concept": "order (by value)",
-          "cleanup_event": "none — both permanent",
+          "cleanup_event": "none \u2014 both permanent",
           "reconciliation": "none required"
         },
         {
@@ -1143,7 +1199,7 @@
       "class": "aggregate",
       "tenancy_key": "business_id",
       "pii_tier": "P1",
-      "pii_note": "buyer comments are free text — surfaced only to the merchant and buyer of the order",
+      "pii_note": "buyer comments are free text \u2014 surfaced only to the merchant and buyer of the order",
       "retention": "permanent (return truth)",
       "delete_class": "never",
       "cross_domain_refs": [
@@ -1151,7 +1207,7 @@
           "column": "order_id",
           "target_domain": "orders",
           "target_concept": "order (by value)",
-          "cleanup_event": "none — both permanent",
+          "cleanup_event": "none \u2014 both permanent",
           "reconciliation": "none required"
         }
       ]

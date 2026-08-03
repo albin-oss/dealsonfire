@@ -25,29 +25,16 @@ import type { PgStockRepository } from '../../../operations/inventory/applicatio
 
 // ————————————————————————————————————————————— the PaymentPort (ADR-007 §6)
 
-export interface PaymentAuthorization { authRef: string }
 export interface PaymentPort {
   /**
-   * Runs on the CALLER's transaction (PRR-C1: a nested own-transaction here
-   * acquires a second pool connection while the checkout holds its first —
-   * N ≥ pool-size concurrent buyers deadlock the entire application).
-   * Provider idempotency by attempt key is the crash-recovery mechanism.
+   * C10 §7 — phase 1 only: reads the intent's recorded truth or journals the
+   * intent-to-authorize. NEVER calls the provider (the boundary drives that
+   * outside this transaction; the saga re-enters afterwards and converges).
    */
-  authorize(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
-    Promise<{ ok: true; auth: PaymentAuthorization } | { ok: false; code: 'DECLINED'; detail: string }>
-  void(authRef: string): Promise<void>
-}
-
-/** Sandbox adapter (test law): deterministic, idempotent by attempt key, no money. */
-export class SandboxPaymentAdapter implements PaymentPort {
-  constructor(private readonly declineAmounts: number[] = [66600]) {}
-  async authorize(_tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string }) {
-    if (this.declineAmounts.includes(input.amountMinor)) {
-      return { ok: false as const, code: 'DECLINED' as const, detail: 'The payment method declined.' }
-    }
-    return { ok: true as const, auth: { authRef: `sandbox-auth-${input.attemptKey}` } }
-  }
-  async void(_authRef: string): Promise<void> { /* sandbox: nothing held, nothing to release */ }
+  requestAuthorization(tx: Tx, input: { attemptKey: string; amountMinor: number; currency: string; businessId?: string }):
+    Promise<{ state: 'authorized' | 'captured' | 'failed' | 'pending' | 'requires_action'; opId: string | null; providerRef: string | null }>
+  /** Slice 2: a refreshed browser re-asks — the recorded intent answers. */
+  peekIntent(tx: Tx, attemptKey: string): Promise<{ state: string; providerRef: string | null } | null>
 }
 
 // ————————————————————————————————————————————— shapes
@@ -82,7 +69,11 @@ export interface ShippingQuotePort {
 }
 
 export type CheckoutResult =
-  | { ok: true; orderId: string; orderNumber: string; alreadyPlaced: boolean }
+  | { ok: true; orderId: string; orderNumber: string; alreadyPlaced: boolean; awaitingPayment?: boolean; providerRef?: string | null }
+  /** §7: reservations + journal COMMIT; the endpoint drives the boundary, then re-enters. */
+  | { ok: true; pendingAuthorization: true; opId: string }
+  /** §7: a decline recorded AFTER commit must persist its cleanup — ok:true shape (rollback law). */
+  | { ok: true; declined: true; code: 'PAYMENT_DECLINED'; detail: string }
   | { ok: false; code: 'CART_CHANGED'; detail: string }
   | { ok: false; code: 'OUT_OF_STOCK'; detail: string; available?: number }
   | { ok: false; code: 'PAYMENT_DECLINED'; detail: string }
@@ -124,10 +115,19 @@ export class PgCheckoutService {
 
     if (attempt?.step === 'placed' && attempt.order_id) {
       const { rows } = await client.query<{ order_number: string }>(`SELECT order_number FROM orders WHERE id = $1`, [attempt.order_id])
-      return { ok: true, orderId: attempt.order_id, orderNumber: rows[0]!.order_number, alreadyPlaced: true }
+      // Slice 2: a refreshed browser must get its payment session back
+      const peek = await this.payments.peekIntent(tx, input.attemptKey)
+      return {
+        ok: true, orderId: attempt.order_id, orderNumber: rows[0]!.order_number, alreadyPlaced: true,
+        awaitingPayment: peek?.state === 'requires_action', providerRef: peek?.providerRef ?? null,
+      }
     }
     if (attempt?.step === 'failed') {
-      return { ok: false, code: 'ATTEMPT_FAILED', detail: attempt.failure_code ?? 'This checkout could not finish — start again from your cart; nothing was charged.' }
+      // a recorded decline replays as the same honest decline (P3: facts persist)
+      if (attempt.failure_code === 'PAYMENT_DECLINED') {
+        return { ok: false, code: 'PAYMENT_DECLINED', detail: 'The payment method declined. Nothing was charged; your cart is exactly as you left it.' }
+      }
+      return { ok: false, code: 'ATTEMPT_FAILED', detail: 'This checkout could not finish — start again from your cart; nothing was charged.' }
     }
 
     // ——— quote (frozen at first entry; replays reuse it — stable line ids)
@@ -181,17 +181,31 @@ export class PgCheckoutService {
     await client.query(`UPDATE checkout_attempts SET step = 'authorizing', reservation_ids = $2, updated_at = now() WHERE id = $1`,
       [attempt.id, JSON.stringify(reservationIds)])
 
-    // ——— authorize (idempotent by attempt key at the port; sandbox in C3, Stripe in C4)
+    // ——— authorize (§7 two-phase): phase 1 journals; the boundary drives the
+    // provider OUTSIDE this transaction; the saga re-enters and reads the truth
     let authRef = attempt.auth_ref
+    let awaitingPayment: boolean
     if (!authRef) {
-      const auth = await this.payments.authorize(tx, { attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
-      if (!auth.ok) {
+      const req = await this.payments.requestAuthorization(tx, { attemptKey: input.attemptKey, amountMinor: quote.total_minor, currency: quote.currency, businessId: attempt.business_id })
+      if (req.state === 'pending') {
+        // reservations + attempt + journal COMMIT (ok:true shape); the endpoint drives and re-enters
+        return { ok: true, pendingAuthorization: true, opId: req.opId! }
+      }
+      if (req.state === 'failed') {
+        // the recorded decline: cleanup must PERSIST (rollback law) — ok:true shape
         await this.releaseAll(tx, reservationIds)
         await this.fail(client, attempt.id, 'PAYMENT_DECLINED')
-        return { ok: false, code: 'PAYMENT_DECLINED', detail: `${auth.detail} Nothing was charged; your cart is exactly as you left it.` }
+        return { ok: true, declined: true, code: 'PAYMENT_DECLINED', detail: 'The payment method declined. Nothing was charged; your cart is exactly as you left it.' }
       }
-      authRef = auth.auth.authRef
+      // 'authorized'/'captured' proceed to place; 'requires_action' (Slice 2 —
+      // Payment Element) ALSO places: the order exists while the buyer confirms,
+      // and nothing commits or charges until the intent moves.
+      awaitingPayment = req.state === 'requires_action'
+      authRef = req.providerRef ?? 'recorded'
       await client.query(`UPDATE checkout_attempts SET step = 'placing', auth_ref = $2, updated_at = now() WHERE id = $1`, [attempt.id, authRef])
+    } else {
+      const peek = await this.payments.peekIntent(tx, input.attemptKey)
+      awaitingPayment = peek?.state === 'requires_action'
     }
 
     // ——— place (the last gate: UNIQUE attempt_key on orders makes storms converge)
@@ -227,10 +241,11 @@ export class PgCheckoutService {
         payload: { order_id: orderId, business_id: attempt.business_id, store_id: attempt.store_id, total_minor: quote.total_minor, currency: quote.currency, line_count: quote.lines.length },
         actor: { type: 'guest', id: input.buyerId },
       }])
-      return { ok: true, orderId, orderNumber, alreadyPlaced: false }
+      return { ok: true, orderId, orderNumber, alreadyPlaced: false, awaitingPayment, providerRef: authRef }
     } catch (error) {
-      // place-fail compensation (K2): void the authorization, release the claims
-      await this.payments.void(authRef).catch(() => { /* sandbox/void is best-effort; C4 alarms */ })
+      // place-fail compensation (K2): release the claims; the orphaned
+      // authorization is reclaimed by the boundary's orphan-void sweep (§7 —
+      // an inline provider void here would run inside this open transaction)
       await this.releaseAll(tx, reservationIds)
       await this.fail(client, attempt.id, 'PLACE_FAILED')
       throw error

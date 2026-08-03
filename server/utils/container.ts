@@ -106,6 +106,8 @@ import { PgStockRepository } from '@domains/operations/inventory/application/sto
 import { PgFulfillmentRepository } from '@domains/operations/fulfillment/application/fulfillment'
 import { PgReturnsRepository } from '@domains/operations/returns/application/returns'
 import { PaymentsService, LedgerPoster, SandboxProviderTwin, StripeProviderAdapter, type ProviderPort } from '@domains/payments/application/payments'
+import { PaymentsBoundary } from '@domains/payments/application/boundary'
+import { ReconciliationService } from '@domains/payments/application/reconciliation'
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
 import { paymentsPayloadValidators } from '@contracts/schemas/events/payments-payloads'
@@ -213,8 +215,14 @@ export interface Container {
   payments: {
     dispatcher: OutboxDispatcher
     service: PaymentsService
+    /** §7: the ONE seam where the provider is spoken to — always outside transactions. */
+    boundary: PaymentsBoundary
+    /** RM-H1: the daily "does Stripe agree with our books?" — cron lane + force for ops. */
+    reconciliation: ReconciliationService
     /** Which provider is live: 'stripe' when a secret key is configured, else the twin. */
     provider: ProviderPort['name']
+    /** The live port instance (dev sandbox-confirm reaches the twin through this). */
+    providerInstance: ProviderPort
   }
   commands: {
     createBusiness: ReturnType<typeof createBusinessCommand>
@@ -460,15 +468,42 @@ export function buildContainer(databaseUrl: string): Container {
     { logError: (message) => logger.error(message, { component: 'payments-outbox' }) },
   )
   const { stripeSecretKey } = getServerConfig()
+  // Slice 2: NUXT_SANDBOX_CLIENT_CONFIRMATION=1 makes the twin mirror the Element
+  // flow (intent born unconfirmed; a test or the dev endpoint plays the buyer)
   const paymentsProvider: ProviderPort = stripeSecretKey
     ? new StripeProviderAdapter(stripeSecretKey)
-    : new SandboxProviderTwin()
-  const paymentsService = new PaymentsService(paymentsEventStore, paymentsProvider, new LedgerPoster())
-  paymentsService.withTx = (fn) => deps.uow.withTransaction(fn)
+    : new SandboxProviderTwin(undefined, optionalEnv('NUXT_SANDBOX_CLIENT_CONFIRMATION') === '1')
+  // Slice 3: the fee VALUE is the Founder's, in basis points; the structure ships at 0
+  const feeBps = Number(optionalEnv('NUXT_PLATFORM_FEE_BPS', '0')) || 0
+  // Slice 4 (approved policy §4): configurable exposure limits — 0 = unlimited
+  const riskLimits = {
+    maxOpenDisputesMinor: Number(optionalEnv('NUXT_RISK_MAX_MERCHANT_OPEN_DISPUTES_MINOR', '0')) || 0,
+    maxLossMinor: Number(optionalEnv('NUXT_RISK_MAX_MERCHANT_LOSS_MINOR', '0')) || 0,
+  }
+  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name, feeBps, riskLimits)
+  // §7: the boundary is the ONLY place the provider is spoken to — outside every tx
+  const paymentsBoundary = new PaymentsBoundary({
+    runTx: (fn) => deps.uow.withTransaction(fn),
+    provider: paymentsProvider,
+    service: paymentsService,
+    alarm: opsAlarm,
+  })
+  // Slice 4 (RM-H1): does Stripe agree with our books? — a daily question, never a shrug
+  const reconciliation = new ReconciliationService({
+    runTx: (fn) => deps.uow.withTransaction(fn),
+    provider: paymentsProvider,
+    alarm: opsAlarm,
+  })
   // the Orders PaymentPort, structurally satisfied by the Payments domain (no cross-import)
   const paymentPort: PaymentPort = {
-    authorize: (tx, input) => paymentsService.authorize(tx, input),
-    void: (authRef) => paymentsService.void(authRef),
+    requestAuthorization: (tx, input) => paymentsService.requestAuthorization(tx, input),
+    peekIntent: async (tx, attemptKey) => {
+      const state = await paymentsService.peekIntentState(tx, attemptKey)
+      if (state === null) return null
+      const { rows } = await pool.query<{ provider_ref: string | null }>(
+        `SELECT provider_ref FROM payment_intents WHERE attempt_key = $1`, [attemptKey])
+      return { state, providerRef: rows[0]?.provider_ref ?? null }
+    },
   }
   const fulfillmentRepository = new PgFulfillmentRepository()
   const returnsRepository = new PgReturnsRepository(operationsEventStoreForStock)
@@ -478,13 +513,17 @@ export function buildContainer(databaseUrl: string): Container {
   })
   const cancellationService = new PgCancellationService(ordersEventStore, {
     listCases: (tx, orderId) => fulfillmentRepository.listByOrder(tx, orderId),
-    refund: (tx, input) => paymentsService.refund(tx, input),
+    prepareRefund: (tx, input) => paymentsService.prepareRefund(tx, input),
     restock: (tx, reservationId, actor) => stockRepository.restockCommitted(tx, reservationId, actor),
   })
   const confirmService = new PgConfirmService(
     ordersEventStore,
     stockRepository,
-    { capture: (tx, input) => paymentsService.capture(tx, input) },
+    {
+      requestCapture: (tx, input) => paymentsService.requestCapture(tx, input),
+      peekIntentState: (tx, attemptKey) => paymentsService.peekIntentState(tx, attemptKey),
+      abandonPending: (tx, attemptKey) => paymentsService.abandonPending(tx, attemptKey),
+    },
     opsAlarm, // RM-H3: keystone alarms reach a human, not just stdout
     { createCase: (tx, input) => fulfillmentRepository.createCase(tx, input) },
   )
@@ -635,7 +674,10 @@ export function buildContainer(databaseUrl: string): Container {
     payments: {
       dispatcher: paymentsDispatcher,
       service: paymentsService,
+      boundary: paymentsBoundary,
+      reconciliation,
       provider: paymentsProvider.name,
+      providerInstance: paymentsProvider,
     },
     commands: {
       createBusiness: createBusinessCommand(deps, entitlements),

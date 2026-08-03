@@ -18,6 +18,8 @@ export interface ServerConfig {
   /** C4: no key, no Stripe — the sandbox twin runs everywhere keys are absent. */
   stripeSecretKey: string
   stripeWebhookSecret: string
+  /** Slice 2: the browser half of the Payment Element (public by design). */
+  stripePublishableKey: string
 }
 
 export function getServerConfig(): ServerConfig {
@@ -34,7 +36,20 @@ export function getServerConfig(): ServerConfig {
     appBaseUrl,
     webauthnRpId: optionalEnv('NUXT_WEBAUTHN_RP_ID', 'localhost'),
     webauthnOrigin: optionalEnv('NUXT_WEBAUTHN_ORIGIN', appBaseUrl),
-    stripeSecretKey: optionalEnv('NUXT_STRIPE_SECRET_KEY'),
+    stripeSecretKey: assertNotLiveOutsideProduction(optionalEnv('NUXT_STRIPE_SECRET_KEY')),
     stripeWebhookSecret: optionalEnv('NUXT_STRIPE_WEBHOOK_SECRET'),
+    stripePublishableKey: optionalEnv('NUXT_STRIPE_PUBLISHABLE_KEY'),
   }
+}
+
+/**
+ * G9 — live Stripe credentials are REFUSED outside production: a live key in a
+ * dev shell must crash the process before a single call is made. (Test-mode
+ * keys pass everywhere; production accepts either mode by deliberate config.)
+ */
+function assertNotLiveOutsideProduction(key: string): string {
+  if (key.startsWith('sk_live') && optionalEnv('NODE_ENV') !== 'production') {
+    throw new Error('G9: a LIVE Stripe secret key is configured outside production — refused. Use a test-mode key (sk_test…).')
+  }
+  return key
 }

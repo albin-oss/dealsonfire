@@ -20,7 +20,7 @@ import { isUuid, uuidv7 } from '@platform/uuid'
 import { ok, err, type Result } from '@shared/result'
 import { domainError, type DomainError } from '@shared/errors'
 
-type Out = { outcome: string; refunded_minor?: number }
+type Out = { outcome: string; refunded_minor?: number; op_id?: string | null }
 
 export default defineCommandEndpoint({
   command: 'orders.return.decide',
@@ -35,7 +35,7 @@ export default defineCommandEndpoint({
     const orderId = getRouterParam(event, 'orderId') ?? ''
     if (!isUuid(orderId)) return err(domainError('NOT_FOUND', 'not found'))
     const c = getContainer()
-    return c.deps.uow.withTransaction(async (tx): Promise<Result<Out, DomainError>> => {
+    const decided = await c.deps.uow.withTransaction(async (tx): Promise<Result<Out, DomainError>> => {
       const { rows } = await c.pool.query<{ business_id: string; currency: string; order_number: string }>(
         `SELECT business_id, currency, order_number FROM orders WHERE id = $1`, [orderId])
       if (!rows[0]) return err(domainError('NOT_FOUND', 'not found'))
@@ -85,16 +85,19 @@ export default defineCommandEndpoint({
       if (!resolved.ok) return err(domainError('CONFLICT', `this return is already ${resolved.state}`))
       if (resolved.alreadyResolved) return ok({ outcome: 'resolved', refunded_minor: 0 }) // scenarios 5/10: quiet convergence
 
+      let refundOpId: string | null = null
       if (refundMinor > 0) {
-        const refunded = await c.payments.service.refund(tx, {
+        // §7: journal the refund WITH the decision; the boundary executes after commit
+        const refunded = await c.payments.service.prepareRefund(tx, {
           orderId, amountMinor: refundMinor,
           causeKey: `return:${target.id}`,
           cause: { kind: 'return_resolved', return_case_id: target.id, order_number: rows[0].order_number },
         })
         if (!refunded.ok) {
-          c.logger.error(`return refund failed for order ${orderId} case ${target.id}: ${refunded.detail}`, { component: 'orders-returns' })
-          return err(domainError('CONFLICT', 'The refund did not go through — nothing changed. Try again; support is on it if it keeps failing.'))
+          c.logger.error(`return refund unpreparable for order ${orderId} case ${target.id}: ${refunded.detail}`, { component: 'orders-returns' })
+          return err(domainError('CONFLICT', 'The refund could not be prepared — nothing changed. Try again; support is on it if it keeps failing.'))
         }
+        refundOpId = refunded.opId
       }
       for (const l of returnable) {
         await c.pool.query(`UPDATE order_lines SET line_state = 'returned' WHERE order_id = $1 AND line_no = $2`, [orderId, l.line_no])
@@ -110,7 +113,17 @@ export default defineCommandEndpoint({
             ? 'Refunded without needing the send-back — keep it or pass it on.'
             : 'Return received and checked — your refund is on its way back.',
         }), JSON.stringify({ type: 'user', id: auth.userId })])
-      return ok({ outcome: 'resolved', refunded_minor: refundMinor })
+      return ok({ outcome: 'resolved', refunded_minor: refundMinor, op_id: refundOpId })
     })
+    // §7: the decision committed; the money executes at the boundary now
+    if (decided.ok && decided.value.op_id) {
+      await c.payments.boundary.drive(decided.value.op_id).catch((error) =>
+        c.logger.error(`return refund drive failed for order ${orderId}: ${(error as Error).message}`, { component: 'payments-boundary' }))
+    }
+    if (decided.ok) {
+      const { op_id: _omit, ...response } = decided.value
+      return ok(response)
+    }
+    return decided
   },
 })
