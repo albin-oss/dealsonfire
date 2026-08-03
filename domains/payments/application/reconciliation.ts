@@ -85,7 +85,7 @@ export class ReconciliationService {
   private async match(tx: Tx, txn: ProviderBalanceTxn):
     Promise<{ state: 'matched' | 'unmatched'; intentId: string | null; note: string | null }> {
     const client = asClient(tx)
-    if (txn.kind === 'payout' || txn.kind === 'fee') {
+    if (txn.kind === 'payout' || txn.kind === 'fee' || txn.kind === 'transfer') {
       return { state: 'matched', intentId: null, note: `${txn.kind}: provider-side mechanics` }
     }
     // CERTIFICATION FINDING: a chargeback withdrawal arrives as an 'adjustment'

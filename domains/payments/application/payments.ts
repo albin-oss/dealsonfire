@@ -74,7 +74,7 @@ export interface ProviderPort {
 /** One provider-side money movement, as reconciliation sees it (Slice 4). */
 export interface ProviderBalanceTxn {
   id: string
-  kind: 'charge' | 'refund' | 'payout' | 'fee' | 'other'
+  kind: 'charge' | 'refund' | 'payout' | 'fee' | 'transfer' | 'other'
   amountMinor: number
   currency: string
   occurredAt: string
@@ -263,17 +263,25 @@ export class StripeProviderAdapter implements ProviderPort {
     return { status, clientSecret: intent.client_secret ?? null }
   }
 
-  // ——— Connect (Slice 3): Express + HOSTED onboarding only — no KYC data ever
-  // transits DOF (privacy posture + SAQ-A both preserved). Payouts are MANUAL:
-  // payout eligibility follows fulfillment evidence, never Stripe's daily clock.
+  // ——— Connect (Slice 3, v2 as-certified): express dashboard + HOSTED onboarding
+  // only — no KYC data ever transits DOF (privacy posture + SAQ-A preserved).
+  // CERTIFICATION FINDING: accounts newly enabling Connect are Accounts-v2-only
+  // (v1 create refused); v1 READS and account links still work on v2 accounts,
+  // so only creation speaks v2. Responsibilities: the PLATFORM collects fees and
+  // bears losses (classic express — matches the approved dispute-loss policy).
   async createConnectedAccount(input: { businessId: string; email: string | null }) {
-    const account = await this.stripe.accounts.create({
-      type: 'express',
-      email: input.email ?? undefined,
+    const account = await this.stripe.v2.core.accounts.create({
+      display_name: `DOF maker ${input.businessId.slice(-8)}`,
+      contact_email: input.email ?? `no-reply+${input.businessId.slice(-8)}@dof.example`,
+      dashboard: 'express',
+      identity: { country: 'ca' },
+      configuration: {
+        merchant: { capabilities: { card_payments: { requested: true } } },
+        recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } },
+      },
+      defaults: { responsibilities: { fees_collector: 'application', losses_collector: 'application' } },
       metadata: { dof_business_id: input.businessId },
-      settings: { payouts: { schedule: { interval: 'manual' } } },
-      capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
-    }, { idempotencyKey: `connect:${input.businessId}` })
+    } as never)
     return { accountId: account.id }
   }
   async createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }) {
@@ -314,7 +322,10 @@ export class StripeProviderAdapter implements ProviderPort {
         t.type === 'charge' || t.type === 'payment' ? 'charge'
         : t.type === 'refund' || t.type === 'payment_refund' ? 'refund'
         : t.type === 'payout' ? 'payout'
-        : t.type === 'stripe_fee' || t.type === 'application_fee' ? 'fee'
+        : t.type === 'stripe_fee' || t.type === 'application_fee' || t.type === 'application_fee_refund' ? 'fee'
+        // destination-charge mechanics: the transfer out, its reversal on refund —
+        // provider-side funds routing; DOF's truth is the capture/refund ledger legs
+        : t.type.startsWith('transfer') ? 'transfer'
         : 'other'
       // presentment truth from the source (charge/refund amounts are presentment);
       // the balance txn's sign carries direction
@@ -376,12 +387,22 @@ export class LedgerPoster {
     const client = asClient(tx)
     const postingId = uuidv7()
     for (const leg of legs) {
-      const { rows } = await client.query<{ id: string }>(
-        `INSERT INTO ledger_accounts (id, kind, business_id, currency)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (kind, business_id, currency) DO UPDATE SET kind = EXCLUDED.kind
-         RETURNING id`,
-        [uuidv7(), leg.kind, leg.businessId, currency])
+      // CERTIFICATION FINDING: NULL business_id is DISTINCT under the table's
+      // UNIQUE — platform-level legs need the partial index's conflict target,
+      // or every posting mints a fresh account and balances fragment.
+      const { rows } = leg.businessId === null
+        ? await client.query<{ id: string }>(
+            `INSERT INTO ledger_accounts (id, kind, business_id, currency)
+             VALUES ($1, $2, NULL, $3)
+             ON CONFLICT (kind, currency) WHERE business_id IS NULL DO UPDATE SET kind = EXCLUDED.kind
+             RETURNING id`,
+            [uuidv7(), leg.kind, currency])
+        : await client.query<{ id: string }>(
+            `INSERT INTO ledger_accounts (id, kind, business_id, currency)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (kind, business_id, currency) DO UPDATE SET kind = EXCLUDED.kind
+             RETURNING id`,
+            [uuidv7(), leg.kind, leg.businessId, currency])
       const accountId = rows[0]!.id
       await client.query(`SELECT id FROM ledger_accounts WHERE id = $1 FOR UPDATE`, [accountId])
       await client.query(
@@ -685,28 +706,49 @@ export class PaymentsService {
     return { ok: true, opId: op.opId, alreadyDone: false }
   }
 
-  /** Phase 3 for refund: facts, bounded counter, ledger reversal, event. */
+  /** Phase 3 for refund: facts, bounded counter, ledger reversal, event.
+   *  CERTIFICATION FINDING (destination + fee): Stripe's `refund_application_fee`
+   *  returns the platform's fee to make the merchant whole — our books must say
+   *  the same. The fee reverses PROPORTIONALLY; the merchant bears only the net. */
   async settleRefund(tx: Tx, op: ProviderOperation): Promise<void> {
     const client = asClient(tx)
     const factId = uuidv7()
     const causeKey = String(op.detail.cause_key ?? '')
+    const { rows: intentRow } = await client.query<{ captured: string }>(
+      `SELECT captured_minor::text AS captured FROM payment_intents WHERE id = $1 FOR UPDATE`, [op.intent_id])
+    const captured = Number(intentRow[0]?.captured ?? 0)
     await client.query(
       `UPDATE payment_intents SET refunded_minor = refunded_minor + $2, updated_at = now() WHERE id = $1`,
       [op.intent_id, op.amount_minor])
     await client.query(
       `INSERT INTO payment_facts (id, intent_id, kind, amount_minor, detail) VALUES ($1, $2, 'refunded', $3, $4)`,
       [factId, op.intent_id, op.amount_minor, JSON.stringify(op.detail)])
-    // ledger reversal: pull back from holding first, then payable (evidence-order fairness)
+    // the fee's share of this refund: proportional, clamped to what remains unreversed
+    const { rows: feeRows } = await client.query<{ taken: string; reversed: string }>(
+      `SELECT
+         COALESCE(sum(e.delta_minor) FILTER (WHERE e.cause->>'kind' = 'capture'), 0)::text AS taken,
+         COALESCE(-sum(e.delta_minor) FILTER (WHERE e.cause->>'kind' = 'refund'), 0)::text AS reversed
+       FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+       WHERE a.kind = 'platform_fees' AND e.cause->>'intent_id' = $1`, [op.intent_id])
+    const feeTaken = Number(feeRows[0]?.taken ?? 0)
+    const feeReversed = Number(feeRows[0]?.reversed ?? 0)
+    const feeReversal = captured > 0
+      ? Math.min(feeTaken - feeReversed, Math.round(feeTaken * op.amount_minor! / captured))
+      : 0
+    const merchantShare = op.amount_minor! - feeReversal
+    // ledger reversal: pull the MERCHANT's share back from holding first, then
+    // payable (evidence-order fairness); the fee's share comes home from platform_fees
     const { rows: bal } = await client.query<{ kind: string; balance: string }>(
       `SELECT kind, balance_minor::text AS balance FROM ledger_accounts
        WHERE business_id = $1 AND kind IN ('merchant_holding','merchant_payable') AND currency = $2`,
       [op.business_id, op.currency])
     const holding = Number(bal.find((b) => b.kind === 'merchant_holding')?.balance ?? 0)
-    const fromHolding = Math.min(op.amount_minor!, Math.max(holding, 0))
-    const fromPayable = op.amount_minor! - fromHolding
+    const fromHolding = Math.min(merchantShare, Math.max(holding, 0))
+    const fromPayable = merchantShare - fromHolding
     const legs: LedgerLeg[] = [{ kind: 'psp_clearing', businessId: null, deltaMinor: op.amount_minor! }]
     if (fromHolding > 0) legs.push({ kind: 'merchant_holding', businessId: op.business_id, deltaMinor: -fromHolding })
     if (fromPayable > 0) legs.push({ kind: 'merchant_payable', businessId: op.business_id, deltaMinor: -fromPayable })
+    if (feeReversal > 0) legs.push({ kind: 'platform_fees', businessId: null, deltaMinor: -feeReversal })
     await this.ledger.post(tx, op.currency!, legs, { intent_id: op.intent_id, order_id: op.order_id, kind: 'refund', cause_key: causeKey })
     await this.events.append(tx, [{
       businessId: op.business_id, aggregate: { type: 'payment_intent', id: op.intent_id! },

@@ -43,10 +43,11 @@ async function merchant() {
 async function tryCheckout(variantId: string) {
   const add = await http.request('POST', '/api/v1/public/cart/lines', { body: { variant_id: variantId, quantity: 1 } })
   const cookie = `dof_visitor=${/dof_visitor=([^;]+)/.exec(add.headers.get('set-cookie') ?? '')![1]}`
-  return http.request('POST', '/api/v1/public/checkout', {
+  const res = await http.request('POST', '/api/v1/public/checkout', {
     headers: { cookie },
     body: { attempt_key: uuidv7(), cart_id: add.body.cart_id, contact: { name: 'Jonas', email: 'jonas@buyer.example' }, delivery: { line1: 'K 1', city: 'A', postal_code: '2000', country: 'BE' } },
   })
+  return Object.assign(res, { buyerCookie: cookie })
 }
 
 async function onboard(m: Awaited<ReturnType<typeof merchant>>) {
@@ -105,6 +106,19 @@ describe('C10 Slice 3 — Connect', () => {
     const { rows: profile } = await container.pool.query(
       `SELECT provider_account FROM merchant_payment_profiles WHERE business_id = $1`, [m.businessId])
     expect(profile[0].provider_account).toMatch(/^sandbox-acct-/)
+
+    // CERTIFICATION FINDING (live-caught): a refund with an application fee must
+    // return the FEE from the platform — the maker bears only the net (matching
+    // Stripe's refund_application_fee). Full refund here: fee comes fully home.
+    const orderId = open.body.order_id as string
+    const cancel = await http.request('POST', `/api/v1/public/orders/${orderId}/cancel`, { headers: { cookie: open.buyerCookie } })
+    expect(cancel.body.outcome).toBe('cancelled')
+    const { rows: after } = await container.pool.query(
+      `SELECT kind, balance_minor::int AS b FROM ledger_accounts WHERE kind IN ('merchant_holding','platform_fees') ORDER BY kind`)
+    expect(after.find((a) => a.kind === 'merchant_holding')?.b).toBe(0) // maker refunded their NET (4050), not the gross
+    expect(after.find((a) => a.kind === 'platform_fees')?.b).toBe(0)   // the fee went home with the refund
+    const post = await inTx((tx) => container.payments.service.ledger.recomputeCheck(tx as never))
+    expect(post.clean).toBe(true)
   })
 
   it('restriction mid-life: ONLY the checkout door closes; the letter says why; recovery reopens', async () => {
