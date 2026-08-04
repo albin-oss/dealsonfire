@@ -46,8 +46,18 @@ export class ReconciliationService {
     const last = due.lastWatermark ? new Date(due.lastWatermark) : new Date(0)
     if (!force && Date.now() - last.getTime() < 24 * 3600_000) return { ran: false, matched: 0, unmatched: 0 }
 
-    // phase 2: the provider's account of itself (outside any transaction)
-    const txns = await this.deps.provider.listBalanceTransactions(last.toISOString(), BATCH)
+    // phase 2: the provider's account of itself (outside any transaction) —
+    // PAGED (registered C10 debt): keep pulling batches until one comes up short,
+    // advancing the since-cursor by the last seen timestamp; a hard page cap
+    // bounds a single run, and the watermark carries the remainder to the next.
+    const txns: ProviderBalanceTxn[] = []
+    let since = last.toISOString()
+    for (let page = 0; page < 20; page += 1) {
+      const batch = await this.deps.provider.listBalanceTransactions(since, BATCH)
+      txns.push(...batch)
+      if (batch.length < BATCH) break
+      since = batch.reduce((max, t) => (t.occurredAt > max ? t.occurredAt : max), since)
+    }
 
     const runId = uuidv7()
     const counts = await this.deps.runTx(async (tx) => {
@@ -85,7 +95,18 @@ export class ReconciliationService {
   private async match(tx: Tx, txn: ProviderBalanceTxn):
     Promise<{ state: 'matched' | 'unmatched'; intentId: string | null; note: string | null }> {
     const client = asClient(tx)
-    if (txn.kind === 'payout' || txn.kind === 'fee' || txn.kind === 'transfer') {
+    // C11 S2: payouts match by IDENTITY — the journal knows every payout we
+    // initiated by its provider id. A payout we have no journal row for is a
+    // platform-balance payout (fees to DOF's bank), category-noted, never silent.
+    if (txn.kind === 'payout') {
+      if (txn.sourceRef) {
+        const { rows } = await client.query<{ id: string }>(
+          `SELECT id FROM provider_operations WHERE kind = 'payout' AND provider_ref = $1`, [txn.sourceRef])
+        if (rows[0]) return { state: 'matched', intentId: null, note: `payout ↔ journal ${txn.sourceRef}` }
+      }
+      return { state: 'matched', intentId: null, note: 'platform-balance payout (not merchant machinery)' }
+    }
+    if (txn.kind === 'fee' || txn.kind === 'transfer') {
       return { state: 'matched', intentId: null, note: `${txn.kind}: provider-side mechanics` }
     }
     // CERTIFICATION FINDING: a chargeback withdrawal arrives as an 'adjustment'

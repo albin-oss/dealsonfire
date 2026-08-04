@@ -93,5 +93,17 @@ export default defineEventHandler(async (event) => {
         c.payments.service.resolveDispute(tx, { providerDisputeId: object.id!, outcome }))
     }
   }
+  // C11 S2 — the payout's later truth, from the CONNECTED account's event stream
+  // (stripeEvent.account carries the acct context; our journal knows the payout
+  // by its po_ id, so the account field needs no separate plumbing). paid →
+  // the letter-bearing event; failed → payable comes home + the retry re-arms.
+  if (result.fresh && object.object === 'payout' && object.id
+      && (stripeEvent.type === 'payout.paid' || stripeEvent.type === 'payout.failed')) {
+    await c.deps.uow.withTransaction((tx) => c.payments.service.handlePayoutOutcome(tx, {
+      providerPayoutId: object.id!,
+      outcome: stripeEvent.type === 'payout.paid' ? 'paid' : 'failed',
+      detail: (object as { failure_message?: string }).failure_message ?? null,
+    }))
+  }
   return { received: true, fresh: result.fresh }
 })

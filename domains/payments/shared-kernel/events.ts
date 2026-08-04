@@ -23,4 +23,7 @@ export const PAYMENTS_EVENT = {
   /** C10 Slice 4: chargebacks — opened freezes entitlement; closed settles it. */
   DISPUTE_OPENED: 'payments.dispute.opened',
   DISPUTE_CLOSED: 'payments.dispute.closed',
+  /** C11 S2: the payout's two truths a maker hears about — it landed, or it needs another try. */
+  PAYOUT_PAID: 'payments.payout.paid',
+  PAYOUT_FAILED: 'payments.payout.failed',
 } as const

@@ -6,6 +6,9 @@
  *   promise_broken — keystone aging at stage 2+ (refund due or retrying)
  *   hold_stuck     — fulfillment evidence 10+ days old, hold never released
  *                    (RM-H3: the one alarm that previously lived only in stdout)
+ *   payout_stuck   — a payout op pending past an hour with attempts (C11 S2)
+ *   payout_failed  — a failed payout whose money came home but whose retry
+ *                    hasn't landed yet (C11 S2)
  *   dispute_open   — a chargeback with a deadline (C10 slice 4)
  *   risk_paused    — a till paused by the exposure limits; HUMAN review resumes
  *   recon_unmatched — Stripe and the ledger disagree (never adjusted silently)
@@ -23,7 +26,7 @@ export default defineQueryEndpoint({
   async handler({ event, auth }) {
     if (!isOperator(auth.userId)) return sendProblem(event, domainError('NOT_FOUND', 'not found'))
     const c = getContainer()
-    const [stuck, orphaned, broken, holds, disputes, riskPaused, unmatched, negativePayable, acks] = await Promise.all([
+    const [stuck, orphaned, broken, holds, disputes, riskPaused, unmatched, negativePayable, payoutStuck, payoutFailed, acks] = await Promise.all([
       c.pool.query(
         `SELECT id, order_number, state, placed_at FROM orders
           WHERE state = 'payment_pending' AND placed_at < now() - interval '2 hours'
@@ -58,6 +61,22 @@ export default defineQueryEndpoint({
         `SELECT a.business_id AS id, a.balance_minor::text AS order_number, 'negative' AS state, now() AS placed_at
           FROM ledger_accounts a WHERE a.kind = 'merchant_payable' AND a.balance_minor < 0 LIMIT 100`),
       c.pool.query(
+        `SELECT po.id, po.idempotency_key AS order_number, po.last_error AS state, po.created_at AS placed_at
+          FROM provider_operations po
+          WHERE po.kind = 'payout' AND po.state = 'pending' AND po.attempts >= 1
+            AND po.updated_at < now() - interval '1 hour'
+          ORDER BY po.created_at LIMIT 100`),
+      c.pool.query(
+        `SELECT e.cause->>'business_id' AS id, e.cause->>'provider_payout_id' AS order_number,
+                'failed — retry pending' AS state, e.created_at AS placed_at
+          FROM ledger_entries e
+          WHERE e.cause->>'kind' = 'payout_failed'
+            AND NOT EXISTS (SELECT 1 FROM ledger_entries later
+                             WHERE later.cause->>'kind' = 'payout'
+                               AND later.cause->>'business_id' = e.cause->>'business_id'
+                               AND later.created_at > e.created_at)
+          ORDER BY e.created_at LIMIT 100`),
+      c.pool.query(
         `SELECT DISTINCT order_id FROM order_timeline
           WHERE entry_type = 'note' AND (message->>'ack')::boolean IS TRUE`),
     ])
@@ -74,6 +93,8 @@ export default defineQueryEndpoint({
         ...shape('risk_paused', riskPaused.rows),
         ...shape('recon_unmatched', unmatched.rows),
         ...shape('negative_payable', negativePayable.rows),
+        ...shape('payout_stuck', payoutStuck.rows),
+        ...shape('payout_failed', payoutFailed.rows),
       ],
     }
   },

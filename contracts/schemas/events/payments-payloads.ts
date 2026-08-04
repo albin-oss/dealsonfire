@@ -46,6 +46,23 @@ export const PAYMENTS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
     currency: z.string().length(3),
     outcome: z.enum(['won', 'lost']),
   }).passthrough(),
+  // C11 S2: the payout's two truths — landed, or needs another try. PII-free:
+  // amounts, period, the provider's payout id (an opaque ref).
+  'payments.payout.paid': z.object({
+    business_id: uuid,
+    amount_minor: z.number().int().nonnegative(),
+    currency: z.string().length(3),
+    period: z.number().int().positive(),
+    provider_payout_id: z.string(),
+  }).passthrough(),
+  'payments.payout.failed': z.object({
+    business_id: uuid,
+    amount_minor: z.number().int().nonnegative(),
+    currency: z.string().length(3),
+    period: z.number().int().positive(),
+    provider_payout_id: z.string(),
+    detail: z.string().nullable(),
+  }).passthrough(),
 }
 
 export function paymentsPayloadValidators(): Record<string, PayloadValidator> {

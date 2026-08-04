@@ -181,6 +181,45 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       },
     },
     {
+      // C11 S2 — the payout landed: one actionable fact, bank timing set at the
+      // moment the expectation forms (Merchant Experience Validation §3/§4)
+      consumer: 'notify.payout-paid',
+      eventTypes: ['payments.payout.paid'],
+      async handle(tx, event) {
+        const payload = event.payload as { business_id?: string; amount_minor?: number; currency?: string }
+        if (!payload.business_id) return
+        const { rows } = await asClient(tx as never).query<{ email: string | null }>(
+          `SELECT u.email FROM users u
+           JOIN staff_memberships sm ON sm.principal_type = 'user' AND sm.principal_id = u.id
+           WHERE sm.business_id = $1 AND 'owner' = ANY(sm.roles) AND sm.status = 'active' LIMIT 1`,
+          [payload.business_id])
+        if (!rows[0]?.email) return
+        const amount = money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))
+        await send(rows[0].email,
+          `${amount} is on its way to your bank`,
+          `Your payout of ${amount} has left for your bank — banks usually take a day or two.\n\nNothing to do. The full story is on your Getting Paid card: ${workshopLink()}`)
+      },
+    },
+    {
+      // C11 S2 — a payout needs another try: SAFETY first, action last (§3.4)
+      consumer: 'notify.payout-failed',
+      eventTypes: ['payments.payout.failed'],
+      async handle(tx, event) {
+        const payload = event.payload as { business_id?: string; amount_minor?: number; currency?: string }
+        if (!payload.business_id) return
+        const { rows } = await asClient(tx as never).query<{ email: string | null }>(
+          `SELECT u.email FROM users u
+           JOIN staff_memberships sm ON sm.principal_type = 'user' AND sm.principal_id = u.id
+           WHERE sm.business_id = $1 AND 'owner' = ANY(sm.roles) AND sm.status = 'active' LIMIT 1`,
+          [payload.business_id])
+        if (!rows[0]?.email) return
+        const amount = money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))
+        await send(rows[0].email,
+          `Your payout needs another try`,
+          `The bank transfer of ${amount} didn't go through. Your money is safe with us and we'll retry on our own.\n\nIf it keeps happening, your bank details at Stripe may need a look — the Getting Paid card has the door: ${workshopLink()}`)
+      },
+    },
+    {
       // C10 Slice 4 — a chargeback is a DEADLINE: the maker hears it immediately,
       // with the policy said plainly (a filing alone never makes them liable)
       consumer: 'notify.dispute-opened',

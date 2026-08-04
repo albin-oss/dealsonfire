@@ -681,6 +681,10 @@ export class PaymentsService {
        FROM ledger_accounts a
        LEFT JOIN merchant_payment_profiles p ON p.business_id = a.business_id
        WHERE a.kind = 'merchant_payable' AND a.balance_minor > 0
+         -- one payout in flight per business, EVER: a pending op (incl. a failed
+         -- payout's re-armed retry) blocks new periods until it lands
+         AND NOT EXISTS (SELECT 1 FROM provider_operations po
+                          WHERE po.business_id = a.business_id AND po.kind = 'payout' AND po.state = 'pending')
        ORDER BY a.business_id LIMIT 100`)
     const opIds: string[] = []
     let skipped = 0
@@ -712,6 +716,121 @@ export class PaymentsService {
       { kind: 'merchant_payable', businessId: op.business_id, deltaMinor: -op.amount_minor! },
       { kind: 'psp_clearing', businessId: null, deltaMinor: op.amount_minor! },
     ], { kind: 'payout', period: op.detail.period, provider_payout_id: result.payoutId, business_id: op.business_id })
+  }
+
+  /**
+   * C11 S2: a payout's LATER truth arrives (webhook or reconciliation catch-up).
+   * `paid` emits the letter-bearing event. `failed` is §7-native recovery: the
+   * settle posting reverses (payable comes home, cause 'payout_failed'), a
+   * FRESH op re-arms the retry under `…:r{n}` — facts + journal, no third
+   * lifecycle store. Idempotent per provider payout id (the reversal posts once).
+   */
+  async handlePayoutOutcome(tx: Tx, input: { providerPayoutId: string; outcome: 'paid' | 'failed'; detail?: string | null }):
+    Promise<{ handled: boolean }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<ProviderOperation & { amount_minor: string }>(
+      `SELECT id, kind, idempotency_key, attempt_key, intent_id, provider_ref, order_id, business_id,
+              amount_minor::text AS amount_minor, currency, state, attempts, detail
+       FROM provider_operations WHERE kind = 'payout' AND provider_ref = $1 FOR UPDATE`, [input.providerPayoutId])
+    const op = rows[0]
+    if (!op) return { handled: false } // not ours (e.g. a platform-balance payout)
+    const period = Number(op.detail.period ?? 0)
+    const base = { business_id: op.business_id, amount_minor: Number(op.amount_minor), currency: op.currency, period, provider_payout_id: input.providerPayoutId }
+    if (input.outcome === 'paid') {
+      // idempotent per payout id — a replayed 'paid' appends nothing twice
+      const { rows: seen } = await client.query<{ id: string }>(
+        `SELECT id FROM payments_domain_events WHERE event_type = $1
+          AND payload->>'provider_payout_id' = $2 LIMIT 1`,
+        [PAYMENTS_EVENT.PAYOUT_PAID, input.providerPayoutId])
+      if (seen[0]) return { handled: true }
+      await this.events.append(tx, [{
+        businessId: op.business_id, aggregate: { type: 'payout', id: op.id },
+        eventType: PAYMENTS_EVENT.PAYOUT_PAID, schemaVersion: 1,
+        payload: base, actor: { type: 'system', id: 'payments' },
+      }])
+      return { handled: true }
+    }
+    // failed: reverse ONCE (idempotent per payout id), re-arm the retry
+    const { rows: prior } = await client.query<{ id: string }>(
+      `SELECT e.id FROM ledger_entries e WHERE e.cause->>'kind' = 'payout_failed'
+        AND e.cause->>'provider_payout_id' = $1 LIMIT 1`, [input.providerPayoutId])
+    if (prior[0]) return { handled: true } // replayed failure webhook — already reversed
+    await this.ledger.post(tx, op.currency!, [
+      { kind: 'merchant_payable', businessId: op.business_id, deltaMinor: Number(op.amount_minor) },
+      { kind: 'psp_clearing', businessId: null, deltaMinor: -Number(op.amount_minor) },
+    ], { kind: 'payout_failed', period, provider_payout_id: input.providerPayoutId, business_id: op.business_id })
+    const retry = Number(/:r(\d+)$/.exec(op.idempotency_key)?.[1] ?? 0) + 1
+    await this.journal(tx, {
+      kind: 'payout', idempotencyKey: `payout:${op.business_id}:${period}:r${retry}`,
+      businessId: op.business_id, amountMinor: Number(op.amount_minor), currency: op.currency,
+      detail: { account: op.detail.account, period, retry_of: input.providerPayoutId },
+    })
+    await this.events.append(tx, [{
+      businessId: op.business_id, aggregate: { type: 'payout', id: op.id },
+      eventType: PAYMENTS_EVENT.PAYOUT_FAILED, schemaVersion: 1,
+      payload: { ...base, detail: input.detail ?? null }, actor: { type: 'system', id: 'payments' },
+    }])
+    return { handled: true }
+  }
+
+  /**
+   * C11 S2: the maker's money story — the THREE numbers and one rhythm the
+   * Merchant Experience Validation fixed (waiting / ready-net / paid, with the
+   * set-aside visible so numbers never surprise). All state-derived from the
+   * ledger; the presentation model is promotion-ready (PE review: no UI owns
+   * payout logic — this IS the model, wherever it later renders).
+   */
+  async moneyStory(tx: Tx, businessId: string): Promise<{
+    currency: string
+    waiting_minor: number
+    ready_minor: number
+    set_aside_minor: number
+    paid_minor: number
+    min_minor: number
+    interval_days: number
+    next_due_at: string | null
+    history: Array<{ amount_minor: number; at: string; provider_payout_id: string; status: 'on_its_way' | 'arrived' | 'needs_another_try' }>
+  }> {
+    const client = asClient(tx)
+    const { rows: bal } = await client.query<{ kind: string; balance: string; currency: string }>(
+      `SELECT kind, balance_minor::text AS balance, currency FROM ledger_accounts
+       WHERE business_id = $1 AND kind IN ('merchant_holding','merchant_payable')`, [businessId])
+    const currency = bal[0]?.currency ?? 'EUR'
+    const waiting = Math.max(0, Number(bal.find((b) => b.kind === 'merchant_holding')?.balance ?? 0))
+    const payableGross = Math.max(0, Number(bal.find((b) => b.kind === 'merchant_payable')?.balance ?? 0))
+    const { rows: exposure } = await client.query<{ uncovered: string }>(
+      `SELECT COALESCE(sum(amount_minor - frozen_minor), 0)::text AS uncovered
+       FROM payment_disputes WHERE business_id = $1 AND state = 'open'`, [businessId])
+    const setAside = Math.min(payableGross, Math.max(0, Number(exposure[0]?.uncovered ?? 0)))
+    const { rows: payouts } = await client.query<{ amount: string; at: string; po: string; failed: boolean; arrived: boolean }>(
+      `SELECT (-e.delta_minor)::text AS amount, e.created_at::text AS at,
+              e.cause->>'provider_payout_id' AS po,
+              EXISTS (SELECT 1 FROM ledger_entries f WHERE f.cause->>'kind' = 'payout_failed'
+                        AND f.cause->>'provider_payout_id' = e.cause->>'provider_payout_id') AS failed,
+              EXISTS (SELECT 1 FROM payments_domain_events ev WHERE ev.event_type = 'payments.payout.paid'
+                        AND ev.payload->>'provider_payout_id' = e.cause->>'provider_payout_id') AS arrived
+       FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+       WHERE a.kind = 'merchant_payable' AND a.business_id = $1 AND e.cause->>'kind' = 'payout'
+       ORDER BY e.created_at DESC LIMIT 10`, [businessId])
+    const paid = payouts.filter((p) => !p.failed).reduce((s, p) => s + Number(p.amount), 0)
+    const lastAt = payouts[0]?.at ?? null
+    const nextDue = lastAt
+      ? new Date(new Date(lastAt).getTime() + this.payoutPolicy.intervalDays * 86_400_000).toISOString()
+      : null
+    return {
+      currency,
+      waiting_minor: waiting,
+      ready_minor: payableGross - setAside,
+      set_aside_minor: setAside,
+      paid_minor: paid,
+      min_minor: this.payoutPolicy.minMinor,
+      interval_days: this.payoutPolicy.intervalDays,
+      next_due_at: nextDue,
+      history: payouts.map((p) => ({
+        amount_minor: Number(p.amount), at: p.at, provider_payout_id: p.po ?? '',
+        status: p.failed ? 'needs_another_try' as const : p.arrived ? 'arrived' as const : 'on_its_way' as const,
+      })),
+    }
   }
 
   /** The 24h honest failure closes its pending provider work — visible, never eternal. */

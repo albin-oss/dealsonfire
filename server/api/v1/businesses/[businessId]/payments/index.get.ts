@@ -28,11 +28,16 @@ export default defineQueryEndpoint({
         c.payments.service.applyAccountSnapshot(tx, { accountId: profile!.provider_account!, state }))
       profile = await c.deps.uow.withTransaction((tx) => c.payments.service.getPaymentProfile(tx, businessId))
     }
+    // C11 S2: the maker's money story rides the SAME endpoint (PE review §4 —
+    // this is already where the merchant's banking truth lives); the domain
+    // computes everything, this handler only carries it
+    const money = await c.deps.uow.withTransaction((tx) => c.payments.service.moneyStory(tx, businessId))
     return {
       onboarding_state: profile?.onboarding_state ?? 'none',
       charges_enabled: profile?.charges_enabled ?? false,
       payouts_enabled: profile?.payouts_enabled ?? false,
       provider: c.payments.provider,
+      money,
     }
   },
 })
