@@ -55,7 +55,7 @@ export class PaymentsBoundary {
 
     // ——— phase 2: the provider, OUTSIDE any transaction, under the stable key
     let result:
-      | { kind: 'settle'; payload: { ok: true; auth: { providerRef: string } } | { ok: 'requires_confirmation'; providerRef: string } | { ok: false; detail: string } | null }
+      | { kind: 'settle'; payload: { ok: true; auth: { providerRef: string } } | { ok: 'requires_confirmation'; providerRef: string } | { ok: false; detail: string } | null; payoutId?: string }
       | { kind: 'retry'; detail: string }
     try {
       switch (op.kind) {
@@ -95,6 +95,18 @@ export class PaymentsBoundary {
           result = { kind: 'settle', payload: null }
           break
         }
+        case 'payout': {
+          // C11: pay the maker from THEIR connected balance; an unavailable
+          // balance is a WAIT (retryable), not a failure — the driver returns
+          const r = await this.deps.provider.payout({
+            accountId: String(op.detail.account ?? ''), amountMinor: op.amount_minor!,
+            currency: op.currency!, idempotencyKey: op.idempotency_key,
+          })
+          result = r.ok
+            ? { kind: 'settle', payload: null, payoutId: r.payoutId }
+            : { kind: 'retry', detail: r.detail }
+          break
+        }
         default:
           result = { kind: 'retry', detail: `unknown operation kind ${op.kind}` }
       }
@@ -123,6 +135,7 @@ export class PaymentsBoundary {
         case 'capture': await this.deps.service.settleCapture(tx, op); break
         case 'refund': await this.deps.service.settleRefund(tx, op); break
         case 'void': await this.deps.service.settleVoid(tx, op); break
+        case 'payout': await this.deps.service.settlePayout(tx, op, { payoutId: result.payoutId! }); break
       }
       return true
     })

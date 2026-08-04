@@ -58,6 +58,10 @@ export class PaymentsService {
     /** Risk limits (Slice 4, approved dispute-loss policy §4): 0 = unlimited. */
     private readonly riskLimits: { maxOpenDisputesMinor: number; maxLossMinor: number } =
       { maxOpenDisputesMinor: 0, maxLossMinor: 0 },
+    /** Payout policy (C11): Founder values wearing configuration
+     *  (NUXT_PAYOUT_INTERVAL_DAYS / NUXT_PAYOUT_MIN_MINOR). */
+    private readonly payoutPolicy: { intervalDays: number; minMinor: number } =
+      { intervalDays: 7, minMinor: 1000 },
   ) {}
 
   /** The one fee computation — the provider call and the ledger legs both use it. */
@@ -644,6 +648,70 @@ export class PaymentsService {
     const { rows } = await asClient(tx).query<{ state: string }>(
       `SELECT state FROM payment_intents WHERE attempt_key = $1`, [attemptKey])
     return rows[0]?.state ?? null
+  }
+
+  // ——— C11: payouts (the money's last mile — eligibility was C6's hold release)
+
+  /**
+   * Phase 1 for the payout sweep: every business whose PAYABLE balance clears
+   * the gates gets ONE journaled payout op per period. The period is the count
+   * of prior payout postings + 1 (ledger-derived, schedule-change-proof — the
+   * ONE derivation, per the PE review §6.3). Gates, in order: payable > 0 ·
+   * payouts_enabled · not risk-paused · has a connected account · net of
+   * UNCOVERED dispute exposure (open amounts the freeze fell short of) ·
+   * ≥ the minimum · the interval has passed since the last payout posting.
+   */
+  async preparePayoutSweep(tx: Tx): Promise<{ opIds: string[]; skipped: number }> {
+    const client = asClient(tx)
+    const { rows: candidates } = await client.query<{
+      business_id: string; currency: string; payable: string
+      provider_account: string | null; payouts_enabled: boolean | null; risk_paused: boolean | null
+      uncovered: string; prior_payouts: string; last_payout_at: string | null
+    }>(
+      `SELECT a.business_id, a.currency, a.balance_minor::text AS payable,
+              p.provider_account, p.payouts_enabled, (p.risk_paused_at IS NOT NULL) AS risk_paused,
+              COALESCE((SELECT sum(d.amount_minor - d.frozen_minor) FROM payment_disputes d
+                        WHERE d.business_id = a.business_id AND d.state = 'open'), 0)::text AS uncovered,
+              COALESCE((SELECT count(*) FROM ledger_entries e JOIN ledger_accounts la ON la.id = e.account_id
+                        WHERE la.kind = 'merchant_payable' AND la.business_id = a.business_id
+                          AND e.cause->>'kind' = 'payout'), 0)::text AS prior_payouts,
+              (SELECT max(e.created_at)::text FROM ledger_entries e JOIN ledger_accounts la ON la.id = e.account_id
+                WHERE la.kind = 'merchant_payable' AND la.business_id = a.business_id
+                  AND e.cause->>'kind' = 'payout') AS last_payout_at
+       FROM ledger_accounts a
+       LEFT JOIN merchant_payment_profiles p ON p.business_id = a.business_id
+       WHERE a.kind = 'merchant_payable' AND a.balance_minor > 0
+       ORDER BY a.business_id LIMIT 100`)
+    const opIds: string[] = []
+    let skipped = 0
+    for (const c of candidates) {
+      const payoutable = Number(c.payable) - Math.max(0, Number(c.uncovered))
+      const intervalDue = !c.last_payout_at
+        || (Date.now() - new Date(c.last_payout_at).getTime()) >= this.payoutPolicy.intervalDays * 86_400_000
+      if (!c.payouts_enabled || c.risk_paused || !c.provider_account
+          || payoutable < this.payoutPolicy.minMinor || !intervalDue) { skipped += 1; continue }
+      const period = Number(c.prior_payouts) + 1
+      const op = await this.journal(tx, {
+        kind: 'payout', idempotencyKey: `payout:${c.business_id}:${period}`,
+        businessId: c.business_id, amountMinor: payoutable, currency: c.currency,
+        detail: { account: c.provider_account, period },
+      })
+      if (op.state === 'pending') opIds.push(op.opId)
+    }
+    return { opIds, skipped }
+  }
+
+  /** Phase 3 for payout: the obligation settles — payable → out of the Stripe
+   *  system. The posting's cause IS the permanent payout record (PE review §3.1):
+   *  period + provider payout id live in append-only ledger truth, not a table. */
+  async settlePayout(tx: Tx, op: ProviderOperation, result: { payoutId: string }): Promise<void> {
+    const client = asClient(tx)
+    await client.query(
+      `UPDATE provider_operations SET provider_ref = $2 WHERE id = $1`, [op.id, result.payoutId])
+    await this.ledger.post(tx, op.currency!, [
+      { kind: 'merchant_payable', businessId: op.business_id, deltaMinor: -op.amount_minor! },
+      { kind: 'psp_clearing', businessId: null, deltaMinor: op.amount_minor! },
+    ], { kind: 'payout', period: op.detail.period, provider_payout_id: result.payoutId, business_id: op.business_id })
   }
 
   /** The 24h honest failure closes its pending provider work — visible, never eternal. */

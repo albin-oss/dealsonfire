@@ -52,6 +52,11 @@ export interface ProviderPort {
   /** Slice 4 (RM-H1): the provider's own money movements since a watermark —
    *  external reconciliation's raw material. */
   listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]>
+  /** C11: pay the maker's bank from THEIR connected balance (the funds landed
+   *  there via destination transfers). Idempotent per key; `retryable` marks
+   *  infrastructure/insufficient-balance waits the driver may retry. */
+  payout(input: { accountId: string; amountMinor: number; currency: string; idempotencyKey: string }):
+    Promise<{ ok: true; payoutId: string } | { ok: false; retryable?: boolean; detail: string }>
 }
 
 /** One provider-side money movement, as reconciliation sees it (Slice 4). */
@@ -119,6 +124,22 @@ export class SandboxProviderTwin implements ProviderPort {
   }
   /** Test hook: a movement OUR books know nothing about (the unmatched case). */
   injectRogueTransaction(amountMinor: number): void { this.recordTxn('other', amountMinor, null) }
+  /** C11 payout twin: deterministic like everything else — the magic amount waits
+   *  once per key (insufficient-balance parity with real rails), then pays. */
+  private readonly payoutWaitedOnce = new Set<string>()
+  private readonly payouts = new Map<string, string>() // idempotencyKey → payoutId
+  async payout(input: { accountId: string; amountMinor: number; currency: string; idempotencyKey: string }) {
+    const existing = this.payouts.get(input.idempotencyKey)
+    if (existing) return { ok: true as const, payoutId: existing }
+    if (input.amountMinor === SANDBOX_REFUND_FAIL_AMOUNT_MINOR && !this.payoutWaitedOnce.has(input.idempotencyKey)) {
+      this.payoutWaitedOnce.add(input.idempotencyKey)
+      return { ok: false as const, retryable: true, detail: 'Connected balance not yet available (sandbox injection — transient).' }
+    }
+    const payoutId = `sandbox-po-${input.idempotencyKey.slice(-12)}`
+    this.payouts.set(input.idempotencyKey, payoutId)
+    this.recordTxn('payout', -input.amountMinor, payoutId)
+    return { ok: true as const, payoutId }
+  }
   /** Test hook: the twin's memory resets with the database (truncateAll's partner). */
   resetRecordedTransactions(): void { this.balanceTxns.length = 0 }
   async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
@@ -333,6 +354,23 @@ export class StripeProviderAdapter implements ProviderPort {
       return { ok: true as const }
     } catch (error) {
       return { ok: false as const, detail: (error as Stripe.errors.StripeError).message ?? 'The refund failed.' }
+    }
+  }
+
+  /** C11: a payout ON the connected account (the maker's funds live there via
+   *  destination transfers; DOF's ledger decides WHEN, per the eligibility law).
+   *  Insufficient available balance is a WAIT, not a failure — retryable. */
+  async payout(input: { accountId: string; amountMinor: number; currency: string; idempotencyKey: string }) {
+    try {
+      const payout = await this.stripe.payouts.create(
+        { amount: input.amountMinor, currency: input.currency.toLowerCase() },
+        { stripeAccount: input.accountId, idempotencyKey: input.idempotencyKey })
+      return { ok: true as const, payoutId: payout.id }
+    } catch (error) {
+      const e = error as Stripe.errors.StripeError
+      const retryable = ['StripeConnectionError', 'StripeAPIError', 'StripeRateLimitError'].includes(e.type ?? '')
+        || e.code === 'balance_insufficient' // funds still settling — the driver waits
+      return { ok: false as const, retryable, detail: e.message ?? 'The payout could not be created.' }
     }
   }
 }

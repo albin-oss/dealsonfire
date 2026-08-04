@@ -480,7 +480,12 @@ export function buildContainer(databaseUrl: string): Container {
     maxOpenDisputesMinor: Number(optionalEnv('NUXT_RISK_MAX_MERCHANT_OPEN_DISPUTES_MINOR', '0')) || 0,
     maxLossMinor: Number(optionalEnv('NUXT_RISK_MAX_MERCHANT_LOSS_MINOR', '0')) || 0,
   }
-  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name, feeBps, riskLimits)
+  // C11: payout policy — Founder values wearing configuration
+  const payoutPolicy = {
+    intervalDays: Number(optionalEnv('NUXT_PAYOUT_INTERVAL_DAYS', '7')) || 7,
+    minMinor: Number(optionalEnv('NUXT_PAYOUT_MIN_MINOR', '1000')) || 1000,
+  }
+  const paymentsService = new PaymentsService(paymentsEventStore, new LedgerPoster(), paymentsProvider.name, feeBps, riskLimits, payoutPolicy)
   // §7: the boundary is the ONLY place the provider is spoken to — outside every tx
   const paymentsBoundary = new PaymentsBoundary({
     runTx: (fn) => deps.uow.withTransaction(fn),
