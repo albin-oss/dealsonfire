@@ -22,7 +22,7 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | **REAL_MONEY_READINESS_REVIEW** | **ACTIVE** — the C10 launch gates G1–G9 (binding DoD); its two-phase boundary amendment is written law in UPDATED_PAYMENT_LIFECYCLE §7 |
 | **C10_REPOSITORY_READINESS_REVIEW** | **ACTIVE** — the pre-certification repository audit + the C11 debt register |
 | **COMMERCE_FOUNDATION_RETROSPECTIVE** | **CLOSURE** — the Principal Engineer's retrospective that formally closes C1–C10; binding pattern/anti-pattern reference for C11+ |
-| **C11_PROGRAM_PLAN** | **PROPOSED** — Payouts & Money Operations; awaiting Founder approval |
+| **C11_PROGRAM_PLAN** + **C11_PRINCIPAL_ENGINEER_REVIEW** | **PROPOSED** — Payouts & Money Operations; the PE review deletes the plan's excess (0 new tables/endpoints/pages); awaiting Founder approval of the optimized strategy |
 | FOUNDER_REVIEW_C6_C9 | **RECORD** (the operational campaign's closing packet) |
 
 Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
