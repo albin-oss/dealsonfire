@@ -261,7 +261,14 @@ export class StripeProviderAdapter implements ProviderPort {
       display_name: `DOF maker ${input.businessId.slice(-8)}`,
       contact_email: input.email ?? `no-reply+${input.businessId.slice(-8)}@dof.example`,
       dashboard: 'express',
-      identity: { country: 'ca' },
+      // C11 CERTIFICATION FINDING (currency-alignment law): Stripe settles the
+      // maker's balance in their account's home currency and can only pay out
+      // currencies their bank holds. DOF's shop truth is EUR — a 'ca' account
+      // (C10's cert-environment artifact) settles CAD and can NEVER pay the EUR
+      // payable; the payout would refuse forever (loud: payout_stuck alarms).
+      // Makers are born in the shop's settlement country. Multi-market = the
+      // maker's own country becomes data, recorded as debt, not guessed here.
+      identity: { country: 'be' },
       configuration: {
         merchant: { capabilities: { card_payments: { requested: true } } },
         recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } },
@@ -269,6 +276,13 @@ export class StripeProviderAdapter implements ProviderPort {
       defaults: { responsibilities: { fees_collector: 'application', losses_collector: 'application' } },
       metadata: { dof_business_id: input.businessId },
     } as never)
+    // C11 CERTIFICATION FINDING: v2 creation silently drops the payout schedule —
+    // Stripe's default DAILY payouts would bypass DOF's eligibility law (payout
+    // timing is OURS, on fulfillment evidence). v1 updates work on v2 accounts:
+    // set MANUAL immediately, same boundary call, before the account is ever used.
+    await this.stripe.accounts.update(account.id, {
+      settings: { payouts: { schedule: { interval: 'manual' } } },
+    })
     return { accountId: account.id }
   }
   async createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }) {
