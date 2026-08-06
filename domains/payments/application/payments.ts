@@ -400,7 +400,21 @@ export class PaymentsService {
       [intent.id, input.causeKey])
     if (prior[0]) return { ok: true, releasedMinor: 0, alreadyDone: true }
 
-    const releasable = Number(intent.captured_minor) - Number(intent.refunded_minor)
+    // C11 LIVE-CERTIFICATION FINDING: the release must move the maker's NET —
+    // capture put (captured − fee) into holding and refunds pull only the
+    // maker's share back out, so releasing GROSS overdraws this order's holding
+    // by the platform fee and silently eats sibling orders' waiting money
+    // (Stripe then refuses the inflated payout: insufficient funds). Same fee
+    // truth source as settleRefund: the platform_fees ledger legs per intent.
+    const { rows: feeRows } = await client.query<{ taken: string; reversed: string }>(
+      `SELECT
+         COALESCE(sum(e.delta_minor) FILTER (WHERE e.cause->>'kind' = 'capture'), 0)::text AS taken,
+         COALESCE(-sum(e.delta_minor) FILTER (WHERE e.cause->>'kind' = 'refund'), 0)::text AS reversed
+       FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+       WHERE a.kind = 'platform_fees' AND e.cause->>'intent_id' = $1`, [intent.id])
+    const feeTaken = Number(feeRows[0]?.taken ?? 0)
+    const feeReversed = Number(feeRows[0]?.reversed ?? 0)
+    const releasable = (Number(intent.captured_minor) - feeTaken) - (Number(intent.refunded_minor) - feeReversed)
     if (releasable <= 0) return { ok: true, releasedMinor: 0, alreadyDone: false }
     await this.ledger.post(tx, intent.currency, [
       { kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: -releasable },
