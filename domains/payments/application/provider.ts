@@ -56,7 +56,7 @@ export interface ProviderPort {
    *  there via destination transfers). Idempotent per key; `retryable` marks
    *  infrastructure/insufficient-balance waits the driver may retry. */
   payout(input: { accountId: string; amountMinor: number; currency: string; idempotencyKey: string }):
-    Promise<{ ok: true; payoutId: string } | { ok: false; retryable?: boolean; detail: string }>
+    Promise<{ ok: true; payoutId: string } | { ok: false; retryable?: boolean; rotateKey?: boolean; detail: string }>
 }
 
 /** One provider-side money movement, as reconciliation sees it (Slice 4). */
@@ -131,9 +131,13 @@ export class SandboxProviderTwin implements ProviderPort {
   async payout(input: { accountId: string; amountMinor: number; currency: string; idempotencyKey: string }) {
     const existing = this.payouts.get(input.idempotencyKey)
     if (existing) return { ok: true as const, payoutId: existing }
-    if (input.amountMinor === SANDBOX_REFUND_FAIL_AMOUNT_MINOR && !this.payoutWaitedOnce.has(input.idempotencyKey)) {
-      this.payoutWaitedOnce.add(input.idempotencyKey)
-      return { ok: false as const, retryable: true, detail: 'Connected balance not yet available (sandbox injection — transient).' }
+    // the wait is keyed by the LOGICAL payout (account + amount), never the
+    // idempotency key — real rails rotate the key after a definitive decline
+    // (Stripe caches the refusal against it), so the retry arrives renamed
+    const logical = `${input.accountId}:${input.amountMinor}`
+    if (input.amountMinor === SANDBOX_REFUND_FAIL_AMOUNT_MINOR && !this.payoutWaitedOnce.has(logical)) {
+      this.payoutWaitedOnce.add(logical)
+      return { ok: false as const, retryable: true, rotateKey: true, detail: 'Connected balance not yet available (sandbox injection — transient).' }
     }
     const payoutId = `sandbox-po-${input.idempotencyKey.slice(-12)}`
     this.payouts.set(input.idempotencyKey, payoutId)
@@ -382,9 +386,18 @@ export class StripeProviderAdapter implements ProviderPort {
       return { ok: true as const, payoutId: payout.id }
     } catch (error) {
       const e = error as Stripe.errors.StripeError
+      // C11 LIVE-CERTIFICATION FINDING: Stripe caches a payout request's RESULT
+      // against its idempotency key for 24h — including balance_insufficient.
+      // A same-key retry replays the cached refusal even after funds arrive,
+      // wedging the WAIT for a day. A definitive decline proves nothing was
+      // created, so rotating the key for the next attempt is exactly-once safe;
+      // ambiguous failures (network/5xx) keep the stable key so a replay can
+      // discover a crashed-after-create success (§7).
+      const definitiveDecline = e.code === 'balance_insufficient'
+        || e.type === 'StripeIdempotencyError' // key consumed by an earlier shape — renamed retry is the recovery
       const retryable = ['StripeConnectionError', 'StripeAPIError', 'StripeRateLimitError'].includes(e.type ?? '')
-        || e.code === 'balance_insufficient' // funds still settling — the driver waits
-      return { ok: false as const, retryable, detail: e.message ?? 'The payout could not be created.' }
+        || definitiveDecline
+      return { ok: false as const, retryable, rotateKey: definitiveDecline, detail: e.message ?? 'The payout could not be created.' }
     }
   }
 }

@@ -201,9 +201,12 @@ describe('C11 S1 — the payout sweep', () => {
     const prepared = await inTx((tx) => container.payments.service.preparePayoutSweep(tx as never))
     const first = await container.payments.boundary.drive(prepared.opIds[0]!)
     expect(first.settled).toBe(false) // balance not yet available — op stays pending
-    const { rows: pendingOp } = await container.pool.query(`SELECT state, last_error FROM provider_operations WHERE kind = 'payout'`)
+    const { rows: pendingOp } = await container.pool.query(`SELECT state, last_error, idempotency_key FROM provider_operations WHERE kind = 'payout'`)
     expect(pendingOp[0].state).toBe('pending')
     expect(pendingOp[0].last_error).toMatch(/not yet available/)
+    // C11 live finding: the provider CACHES a definitive decline against the key
+    // for 24h — the retry must arrive under a ROTATED key, never a cached replay
+    expect(pendingOp[0].idempotency_key).toMatch(/:w1$/)
     const b1 = await balances(m.businessId)
     expect(b1.merchant_payable).toBe(SANDBOX_REFUND_FAIL_AMOUNT_MINOR) // nothing moved
 
