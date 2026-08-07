@@ -160,6 +160,15 @@ describe('placed → confirmed (the C5 ceremony)', () => {
     expect(JSON.stringify(order.body.timeline)).toMatch(/nothing was charged/)
     const { rows } = await container.pool.query(`SELECT captured_minor::int AS c FROM payment_intents`)
     expect(rows[0].c).toBe(0)
+
+    // C11 live finding: the buyer's card hold must come OFF — the cancellation
+    // journals the void (§7) and the driven boundary flips the intent to voided
+    expect(result && result.ok && result.state === 'cancelled' && result.voidOpId).toBeTruthy()
+    if (result && result.ok && result.state === 'cancelled' && result.voidOpId) {
+      await container.payments.boundary.drive(result.voidOpId)
+    }
+    const { rows: after } = await container.pool.query(`SELECT state FROM payment_intents`)
+    expect(after[0].state).toBe('voided')
   })
 
   it('PRR-C1: 12 concurrent checkouts by 12 DISTINCT buyers — no pool deadlock, twelve orders', async () => {

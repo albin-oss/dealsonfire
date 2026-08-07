@@ -528,6 +528,7 @@ export function buildContainer(databaseUrl: string): Container {
       requestCapture: (tx, input) => paymentsService.requestCapture(tx, input),
       peekIntentState: (tx, attemptKey) => paymentsService.peekIntentState(tx, attemptKey),
       abandonPending: (tx, attemptKey) => paymentsService.abandonPending(tx, attemptKey),
+      releaseAuthorization: (tx, attemptKey) => paymentsService.voidByAttemptKey(tx, attemptKey),
     },
     opsAlarm, // RM-H3: keystone alarms reach a human, not just stdout
     { createCase: (tx, input) => fulfillmentRepository.createCase(tx, input) },

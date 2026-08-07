@@ -206,6 +206,21 @@ export class PaymentsService {
     return { opId: op.opId }
   }
 
+  /** C11 LIVE-CERTIFICATION FINDING: an order cancelled at confirmation (every
+   *  line fallen) left the buyer's AUTHORIZATION standing — a real card holds
+   *  the funds for up to 7 days for an order that will never charge. The
+   *  cancellation must release the hold: journal the void by attempt key. */
+  async voidByAttemptKey(tx: Tx, attemptKey: string): Promise<{ opId: string | null }> {
+    const { rows } = await asClient(tx).query<{ provider_ref: string | null; state: string }>(
+      `SELECT provider_ref, state FROM payment_intents WHERE attempt_key = $1`, [attemptKey])
+    const intent = rows[0]
+    if (!intent?.provider_ref || !['created', 'authorized', 'requires_action'].includes(intent.state)) {
+      return { opId: null } // nothing held — or already captured/voided (their own paths)
+    }
+    const { opId } = await this.requestVoid(tx, intent.provider_ref)
+    return { opId }
+  }
+
   /** Phase 3 for void. */
   async settleVoid(tx: Tx, op: ProviderOperation): Promise<void> {
     const client = asClient(tx)

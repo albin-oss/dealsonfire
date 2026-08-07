@@ -28,6 +28,9 @@ export interface CapturePort {
   peekIntentState(tx: Tx, attemptKey: string): Promise<string | null>
   /** The 24h honest failure closes its pending provider work loudly, not eternally. */
   abandonPending(tx: Tx, attemptKey: string): Promise<void>
+  /** C11: a cancelled-at-confirm order must release the buyer's card hold —
+   *  journals the void (§7 phase 1); the boundary drives it after the tx. */
+  releaseAuthorization(tx: Tx, attemptKey: string): Promise<{ opId: string | null }>
 }
 
 /** Structural port onto Operations fulfillment (C6 — no cross-domain import). */
@@ -51,7 +54,7 @@ export type ConfirmResult =
   /** Slice 2: the buyer is still in the Payment Element — nothing commits yet. */
   | { ok: true; state: 'awaiting_payment' }
   | { ok: true; state: 'payment_pending' }
-  | { ok: true; state: 'cancelled'; reason: string }
+  | { ok: true; state: 'cancelled'; reason: string; voidOpId?: string | null }
 
 export class PgConfirmService {
   constructor(
@@ -115,7 +118,10 @@ export class PgConfirmService {
       await client.query(`UPDATE orders SET state = 'cancelled' WHERE id = $1`, [orderId])
       await this.timeline(client, orderId, 'note', { text: 'Everything in this order sold out before it could be confirmed — nothing was charged.' })
       await this.events.append(tx, [this.orderEvent(order, 'orders.order.cancelled', { reason: 'sold_out_at_confirm' })])
-      return { ok: true, state: 'cancelled', reason: 'sold out at confirmation' }
+      // C11: nothing will ever charge — the buyer's card hold comes off NOW
+      // (§7: journaled here, driven by the caller/recovery sweep after the tx)
+      const voided = await this.payments.releaseAuthorization(tx, order.attempt_key)
+      return { ok: true, state: 'cancelled', reason: 'sold out at confirmation', voidOpId: voided.opId }
     }
 
     // ——— the single capture (partial exactly when the race dropped a line);
