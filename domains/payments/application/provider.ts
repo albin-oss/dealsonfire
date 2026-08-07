@@ -51,7 +51,9 @@ export interface ProviderPort {
   readAccount(accountId: string): Promise<ProviderAccountState>
   /** Slice 4 (RM-H1): the provider's own money movements since a watermark —
    *  external reconciliation's raw material. */
-  listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]>
+  /** C11 live finding: payout balance txns live on the CONNECTED account —
+   *  pass accountId to read a maker's ledger there; omit for the platform's. */
+  listBalanceTransactions(sinceIso: string, limit: number, accountId?: string): Promise<ProviderBalanceTxn[]>
   /** C11: pay the maker's bank from THEIR connected balance (the funds landed
    *  there via destination transfers). Idempotent per key; `retryable` marks
    *  infrastructure/insufficient-balance waits the driver may retry. */
@@ -146,7 +148,9 @@ export class SandboxProviderTwin implements ProviderPort {
   }
   /** Test hook: the twin's memory resets with the database (truncateAll's partner). */
   resetRecordedTransactions(): void { this.balanceTxns.length = 0 }
-  async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
+  async listBalanceTransactions(sinceIso: string, limit: number, _accountId?: string): Promise<ProviderBalanceTxn[]> {
+    // the twin holds ONE conflated ledger — account scoping is a no-op here;
+    // reconciliation's ON CONFLICT dedup absorbs the overlap
     return this.balanceTxns.filter((t) => t.occurredAt > sinceIso).slice(0, limit)
   }
 
@@ -312,15 +316,18 @@ export class StripeProviderAdapter implements ProviderPort {
    *  SETTLEMENT currency (e.g. CAD for a CAD-based account) while DOF's facts
    *  are PRESENTMENT truth (EUR) — matching therefore uses the expanded
    *  source's amount/currency, falling back to the txn only when no source. */
-  async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
+  async listBalanceTransactions(sinceIso: string, limit: number, accountId?: string): Promise<ProviderBalanceTxn[]> {
     const since = Math.floor(new Date(sinceIso).getTime() / 1000)
     const page = await this.stripe.balanceTransactions.list(
-      { created: { gt: since }, limit, expand: ['data.source'] })
+      { created: { gt: since }, limit, expand: ['data.source'] },
+      accountId ? { stripeAccount: accountId } : undefined)
     return page.data.map((t) => {
       const source = t.source as { id?: string; object?: string; amount?: number; currency?: string; payment_intent?: string | { id: string } } | null
       // a dispute-sourced movement (chargeback withdrawal) matches our DISPUTE
-      // record — carry the du_ id; everything else matches facts by intent ref
-      const intentRef = source?.object === 'dispute'
+      // record — carry the du_ id; a payout txn carries ITS OWN id (C11: the
+      // journal matches payouts by identity); everything else matches facts by
+      // intent ref
+      const intentRef = source?.object === 'dispute' || source?.object === 'payout'
         ? source.id ?? null
         : typeof source?.payment_intent === 'object' ? source.payment_intent?.id : source?.payment_intent ?? null
       const kind: ProviderBalanceTxn['kind'] =

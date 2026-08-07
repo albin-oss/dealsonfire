@@ -58,6 +58,25 @@ export class ReconciliationService {
       if (batch.length < BATCH) break
       since = batch.reduce((max, t) => (t.occurredAt > max ? t.occurredAt : max), since)
     }
+    // C11 LIVE-CERTIFICATION FINDING: payout balance txns live on the CONNECTED
+    // accounts — the platform's own ledger never shows them, so payout identity
+    // matching had no live coverage. Read each maker's account for its payout
+    // movements (only payouts — their other txns are mirrors of platform truth
+    // already matched above). ON CONFLICT dedup absorbs any twin/scope overlap.
+    const accounts = await this.deps.runTx(async (tx) => {
+      const { rows } = await asClient(tx).query<{ provider_account: string }>(
+        `SELECT DISTINCT provider_account FROM merchant_payment_profiles WHERE provider_account IS NOT NULL`)
+      return rows.map((r) => r.provider_account)
+    })
+    for (const account of accounts) {
+      let accountSince = last.toISOString()
+      for (let page = 0; page < 20; page += 1) {
+        const batch = await this.deps.provider.listBalanceTransactions(accountSince, BATCH, account)
+        txns.push(...batch.filter((t) => t.kind === 'payout'))
+        if (batch.length < BATCH) break
+        accountSince = batch.reduce((max, t) => (t.occurredAt > max ? t.occurredAt : max), accountSince)
+      }
+    }
 
     const runId = uuidv7()
     const counts = await this.deps.runTx(async (tx) => {
