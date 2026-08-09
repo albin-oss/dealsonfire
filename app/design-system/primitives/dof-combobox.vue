@@ -8,7 +8,7 @@ import {
   ComboboxRoot, ComboboxAnchor, ComboboxInput, ComboboxTrigger,
   ComboboxContent, ComboboxViewport, ComboboxItem, ComboboxItemIndicator, ComboboxEmpty,
 } from 'reka-ui'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { Size } from '../types'
 import { cx } from '../utils/cx'
 import DofField from './dof-field.vue'
@@ -45,7 +45,17 @@ function fold(text: string): string {
 // reka v2 has no filter function — we filter (diacritic-folded, literal) and set ignore-filter
 const term = ref('')
 const open = ref(false)
-watch(open, (isOpen) => { if (isOpen) term.value = '' })
+// A11Y invariant owned at THIS boundary (C11 closure finding): reka v2 leaves
+// aria-activedescendant on the collapsed input still naming the last-highlighted
+// item — an id that stops existing when the list unmounts (axe:
+// aria-valid-attr-value, critical, intermittent). Collapsed ⇒ the attribute is
+// absent; reka repopulates it with a fresh, valid id on the next open.
+const inputRef = ref<{ $el: HTMLInputElement } | null>(null)
+watch(open, async (isOpen) => {
+  if (isOpen) { term.value = ''; return }
+  await nextTick()
+  inputRef.value?.$el?.removeAttribute('aria-activedescendant')
+})
 const filteredItems = computed(() => {
   const folded = fold(term.value.trim())
   if (folded === '') return props.items
@@ -73,6 +83,7 @@ const anchorClass = computed(() => cx(
       <ComboboxAnchor :class="anchorClass">
         <ComboboxInput
           :id="field.inputId"
+          ref="inputRef"
           class="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-faint-foreground"
           :placeholder
           :display-value="(v: string) => items.find((i) => i.value === v)?.label ?? ''"
