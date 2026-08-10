@@ -8,6 +8,14 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   fullyParallel: true,
+  // C11 closure investigation (evidence-classified: resource contention, not
+  // leaks/app-perf/async): the default worker count (cores/2) races BOTH
+  // webServers below on the release machine — random stories then exceed the
+  // 30s load timeout (a different set each run; every one loads in 335ms–1.6s
+  // alone). One worker was measured FASTER end-to-end than four (1.3m vs 3.0m
+  // with retries/timeouts) and fully deterministic. The 30s timeout stands
+  // unchanged — raise workers only with fresh measurements on a bigger machine.
+  workers: 1,
   reporter: [['list']],
   expect: {
     toHaveScreenshot: {

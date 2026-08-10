@@ -64,3 +64,29 @@ with the audited human act:
 curl -X POST "$APP/api/v1/ops/businesses/$BUSINESS_ID/risk-resume" \
   -H "Authorization: …" -d '{"reason":"reviewed — dispute cluster was one buyer; pattern benign"}'
 ```
+
+## C11 — payouts
+
+The sweep (cron lane) journals ONE payout per business per period — the period is
+the count of prior payout postings + 1 (ledger-derived; schedule changes cannot
+double-pay), and a pending payout op blocks new periods entirely. The op drives
+`stripe.payouts.create` ON the connected account; settle posts
+`merchant_payable → psp_clearing` with the cause carrying `period` +
+`provider_payout_id` — that posting IS the permanent payout record.
+
+- **`payout.paid` webhook** → the letter-bearing event; the maker's card shows "arrived".
+- **`payout.failed` webhook** → the money comes HOME (reversal posting, cause
+  `payout_failed`) + a fresh op re-arms under `payout:{biz}:{period}:r{n}` + the
+  honest letter. Nothing to do unless it repeats — then the maker's bank details
+  at Stripe need attention (their side of the teller's window).
+- **`payout_stuck` alarm** = a payout op pending > 1h with attempts (usually the
+  connected balance still settling — `balance_insufficient` is a WAIT the driver
+  retries, not a failure). **`payout_failed` alarm** = money came home, retry not
+  yet landed. The safe operator move is ALWAYS "let the driver retry".
+- **Reconciliation** matches payout balance txns by IDENTITY against the journal's
+  `provider_ref`; a payout with no journal row is a platform-balance payout (fees
+  to DOF's bank) — category-noted, never silent.
+- **Lost payout webhooks**: harmless — money moved at settle; "arrived" simply
+  waits. If a FAILURE webhook is lost, reconciliation's unmatched detection and
+  the connected balance disagreement surface it; resolve by replaying the event
+  from the Stripe dashboard.

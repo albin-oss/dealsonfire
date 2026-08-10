@@ -7,7 +7,7 @@
  * restriction closes only the checkout door; the storefront stays on the street.
  */
 import { computed, ref, watch, onMounted } from 'vue'
-import { DofText, DofCard, DofButton, DofSkeleton, DofIcon, announce } from '@ds/index'
+import { DofText, DofCard, DofButton, DofSkeleton, DofIcon, DofMoney, announce } from '@ds/index'
 import { useDevHeaders } from '../composables/dev-headers'
 
 definePageMeta({ middleware: 'auth' })
@@ -20,7 +20,18 @@ const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string }
 })
 const businessId = computed(() => workspace.value?.businesses[0]?.business_id ?? null)
 
-interface PayStatus { onboarding_state: string; charges_enabled: boolean; payouts_enabled: boolean; provider: string }
+interface MoneyStory {
+  currency: string
+  waiting_minor: number
+  ready_minor: number
+  set_aside_minor: number
+  paid_minor: number
+  min_minor: number
+  interval_days: number
+  next_due_at: string | null
+  history: Array<{ amount_minor: number; at: string; provider_payout_id: string; status: 'on_its_way' | 'arrived' | 'needs_another_try' }>
+}
+interface PayStatus { onboarding_state: string; charges_enabled: boolean; payouts_enabled: boolean; provider: string; money: MoneyStory }
 const status = ref<PayStatus | null>(null)
 const loading = ref(true)
 const walking = ref(false)
@@ -58,11 +69,25 @@ async function startOnboarding() {
 
 const tillLine = computed(() => {
   if (!status.value) return ''
-  if (status.value.charges_enabled) return 'Your till is open — buyers can check out, and money becomes payable when orders ship.'
+  if (status.value.charges_enabled) return 'Your till is open — buyers can check out, and money becomes ready for payout when orders ship.'
   if (status.value.onboarding_state === 'none') return 'One walk to the bank teller’s window and your till opens. Stripe asks the legal questions — DOF never sees your papers.'
   if (status.value.onboarding_state === 'submitted') return 'Your details are with the payment partner — the till opens the moment they say yes. Nothing more to do right now.'
   return 'Your banking setup isn’t finished — pick up where you left off and the till opens on its own.'
 })
+
+// C11 S2 — the money story (Merchant Experience Validation §2–§4): three numbers,
+// one rhythm, zero accounting words. Presentation only; the domain computed it all.
+const money = computed(() => status.value?.money ?? null)
+const hasMoneyStory = computed(() =>
+  !!money.value && (money.value.waiting_minor > 0 || money.value.ready_minor > 0
+    || money.value.set_aside_minor > 0 || money.value.history.length > 0))
+const PAYOUT_STATUS_WORDS: Record<string, string> = {
+  on_its_way: 'on its way to your bank',
+  arrived: 'arrived',
+  needs_another_try: 'needs another try',
+}
+const payoutDate = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 </script>
 
 <template>
@@ -86,6 +111,42 @@ const tillLine = computed(() => {
             <DofButton tone="accent" icon="store" :loading="walking" @click="startOnboarding">
               {{ status.onboarding_state === 'none' ? 'Set up payouts with Stripe' : 'Continue with Stripe' }}
             </DofButton>
+          </div>
+          <!-- C11 S2: the money story — three numbers, one rhythm, zero accounting -->
+          <div v-if="hasMoneyStory && money" class="flex flex-col gap-2 border-t border-foreground/10 pt-3">
+            <div class="flex flex-wrap gap-x-6 gap-y-1">
+              <div class="flex flex-col">
+                <DofText role="caption" tone="muted">Waiting on deliveries</DofText>
+                <DofMoney :amount="money.waiting_minor" :currency="money.currency" class="font-medium" />
+              </div>
+              <div class="flex flex-col">
+                <DofText role="caption" tone="muted">Ready for your next payout</DofText>
+                <DofMoney :amount="money.ready_minor" :currency="money.currency" class="font-semibold" />
+              </div>
+              <div class="flex flex-col">
+                <DofText role="caption" tone="muted">Paid to your bank so far</DofText>
+                <DofMoney :amount="money.paid_minor" :currency="money.currency" class="font-medium" />
+              </div>
+            </div>
+            <DofText v-if="money.set_aside_minor > 0" role="caption" class="text-caution">
+              <DofMoney :amount="money.set_aside_minor" :currency="money.currency" /> is set aside while a bank
+              question about a payment is settled — it comes back to you when it’s answered.
+            </DofText>
+            <DofText v-if="money.ready_minor > 0 && money.ready_minor < money.min_minor" role="caption" class="text-foreground/60">
+              Small amounts wait until they reach <DofMoney :amount="money.min_minor" :currency="money.currency" />, then travel together.
+            </DofText>
+            <DofText role="caption" class="text-foreground/50">
+              Waiting money becomes yours once things ship and the quiet week passes. Payouts go out about
+              {{ money.interval_days === 7 ? 'once a week' : `every ${money.interval_days} days` }}.
+            </DofText>
+            <ul v-if="money.history.length > 0" class="flex list-none flex-col gap-1 p-0 pt-1" aria-label="your payouts">
+              <li v-for="p in money.history" :key="p.provider_payout_id">
+                <DofText role="caption" class="text-foreground/80">
+                  <DofMoney :amount="p.amount_minor" :currency="money.currency" /> → your bank ·
+                  {{ PAYOUT_STATUS_WORDS[p.status] }} · {{ payoutDate(p.at) }}
+                </DofText>
+              </li>
+            </ul>
           </div>
           <DofText role="caption" class="text-foreground/50">
             Your storefront stays on the street either way — only the checkout door waits for the banking.

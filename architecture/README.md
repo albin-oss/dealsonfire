@@ -23,6 +23,8 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | **C10_REPOSITORY_READINESS_REVIEW** | **ACTIVE** — the pre-certification repository audit + the C11 debt register |
 | **COMMERCE_FOUNDATION_RETROSPECTIVE** | **CLOSURE** — the Principal Engineer's retrospective that formally closes C1–C10; binding pattern/anti-pattern reference for C11+ |
 | FOUNDER_REVIEW_C6_C9 | **RECORD** (the operational campaign's closing packet) |
+| C11_MERCHANT_EXPERIENCE_VALIDATION | **RECORD** (the payout copy read as the maker; five binding corrections, applied) |
+| **C11_PRODUCTION_CERTIFICATION** | **CLOSURE** — the live Stripe payout certification (GO, v1.43.0): two real payouts, four-view equality, the five certification repairs, the closure-unblock findings. **The Commerce Program C1–C11 is complete and externally proven.** |
 
 Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
 reconstructs any order without SQL, incl. the §7 provider-operation journal) and

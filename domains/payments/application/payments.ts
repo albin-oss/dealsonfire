@@ -17,72 +17,18 @@
  * Structurally implements the Orders PaymentPort (authorize/void) WITHOUT
  * importing it — domains never import each other; the container composes.
  */
-import Stripe from 'stripe'
 import { uuidv7 } from '../../../platform/uuid'
 import type { Tx, EventStore } from '../../../platform/types'
 import { asClient } from '../../../platform/db'
 import { PAYMENTS_EVENT } from '../shared-kernel/events'
 
-export const STRIPE_PINNED_API_VERSION = '2026-06-24.dahlia'
+// C11 S1 split (motion only): the provider seam and the ledger live in their own
+// modules; existing import sites keep working through these re-exports.
+export * from './provider'
+export * from './ledger'
+import { type LedgerPoster, type LedgerLeg } from './ledger'
+import { type ProviderAuthorization, type ProviderAccountState } from './provider'
 
-/** The ONE deterministic decline amount, shared by every sandbox surface (MM-5). */
-export const SANDBOX_DECLINE_AMOUNT_MINOR = 66600
-/** The twin refuses to REFUND exactly this amount (failure-injection, scenario 8). */
-export const SANDBOX_REFUND_FAIL_AMOUNT_MINOR = 66601
-
-// ————————————————————————————————————————————— provider port (ACL — ADR-008 §6)
-
-export interface ProviderAuthorization { providerRef: string }
-/** What a provider intent looks like from outside (Slice 2 — the read seam). */
-export type ProviderIntentStatus = 'requires_confirmation' | 'authorized' | 'captured' | 'canceled' | 'failed'
-/** The connected account's capability snapshot as the provider tells it (Slice 3). */
-export interface ProviderAccountState {
-  chargesEnabled: boolean
-  payoutsEnabled: boolean
-  detailsSubmitted: boolean
-  disabledReason: string | null
-}
-export interface ProviderPort {
-  readonly name: 'sandbox' | 'stripe'
-  /** `retryable: true` marks infrastructure failures (network, 5xx) — the boundary
-   *  retries those; a decline is FINAL and settles as the operation's outcome.
-   *  `ok: 'requires_confirmation'` = the intent EXISTS but the BUYER's browser must
-   *  confirm it (Payment Element) — authorization arrives via webhook or return.
-   *  `destinationAccount` makes it a DESTINATION charge (CONNECT_FUNDS_FLOW §1). */
-  authorize(input: { attemptKey: string; amountMinor: number; currency: string; destinationAccount?: string | null }):
-    Promise<
-      | { ok: true; auth: ProviderAuthorization }
-      | { ok: 'requires_confirmation'; providerRef: string }
-      | { ok: false; retryable?: boolean; detail: string }>
-  /** Read-only provider truth (client-return convergence + client_secret handoff). */
-  readIntent(providerRef: string): Promise<{ status: ProviderIntentStatus; clientSecret: string | null }>
-  /** `applicationFeeMinor` joins at capture (fee policy on the CAPTURED amount). */
-  capture(providerRef: string, amountMinor: number, applicationFeeMinor?: number): Promise<{ ok: true } | { ok: false; detail: string }>
-  void(providerRef: string): Promise<void>
-  /** C6 (keystone enforcement): money back — idempotent per (intent, cause). */
-  refund(providerRef: string, amountMinor: number, idempotencyKey: string): Promise<{ ok: true } | { ok: false; detail: string }>
-  // ——— Connect (Slice 3): the bank teller's window — Stripe asks the legal
-  // questions; DOF never sees the papers. All three are network calls (G2 applies).
-  createConnectedAccount(input: { businessId: string; email: string | null }): Promise<{ accountId: string }>
-  createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }): Promise<{ url: string }>
-  readAccount(accountId: string): Promise<ProviderAccountState>
-  /** Slice 4 (RM-H1): the provider's own money movements since a watermark —
-   *  external reconciliation's raw material. */
-  listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]>
-}
-
-/** One provider-side money movement, as reconciliation sees it (Slice 4). */
-export interface ProviderBalanceTxn {
-  id: string
-  kind: 'charge' | 'refund' | 'payout' | 'fee' | 'transfer' | 'other'
-  amountMinor: number
-  currency: string
-  occurredAt: string
-  /** the intent's provider ref where the provider knows it (charge/refund) */
-  sourceRef: string | null
-}
-
-/** One journaled provider operation (UPDATED_PAYMENT_LIFECYCLE §7 phase 1 row). */
 export interface ProviderOperation {
   id: string
   kind: 'authorize' | 'capture' | 'void' | 'refund' | 'transfer_reversal' | 'payout'
@@ -99,334 +45,6 @@ export interface ProviderOperation {
   detail: Record<string, unknown>
 }
 
-/**
- * Deterministic twin (test law): declines SANDBOX_DECLINE_AMOUNT_MINOR, nothing
- * else. With `clientConfirmation` on (NUXT_SANDBOX_CLIENT_CONFIRMATION=1) it
- * mirrors the Element flow: authorize births an unconfirmed intent; the BUYER
- * (a test, or the dev sandbox-confirm endpoint) confirms it; reads tell truth.
- */
-export class SandboxProviderTwin implements ProviderPort {
-  readonly name = 'sandbox' as const
-  private readonly confirmed = new Map<string, 'authorized' | 'failed'>()
-  private readonly voided = new Set<string>()
-  constructor(
-    private readonly declineAmounts: number[] = [SANDBOX_DECLINE_AMOUNT_MINOR],
-    private readonly clientConfirmation = false,
-  ) {}
-  async authorize(input: { attemptKey: string; amountMinor: number; currency: string; destinationAccount?: string | null }) {
-    if (this.clientConfirmation) {
-      return { ok: 'requires_confirmation' as const, providerRef: `sandbox-pi-${input.attemptKey}` }
-    }
-    if (this.declineAmounts.includes(input.amountMinor)) {
-      return { ok: false as const, detail: 'The payment method declined.' }
-    }
-    return { ok: true as const, auth: { providerRef: `sandbox-pi-${input.attemptKey}` } }
-  }
-  /** The buyer's browser, played by a test or the dev endpoint. */
-  confirmClientSide(providerRef: string, outcome: 'authorized' | 'failed' = 'authorized'): void {
-    this.confirmed.set(providerRef, outcome)
-  }
-  async readIntent(providerRef: string) {
-    if (this.voided.has(providerRef)) return { status: 'canceled' as const, clientSecret: null }
-    const c = this.confirmed.get(providerRef)
-    if (c === 'authorized') return { status: 'authorized' as const, clientSecret: null }
-    if (c === 'failed') return { status: 'failed' as const, clientSecret: null }
-    if (this.clientConfirmation) return { status: 'requires_confirmation' as const, clientSecret: `sandbox-cs-${providerRef}` }
-    return { status: 'authorized' as const, clientSecret: null }
-  }
-  async capture(ref: string, amount: number, _feeMinor?: number) {
-    this.recordTxn('charge', amount, ref)
-    return { ok: true as const }
-  }
-  async void(ref: string): Promise<void> { this.voided.add(ref) }
-
-  // ——— reconciliation twin (Slice 4): the twin REMEMBERS its own money moves,
-  // so reconciliation can prove matching against a truthful outside record
-  private readonly balanceTxns: ProviderBalanceTxn[] = []
-  private txnSeq = 0
-  private recordTxn(kind: ProviderBalanceTxn['kind'], amountMinor: number, sourceRef: string | null): void {
-    this.txnSeq += 1
-    this.balanceTxns.push({
-      id: `sandbox-txn-${this.txnSeq}-${sourceRef ?? 'x'}`,
-      kind, amountMinor, currency: 'EUR', occurredAt: new Date().toISOString(), sourceRef,
-    })
-  }
-  /** Test hook: a movement OUR books know nothing about (the unmatched case). */
-  injectRogueTransaction(amountMinor: number): void { this.recordTxn('other', amountMinor, null) }
-  /** Test hook: the twin's memory resets with the database (truncateAll's partner). */
-  resetRecordedTransactions(): void { this.balanceTxns.length = 0 }
-  async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
-    return this.balanceTxns.filter((t) => t.occurredAt > sinceIso).slice(0, limit)
-  }
-
-  // ——— Connect twin (Slice 3): onboarding completes the moment the link is
-  // walked (the return URL IS the walk); tests stage restriction explicitly.
-  private readonly accounts = new Map<string, ProviderAccountState>()
-  async createConnectedAccount(input: { businessId: string; email: string | null }) {
-    const accountId = `sandbox-acct-${input.businessId.slice(-12)}`
-    if (!this.accounts.has(accountId)) {
-      this.accounts.set(accountId, { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, disabledReason: 'onboarding not finished' })
-    }
-    return { accountId }
-  }
-  async createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }) {
-    // walking the sandbox link "completes" onboarding — the return sync reads it
-    this.accounts.set(accountId, { chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true, disabledReason: null })
-    return { url: urls.returnUrl }
-  }
-  async readAccount(accountId: string): Promise<ProviderAccountState> {
-    return this.accounts.get(accountId)
-      ?? { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, disabledReason: 'no such account' }
-  }
-  /** Test hook: stage restriction/recovery. */
-  setAccountState(accountId: string, state: Partial<ProviderAccountState>): void {
-    const current = this.accounts.get(accountId)
-      ?? { chargesEnabled: false, payoutsEnabled: false, detailsSubmitted: false, disabledReason: null }
-    this.accounts.set(accountId, { ...current, ...state })
-  }
-  /** Scenario 8's injection is TRANSIENT (like a real provider hiccup): the magic
-   *  amount refuses each idempotency key ONCE, then succeeds — so tests can prove
-   *  the §7 driver's retry convergence instead of an eternal stall. */
-  private readonly refusedOnce = new Set<string>()
-  async refund(ref: string, amount: number, key: string) {
-    if (amount === SANDBOX_REFUND_FAIL_AMOUNT_MINOR && !this.refusedOnce.has(key)) {
-      this.refusedOnce.add(key)
-      return { ok: false as const, detail: 'The provider refused this refund (sandbox injection — transient).' }
-    }
-    this.recordTxn('refund', -amount, ref)
-    return { ok: true as const }
-  }
-}
-
-/**
- * Stripe adapter — manual-capture PaymentIntents under per-operation idempotency
- * keys (A8-7 layer 3). Card data never transits DOF (SAQ-A): confirmation happens
- * with provider-side test/hosted instruments; this server-side adapter only
- * creates, captures, and cancels intents by token.
- */
-/**
- * Refund flags derive from the charge's ACTUAL shape (RM-C4): `reverse_transfer`
- * is only legal when the charge carried a transfer (destination charge), and
- * `refund_application_fee` only when it carried an application fee. Sending
- * either against a plain charge is a Stripe error — which would have broken
- * every real refund (keystone, cancellation, return) on day one.
- */
-export function refundFlagsFor(charge: { transfer?: unknown; application_fee?: unknown } | null | undefined):
-  { reverse_transfer: boolean; refund_application_fee: boolean } {
-  return {
-    reverse_transfer: Boolean(charge?.transfer),
-    refund_application_fee: Boolean(charge?.application_fee),
-  }
-}
-
-/** RM-M5 tripwire: a webhook arriving under a different API version than the pin. */
-export function apiVersionMismatch(eventApiVersion: string | null | undefined): boolean {
-  return Boolean(eventApiVersion) && eventApiVersion !== STRIPE_PINNED_API_VERSION
-}
-
-export class StripeProviderAdapter implements ProviderPort {
-  readonly name = 'stripe' as const
-  private readonly stripe: Stripe
-  constructor(secretKey: string) {
-    this.stripe = new Stripe(secretKey, { apiVersion: STRIPE_PINNED_API_VERSION as Stripe.LatestApiVersion })
-  }
-  async authorize(input: { attemptKey: string; amountMinor: number; currency: string; destinationAccount?: string | null }) {
-    try {
-      // Slice 2: the intent is BORN UNCONFIRMED — the buyer's browser confirms it
-      // in the Payment Element (SAQ-A: card data never transits DOF). Cards only
-      // at launch (allow_redirects never); 3DS runs in-context via next_action.
-      const intent = await this.stripe.paymentIntents.create({
-        amount: input.amountMinor,
-        currency: input.currency.toLowerCase(),
-        capture_method: 'manual',
-        automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
-        // Slice 3: a DESTINATION charge — the funds route to the maker's
-        // connected account; the app fee joins at capture (fee-on-captured policy)
-        ...(input.destinationAccount ? { transfer_data: { destination: input.destinationAccount } } : {}),
-      }, { idempotencyKey: `${input.attemptKey}:intent` })
-      return { ok: 'requires_confirmation' as const, providerRef: intent.id }
-    } catch (error) {
-      const e = error as Stripe.errors.StripeError
-      // network/5xx/ratelimit are the provider being unreachable, not an answer —
-      // the boundary retries those under the same idempotency key (§7)
-      const retryable = ['StripeConnectionError', 'StripeAPIError', 'StripeRateLimitError'].includes(e.type ?? '')
-      return { ok: false as const, retryable, detail: e.message ?? 'The payment could not be authorized.' }
-    }
-  }
-  async readIntent(providerRef: string) {
-    const intent = await this.stripe.paymentIntents.retrieve(providerRef)
-    const status: ProviderIntentStatus =
-      intent.status === 'requires_capture' ? 'authorized'
-      : intent.status === 'succeeded' ? 'captured'
-      : intent.status === 'canceled' ? 'canceled'
-      : 'requires_confirmation' // requires_payment_method / requires_confirmation / requires_action / processing
-    return { status, clientSecret: intent.client_secret ?? null }
-  }
-
-  // ——— Connect (Slice 3, v2 as-certified): express dashboard + HOSTED onboarding
-  // only — no KYC data ever transits DOF (privacy posture + SAQ-A preserved).
-  // CERTIFICATION FINDING: accounts newly enabling Connect are Accounts-v2-only
-  // (v1 create refused); v1 READS and account links still work on v2 accounts,
-  // so only creation speaks v2. Responsibilities: the PLATFORM collects fees and
-  // bears losses (classic express — matches the approved dispute-loss policy).
-  async createConnectedAccount(input: { businessId: string; email: string | null }) {
-    const account = await this.stripe.v2.core.accounts.create({
-      display_name: `DOF maker ${input.businessId.slice(-8)}`,
-      contact_email: input.email ?? `no-reply+${input.businessId.slice(-8)}@dof.example`,
-      dashboard: 'express',
-      identity: { country: 'ca' },
-      configuration: {
-        merchant: { capabilities: { card_payments: { requested: true } } },
-        recipient: { capabilities: { stripe_balance: { stripe_transfers: { requested: true } } } },
-      },
-      defaults: { responsibilities: { fees_collector: 'application', losses_collector: 'application' } },
-      metadata: { dof_business_id: input.businessId },
-    } as never)
-    return { accountId: account.id }
-  }
-  async createOnboardingLink(accountId: string, urls: { refreshUrl: string; returnUrl: string }) {
-    const link = await this.stripe.accountLinks.create({
-      account: accountId, type: 'account_onboarding',
-      refresh_url: urls.refreshUrl, return_url: urls.returnUrl,
-    })
-    return { url: link.url }
-  }
-  async readAccount(accountId: string): Promise<ProviderAccountState> {
-    const account = await this.stripe.accounts.retrieve(accountId)
-    return {
-      chargesEnabled: account.charges_enabled ?? false,
-      payoutsEnabled: account.payouts_enabled ?? false,
-      detailsSubmitted: account.details_submitted ?? false,
-      disabledReason: account.requirements?.disabled_reason ?? null,
-    }
-  }
-
-  /** Slice 4 (RM-H1): Stripe's balance transactions with sources expanded so
-   *  charges and refunds carry their PaymentIntent ref for matching.
-   *  CERTIFICATION FINDING (cross-currency): balance transactions report in the
-   *  SETTLEMENT currency (e.g. CAD for a CAD-based account) while DOF's facts
-   *  are PRESENTMENT truth (EUR) — matching therefore uses the expanded
-   *  source's amount/currency, falling back to the txn only when no source. */
-  async listBalanceTransactions(sinceIso: string, limit: number): Promise<ProviderBalanceTxn[]> {
-    const since = Math.floor(new Date(sinceIso).getTime() / 1000)
-    const page = await this.stripe.balanceTransactions.list(
-      { created: { gt: since }, limit, expand: ['data.source'] })
-    return page.data.map((t) => {
-      const source = t.source as { id?: string; object?: string; amount?: number; currency?: string; payment_intent?: string | { id: string } } | null
-      // a dispute-sourced movement (chargeback withdrawal) matches our DISPUTE
-      // record — carry the du_ id; everything else matches facts by intent ref
-      const intentRef = source?.object === 'dispute'
-        ? source.id ?? null
-        : typeof source?.payment_intent === 'object' ? source.payment_intent?.id : source?.payment_intent ?? null
-      const kind: ProviderBalanceTxn['kind'] =
-        t.type === 'charge' || t.type === 'payment' ? 'charge'
-        : t.type === 'refund' || t.type === 'payment_refund' ? 'refund'
-        : t.type === 'payout' ? 'payout'
-        : t.type === 'stripe_fee' || t.type === 'application_fee' || t.type === 'application_fee_refund' ? 'fee'
-        // destination-charge mechanics: the transfer out, its reversal on refund —
-        // provider-side funds routing; DOF's truth is the capture/refund ledger legs
-        : t.type.startsWith('transfer') ? 'transfer'
-        : 'other'
-      // presentment truth from the source (charge/refund amounts are presentment);
-      // the balance txn's sign carries direction
-      const usePresentment = (source?.object === 'charge' || source?.object === 'refund') && typeof source.amount === 'number'
-      const amountMinor = usePresentment ? Math.sign(t.amount || 1) * source!.amount! : t.amount
-      const currency = usePresentment && source?.currency ? source.currency.toUpperCase() : t.currency.toUpperCase()
-      return {
-        id: t.id, kind, amountMinor, currency,
-        occurredAt: new Date(t.created * 1000).toISOString(), sourceRef: intentRef ?? null,
-      }
-    })
-  }
-  async capture(providerRef: string, amountMinor: number, applicationFeeMinor?: number) {
-    try {
-      await this.stripe.paymentIntents.capture(providerRef,
-        {
-          amount_to_capture: amountMinor,
-          ...(applicationFeeMinor && applicationFeeMinor > 0 ? { application_fee_amount: applicationFeeMinor } : {}),
-        },
-        { idempotencyKey: `${providerRef}:capture:1` }) // ONE capture — the verified law
-      return { ok: true as const }
-    } catch (error) {
-      return { ok: false as const, detail: (error as Stripe.errors.StripeError).message ?? 'The capture failed.' }
-    }
-  }
-  async void(providerRef: string): Promise<void> {
-    await this.stripe.paymentIntents.cancel(providerRef).catch(() => { /* already terminal — idempotent enough */ })
-  }
-  async refund(providerRef: string, amountMinor: number, idempotencyKey: string) {
-    try {
-      // The flags come from the charge's real shape (RM-C4): reverse_transfer pulls
-      // funds back from the connected account only when a transfer exists
-      // (CONNECT_FUNDS_FLOW §2); the app-fee refund joins only when a fee was taken.
-      const intent = await this.stripe.paymentIntents.retrieve(providerRef, { expand: ['latest_charge'] })
-      const charge = typeof intent.latest_charge === 'object' ? intent.latest_charge : null
-      await this.stripe.refunds.create(
-        { payment_intent: providerRef, amount: amountMinor, ...refundFlagsFor(charge) },
-        { idempotencyKey })
-      return { ok: true as const }
-    } catch (error) {
-      return { ok: false as const, detail: (error as Stripe.errors.StripeError).message ?? 'The refund failed.' }
-    }
-  }
-}
-
-// ————————————————————————————————————————————— the ledger (A8-1; L1–L3)
-
-export type LedgerAccountKind =
-  | 'psp_clearing' | 'merchant_holding' | 'merchant_payable'
-  | 'platform_fees' | 'psp_fee_expense' | 'refund_liability' | 'dispute_reserve'
-
-export interface LedgerLeg { kind: LedgerAccountKind; businessId: string | null; deltaMinor: number }
-
-export class LedgerPoster {
-  /** The only write path for money truth: one balanced posting, atomically. */
-  async post(tx: Tx, currency: string, legs: LedgerLeg[], cause: Record<string, unknown>): Promise<string> {
-    const sum = legs.reduce((s, leg) => s + leg.deltaMinor, 0)
-    if (sum !== 0) throw new Error(`unbalanced posting: ${sum} (L1)`)
-    const client = asClient(tx)
-    const postingId = uuidv7()
-    for (const leg of legs) {
-      // CERTIFICATION FINDING: NULL business_id is DISTINCT under the table's
-      // UNIQUE — platform-level legs need the partial index's conflict target,
-      // or every posting mints a fresh account and balances fragment.
-      const { rows } = leg.businessId === null
-        ? await client.query<{ id: string }>(
-            `INSERT INTO ledger_accounts (id, kind, business_id, currency)
-             VALUES ($1, $2, NULL, $3)
-             ON CONFLICT (kind, currency) WHERE business_id IS NULL DO UPDATE SET kind = EXCLUDED.kind
-             RETURNING id`,
-            [uuidv7(), leg.kind, currency])
-        : await client.query<{ id: string }>(
-            `INSERT INTO ledger_accounts (id, kind, business_id, currency)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (kind, business_id, currency) DO UPDATE SET kind = EXCLUDED.kind
-             RETURNING id`,
-            [uuidv7(), leg.kind, leg.businessId, currency])
-      const accountId = rows[0]!.id
-      await client.query(`SELECT id FROM ledger_accounts WHERE id = $1 FOR UPDATE`, [accountId])
-      await client.query(
-        `INSERT INTO ledger_entries (id, posting_id, account_id, delta_minor, cause) VALUES ($1, $2, $3, $4, $5)`,
-        [uuidv7(), postingId, accountId, leg.deltaMinor, JSON.stringify(cause)])
-      await client.query(
-        `UPDATE ledger_accounts SET balance_minor = balance_minor + $2 WHERE id = $1`,
-        [accountId, leg.deltaMinor])
-    }
-    return postingId
-  }
-
-  /** L3 — the recompute identity: cached balances ≡ entry sums. Loud when false. */
-  async recomputeCheck(tx: Tx): Promise<{ clean: boolean; drift: Array<{ account_id: string; cached: number; actual: number }> }> {
-    const { rows } = await asClient(tx).query<{ account_id: string; cached: string; actual: string }>(
-      `SELECT a.id AS account_id, a.balance_minor::text AS cached,
-              COALESCE((SELECT sum(e.delta_minor) FROM ledger_entries e WHERE e.account_id = a.id), 0)::text AS actual
-       FROM ledger_accounts a`)
-    const drift = rows.filter((r) => r.cached !== r.actual)
-      .map((r) => ({ account_id: r.account_id, cached: Number(r.cached), actual: Number(r.actual) }))
-    return { clean: drift.length === 0, drift }
-  }
-}
-
 // ————————————————————————————————————————————— the service (intent lifecycle)
 
 export class PaymentsService {
@@ -440,6 +58,10 @@ export class PaymentsService {
     /** Risk limits (Slice 4, approved dispute-loss policy §4): 0 = unlimited. */
     private readonly riskLimits: { maxOpenDisputesMinor: number; maxLossMinor: number } =
       { maxOpenDisputesMinor: 0, maxLossMinor: 0 },
+    /** Payout policy (C11): Founder values wearing configuration
+     *  (NUXT_PAYOUT_INTERVAL_DAYS / NUXT_PAYOUT_MIN_MINOR). */
+    private readonly payoutPolicy: { intervalDays: number; minMinor: number } =
+      { intervalDays: 7, minMinor: 1000 },
   ) {}
 
   /** The one fee computation — the provider call and the ledger legs both use it. */
@@ -582,6 +204,21 @@ export class PaymentsService {
       intentId: rows[0]?.id ?? null, providerRef,
     })
     return { opId: op.opId }
+  }
+
+  /** C11 LIVE-CERTIFICATION FINDING: an order cancelled at confirmation (every
+   *  line fallen) left the buyer's AUTHORIZATION standing — a real card holds
+   *  the funds for up to 7 days for an order that will never charge. The
+   *  cancellation must release the hold: journal the void by attempt key. */
+  async voidByAttemptKey(tx: Tx, attemptKey: string): Promise<{ opId: string | null }> {
+    const { rows } = await asClient(tx).query<{ provider_ref: string | null; state: string }>(
+      `SELECT provider_ref, state FROM payment_intents WHERE attempt_key = $1`, [attemptKey])
+    const intent = rows[0]
+    if (!intent?.provider_ref || !['created', 'authorized', 'requires_action'].includes(intent.state)) {
+      return { opId: null } // nothing held — or already captured/voided (their own paths)
+    }
+    const { opId } = await this.requestVoid(tx, intent.provider_ref)
+    return { opId }
   }
 
   /** Phase 3 for void. */
@@ -778,7 +415,21 @@ export class PaymentsService {
       [intent.id, input.causeKey])
     if (prior[0]) return { ok: true, releasedMinor: 0, alreadyDone: true }
 
-    const releasable = Number(intent.captured_minor) - Number(intent.refunded_minor)
+    // C11 LIVE-CERTIFICATION FINDING: the release must move the maker's NET —
+    // capture put (captured − fee) into holding and refunds pull only the
+    // maker's share back out, so releasing GROSS overdraws this order's holding
+    // by the platform fee and silently eats sibling orders' waiting money
+    // (Stripe then refuses the inflated payout: insufficient funds). Same fee
+    // truth source as settleRefund: the platform_fees ledger legs per intent.
+    const { rows: feeRows } = await client.query<{ taken: string; reversed: string }>(
+      `SELECT
+         COALESCE(sum(e.delta_minor) FILTER (WHERE e.cause->>'kind' = 'capture'), 0)::text AS taken,
+         COALESCE(-sum(e.delta_minor) FILTER (WHERE e.cause->>'kind' = 'refund'), 0)::text AS reversed
+       FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+       WHERE a.kind = 'platform_fees' AND e.cause->>'intent_id' = $1`, [intent.id])
+    const feeTaken = Number(feeRows[0]?.taken ?? 0)
+    const feeReversed = Number(feeRows[0]?.reversed ?? 0)
+    const releasable = (Number(intent.captured_minor) - feeTaken) - (Number(intent.refunded_minor) - feeReversed)
     if (releasable <= 0) return { ok: true, releasedMinor: 0, alreadyDone: false }
     await this.ledger.post(tx, intent.currency, [
       { kind: 'merchant_holding', businessId: intent.business_id, deltaMinor: -releasable },
@@ -1028,6 +679,189 @@ export class PaymentsService {
     return rows[0]?.state ?? null
   }
 
+  // ——— C11: payouts (the money's last mile — eligibility was C6's hold release)
+
+  /**
+   * Phase 1 for the payout sweep: every business whose PAYABLE balance clears
+   * the gates gets ONE journaled payout op per period. The period is the count
+   * of prior payout postings + 1 (ledger-derived, schedule-change-proof — the
+   * ONE derivation, per the PE review §6.3). Gates, in order: payable > 0 ·
+   * payouts_enabled · not risk-paused · has a connected account · net of
+   * UNCOVERED dispute exposure (open amounts the freeze fell short of) ·
+   * ≥ the minimum · the interval has passed since the last payout posting.
+   */
+  async preparePayoutSweep(tx: Tx): Promise<{ opIds: string[]; skipped: number }> {
+    const client = asClient(tx)
+    const { rows: candidates } = await client.query<{
+      business_id: string; currency: string; payable: string
+      provider_account: string | null; payouts_enabled: boolean | null; risk_paused: boolean | null
+      uncovered: string; prior_payouts: string; last_payout_at: string | null
+    }>(
+      `SELECT a.business_id, a.currency, a.balance_minor::text AS payable,
+              p.provider_account, p.payouts_enabled, (p.risk_paused_at IS NOT NULL) AS risk_paused,
+              COALESCE((SELECT sum(d.amount_minor - d.frozen_minor) FROM payment_disputes d
+                        WHERE d.business_id = a.business_id AND d.state = 'open'), 0)::text AS uncovered,
+              COALESCE((SELECT count(*) FROM ledger_entries e JOIN ledger_accounts la ON la.id = e.account_id
+                        WHERE la.kind = 'merchant_payable' AND la.business_id = a.business_id
+                          AND e.cause->>'kind' = 'payout'), 0)::text AS prior_payouts,
+              (SELECT max(e.created_at)::text FROM ledger_entries e JOIN ledger_accounts la ON la.id = e.account_id
+                WHERE la.kind = 'merchant_payable' AND la.business_id = a.business_id
+                  AND e.cause->>'kind' = 'payout') AS last_payout_at
+       FROM ledger_accounts a
+       LEFT JOIN merchant_payment_profiles p ON p.business_id = a.business_id
+       WHERE a.kind = 'merchant_payable' AND a.balance_minor > 0
+         -- one payout in flight per business, EVER: a pending op (incl. a failed
+         -- payout's re-armed retry) blocks new periods until it lands
+         AND NOT EXISTS (SELECT 1 FROM provider_operations po
+                          WHERE po.business_id = a.business_id AND po.kind = 'payout' AND po.state = 'pending')
+       ORDER BY a.business_id LIMIT 100`)
+    const opIds: string[] = []
+    let skipped = 0
+    for (const c of candidates) {
+      const payoutable = Number(c.payable) - Math.max(0, Number(c.uncovered))
+      const intervalDue = !c.last_payout_at
+        || (Date.now() - new Date(c.last_payout_at).getTime()) >= this.payoutPolicy.intervalDays * 86_400_000
+      if (!c.payouts_enabled || c.risk_paused || !c.provider_account
+          || payoutable < this.payoutPolicy.minMinor || !intervalDue) { skipped += 1; continue }
+      const period = Number(c.prior_payouts) + 1
+      const op = await this.journal(tx, {
+        kind: 'payout', idempotencyKey: `payout:${c.business_id}:${period}`,
+        businessId: c.business_id, amountMinor: payoutable, currency: c.currency,
+        detail: { account: c.provider_account, period },
+      })
+      if (op.state === 'pending') opIds.push(op.opId)
+    }
+    return { opIds, skipped }
+  }
+
+  /** Phase 3 for payout: the obligation settles — payable → out of the Stripe
+   *  system. The posting's cause IS the permanent payout record (PE review §3.1):
+   *  period + provider payout id live in append-only ledger truth, not a table. */
+  async settlePayout(tx: Tx, op: ProviderOperation, result: { payoutId: string }): Promise<void> {
+    const client = asClient(tx)
+    await client.query(
+      `UPDATE provider_operations SET provider_ref = $2 WHERE id = $1`, [op.id, result.payoutId])
+    await this.ledger.post(tx, op.currency!, [
+      { kind: 'merchant_payable', businessId: op.business_id, deltaMinor: -op.amount_minor! },
+      { kind: 'psp_clearing', businessId: null, deltaMinor: op.amount_minor! },
+    ], { kind: 'payout', period: op.detail.period, provider_payout_id: result.payoutId, business_id: op.business_id })
+  }
+
+  /**
+   * C11 S2: a payout's LATER truth arrives (webhook or reconciliation catch-up).
+   * `paid` emits the letter-bearing event. `failed` is §7-native recovery: the
+   * settle posting reverses (payable comes home, cause 'payout_failed'), a
+   * FRESH op re-arms the retry under `…:r{n}` — facts + journal, no third
+   * lifecycle store. Idempotent per provider payout id (the reversal posts once).
+   */
+  async handlePayoutOutcome(tx: Tx, input: { providerPayoutId: string; outcome: 'paid' | 'failed'; detail?: string | null }):
+    Promise<{ handled: boolean }> {
+    const client = asClient(tx)
+    const { rows } = await client.query<ProviderOperation & { amount_minor: string }>(
+      `SELECT id, kind, idempotency_key, attempt_key, intent_id, provider_ref, order_id, business_id,
+              amount_minor::text AS amount_minor, currency, state, attempts, detail
+       FROM provider_operations WHERE kind = 'payout' AND provider_ref = $1 FOR UPDATE`, [input.providerPayoutId])
+    const op = rows[0]
+    if (!op) return { handled: false } // not ours (e.g. a platform-balance payout)
+    const period = Number(op.detail.period ?? 0)
+    const base = { business_id: op.business_id, amount_minor: Number(op.amount_minor), currency: op.currency, period, provider_payout_id: input.providerPayoutId }
+    if (input.outcome === 'paid') {
+      // idempotent per payout id — a replayed 'paid' appends nothing twice
+      const { rows: seen } = await client.query<{ id: string }>(
+        `SELECT id FROM payments_domain_events WHERE event_type = $1
+          AND payload->>'provider_payout_id' = $2 LIMIT 1`,
+        [PAYMENTS_EVENT.PAYOUT_PAID, input.providerPayoutId])
+      if (seen[0]) return { handled: true }
+      await this.events.append(tx, [{
+        businessId: op.business_id, aggregate: { type: 'payout', id: op.id },
+        eventType: PAYMENTS_EVENT.PAYOUT_PAID, schemaVersion: 1,
+        payload: base, actor: { type: 'system', id: 'payments' },
+      }])
+      return { handled: true }
+    }
+    // failed: reverse ONCE (idempotent per payout id), re-arm the retry
+    const { rows: prior } = await client.query<{ id: string }>(
+      `SELECT e.id FROM ledger_entries e WHERE e.cause->>'kind' = 'payout_failed'
+        AND e.cause->>'provider_payout_id' = $1 LIMIT 1`, [input.providerPayoutId])
+    if (prior[0]) return { handled: true } // replayed failure webhook — already reversed
+    await this.ledger.post(tx, op.currency!, [
+      { kind: 'merchant_payable', businessId: op.business_id, deltaMinor: Number(op.amount_minor) },
+      { kind: 'psp_clearing', businessId: null, deltaMinor: -Number(op.amount_minor) },
+    ], { kind: 'payout_failed', period, provider_payout_id: input.providerPayoutId, business_id: op.business_id })
+    const retry = Number(/:r(\d+)$/.exec(op.idempotency_key)?.[1] ?? 0) + 1
+    await this.journal(tx, {
+      kind: 'payout', idempotencyKey: `payout:${op.business_id}:${period}:r${retry}`,
+      businessId: op.business_id, amountMinor: Number(op.amount_minor), currency: op.currency,
+      detail: { account: op.detail.account, period, retry_of: input.providerPayoutId },
+    })
+    await this.events.append(tx, [{
+      businessId: op.business_id, aggregate: { type: 'payout', id: op.id },
+      eventType: PAYMENTS_EVENT.PAYOUT_FAILED, schemaVersion: 1,
+      payload: { ...base, detail: input.detail ?? null }, actor: { type: 'system', id: 'payments' },
+    }])
+    return { handled: true }
+  }
+
+  /**
+   * C11 S2: the maker's money story — the THREE numbers and one rhythm the
+   * Merchant Experience Validation fixed (waiting / ready-net / paid, with the
+   * set-aside visible so numbers never surprise). All state-derived from the
+   * ledger; the presentation model is promotion-ready (PE review: no UI owns
+   * payout logic — this IS the model, wherever it later renders).
+   */
+  async moneyStory(tx: Tx, businessId: string): Promise<{
+    currency: string
+    waiting_minor: number
+    ready_minor: number
+    set_aside_minor: number
+    paid_minor: number
+    min_minor: number
+    interval_days: number
+    next_due_at: string | null
+    history: Array<{ amount_minor: number; at: string; provider_payout_id: string; status: 'on_its_way' | 'arrived' | 'needs_another_try' }>
+  }> {
+    const client = asClient(tx)
+    const { rows: bal } = await client.query<{ kind: string; balance: string; currency: string }>(
+      `SELECT kind, balance_minor::text AS balance, currency FROM ledger_accounts
+       WHERE business_id = $1 AND kind IN ('merchant_holding','merchant_payable')`, [businessId])
+    const currency = bal[0]?.currency ?? 'EUR'
+    const waiting = Math.max(0, Number(bal.find((b) => b.kind === 'merchant_holding')?.balance ?? 0))
+    const payableGross = Math.max(0, Number(bal.find((b) => b.kind === 'merchant_payable')?.balance ?? 0))
+    const { rows: exposure } = await client.query<{ uncovered: string }>(
+      `SELECT COALESCE(sum(amount_minor - frozen_minor), 0)::text AS uncovered
+       FROM payment_disputes WHERE business_id = $1 AND state = 'open'`, [businessId])
+    const setAside = Math.min(payableGross, Math.max(0, Number(exposure[0]?.uncovered ?? 0)))
+    const { rows: payouts } = await client.query<{ amount: string; at: string; po: string; failed: boolean; arrived: boolean }>(
+      `SELECT (-e.delta_minor)::text AS amount, e.created_at::text AS at,
+              e.cause->>'provider_payout_id' AS po,
+              EXISTS (SELECT 1 FROM ledger_entries f WHERE f.cause->>'kind' = 'payout_failed'
+                        AND f.cause->>'provider_payout_id' = e.cause->>'provider_payout_id') AS failed,
+              EXISTS (SELECT 1 FROM payments_domain_events ev WHERE ev.event_type = 'payments.payout.paid'
+                        AND ev.payload->>'provider_payout_id' = e.cause->>'provider_payout_id') AS arrived
+       FROM ledger_entries e JOIN ledger_accounts a ON a.id = e.account_id
+       WHERE a.kind = 'merchant_payable' AND a.business_id = $1 AND e.cause->>'kind' = 'payout'
+       ORDER BY e.created_at DESC LIMIT 10`, [businessId])
+    const paid = payouts.filter((p) => !p.failed).reduce((s, p) => s + Number(p.amount), 0)
+    const lastAt = payouts[0]?.at ?? null
+    const nextDue = lastAt
+      ? new Date(new Date(lastAt).getTime() + this.payoutPolicy.intervalDays * 86_400_000).toISOString()
+      : null
+    return {
+      currency,
+      waiting_minor: waiting,
+      ready_minor: payableGross - setAside,
+      set_aside_minor: setAside,
+      paid_minor: paid,
+      min_minor: this.payoutPolicy.minMinor,
+      interval_days: this.payoutPolicy.intervalDays,
+      next_due_at: nextDue,
+      history: payouts.map((p) => ({
+        amount_minor: Number(p.amount), at: p.at, provider_payout_id: p.po ?? '',
+        status: p.failed ? 'needs_another_try' as const : p.arrived ? 'arrived' as const : 'on_its_way' as const,
+      })),
+    }
+  }
+
   /** The 24h honest failure closes its pending provider work — visible, never eternal. */
   async abandonPending(tx: Tx, attemptKey: string): Promise<void> {
     await asClient(tx).query(
@@ -1056,3 +890,4 @@ export class PaymentsService {
     return { fresh: true }
   }
 }
+

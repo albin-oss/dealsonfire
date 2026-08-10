@@ -22,4 +22,18 @@ export async function gotoStory(page: Page, id: string, globals?: string): Promi
   if (globals) params.set('globals', globals)
   await page.goto(`/iframe.html?${params.toString()}`)
   await page.waitForSelector('#storybook-root :first-child', { state: 'attached' })
+  // C11 closure finding: scans must never race a ONE-SHOT animation — axe once
+  // caught a toast mid-fade (200ms leave transition of a 6s auto-settle) and
+  // read the blended colors as a contrast violation. Wait until every finite
+  // animation/transition has finished; infinite ones (skeleton pulse, spinners)
+  // ARE the stable state and are deliberately ignored. Bounded: worst finite
+  // tempo is 1100ms (celebration) — 10s covers chained one-shots safely.
+  await page.waitForFunction(
+    () => document.getAnimations().every((a) => {
+      const timing = a.effect?.getComputedTiming()
+      return timing?.iterations === Infinity || a.playState === 'finished'
+    }),
+    undefined,
+    { timeout: 10_000 },
+  )
 }

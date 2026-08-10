@@ -55,8 +55,8 @@ export class PaymentsBoundary {
 
     // ——— phase 2: the provider, OUTSIDE any transaction, under the stable key
     let result:
-      | { kind: 'settle'; payload: { ok: true; auth: { providerRef: string } } | { ok: 'requires_confirmation'; providerRef: string } | { ok: false; detail: string } | null }
-      | { kind: 'retry'; detail: string }
+      | { kind: 'settle'; payload: { ok: true; auth: { providerRef: string } } | { ok: 'requires_confirmation'; providerRef: string } | { ok: false; detail: string } | null; payoutId?: string }
+      | { kind: 'retry'; detail: string; rotateKey?: boolean }
     try {
       switch (op.kind) {
         case 'authorize': {
@@ -95,6 +95,18 @@ export class PaymentsBoundary {
           result = { kind: 'settle', payload: null }
           break
         }
+        case 'payout': {
+          // C11: pay the maker from THEIR connected balance; an unavailable
+          // balance is a WAIT (retryable), not a failure — the driver returns
+          const r = await this.deps.provider.payout({
+            accountId: String(op.detail.account ?? ''), amountMinor: op.amount_minor!,
+            currency: op.currency!, idempotencyKey: op.idempotency_key,
+          })
+          result = r.ok
+            ? { kind: 'settle', payload: null, payoutId: r.payoutId }
+            : { kind: 'retry', detail: r.detail, rotateKey: r.rotateKey }
+          break
+        }
         default:
           result = { kind: 'retry', detail: `unknown operation kind ${op.kind}` }
       }
@@ -103,8 +115,16 @@ export class PaymentsBoundary {
     }
 
     if (result.kind === 'retry') {
+      // rotateKey: a definitive decline CONSUMED the provider-side idempotency
+      // key (the refusal is cached against it) — rename the journal's key so the
+      // next attempt is a fresh request. Safe exactly because the decline proves
+      // nothing was created. Ambiguous failures keep the stable key (§7 replay).
       await this.deps.runTx((tx) => asClient(tx).query(
-        `UPDATE provider_operations SET last_error = $2, updated_at = now() WHERE id = $1`,
+        result.kind === 'retry' && result.rotateKey
+          ? `UPDATE provider_operations SET last_error = $2, updated_at = now(),
+               idempotency_key = regexp_replace(idempotency_key, ':w[0-9]+$', '') || ':w' || attempts
+             WHERE id = $1`
+          : `UPDATE provider_operations SET last_error = $2, updated_at = now() WHERE id = $1`,
         [op.id, result.kind === 'retry' ? result.detail : null]))
       if (op.attempts >= ALARM_AT_ATTEMPTS) {
         this.deps.alarm(`[payments] provider operation ${op.kind} ${op.id} (order ${op.order_id ?? '—'}) still failing after ${op.attempts} attempts: ${result.detail} — the driver keeps retrying; a human should look`)
@@ -123,6 +143,7 @@ export class PaymentsBoundary {
         case 'capture': await this.deps.service.settleCapture(tx, op); break
         case 'refund': await this.deps.service.settleRefund(tx, op); break
         case 'void': await this.deps.service.settleVoid(tx, op); break
+        case 'payout': await this.deps.service.settlePayout(tx, op, { payoutId: result.payoutId! }); break
       }
       return true
     })
