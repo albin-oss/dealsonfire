@@ -14,12 +14,11 @@
  */
 import type pg from 'pg'
 import type { OutboxConsumer } from '@platform/outbox-dispatcher'
-import type { MailPort } from '@platform/mail'
 import { asClient } from '@platform/db'
+import { journalLetter } from '@platform/mail-journal'
 
 interface Deps {
   pool: pg.Pool
-  mail: MailPort
   appBaseUrl: string
 }
 
@@ -53,14 +52,21 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
   const orderLink = (orderId: string) => `${deps.appBaseUrl}/o/${orderId}`
   const workshopLink = (path = '/orders') => `${deps.appBaseUrl}${path}`
 
-  const send = (to: string | null, subject: string, body: string) =>
-    to ? deps.mail.send({ to, subject, body }) : Promise.resolve()
+  // C12-1 §7: consumers COMPOSE and JOURNAL inside their transaction; the
+  // MailJournalDriver speaks to the provider outside any transaction. The
+  // journal's unique key (consumer, event id, recipient) IS exactly-once
+  // composition. `critical` marks identity/money letters: exempt from derived
+  // suppression, alarmed when they bounce.
+  const letter = (tx: unknown, event: { eventId: string }, consumer: string) =>
+    (to: string | null, subject: string, body: string, critical = false) =>
+      to ? journalLetter(tx as never, { consumer, dedupRef: event.eventId, to, subject, body, critical }) : Promise.resolve()
 
   const orders: OutboxConsumer[] = [
     {
       consumer: 'notify.order-confirmed',
       eventTypes: ['orders.order.confirmed'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.order-confirmed')
         const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
         const facts = await orderFacts(tx, orderId)
         if (!facts) return
@@ -68,7 +74,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
           `${facts.store_name} has your order`,
           `It's really happening — your order (${facts.order_number}) is confirmed and ${facts.store_name} is on it.\n\n` +
           `What happens next: they make it ready and ship it; we'll tell you the moment it's on its way.\n\n` +
-          `Follow the whole story here: ${orderLink(orderId)}`)
+          `Follow the whole story here: ${orderLink(orderId)}`, true)
         await send(facts.owner_email,
           `Someone just bought from you — ${facts.order_number}`,
           `${facts.buyer_name} bought from your shop for ${money(facts.total_minor, facts.currency)}.\n\n` +
@@ -80,6 +86,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.promise-missed',
       eventTypes: ['orders.order.promise_missed'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.promise-missed')
         const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
         const facts = await orderFacts(tx, orderId)
         if (!facts) return
@@ -100,6 +107,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.order-cancelled',
       eventTypes: ['orders.order.cancelled'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.order-cancelled')
         const payload = event.payload as { order_id?: string; reason?: string }
         const orderId = String(payload.order_id ?? '')
         const facts = await orderFacts(tx, orderId)
@@ -109,7 +117,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
             `Cancelled — your money is on its way back`,
             `Your order (${facts.order_number}) at ${facts.store_name} is cancelled${payload.reason === 'merchant_approved' ? ' — the maker approved your request' : ' at your request'}.\n\n` +
             `What happens next: the refund lands back on your original payment method, usually within a few business days. Anything that already shipped is unaffected.\n\n` +
-            `The story: ${orderLink(orderId)}`)
+            `The story: ${orderLink(orderId)}`, true)
           await send(facts.owner_email,
             `${facts.order_number} was cancelled`,
             `${facts.buyer_name}'s order is cancelled${payload.reason === 'merchant_approved' ? ' — you approved the request' : ' before you packed it'}; the refund is handled and any tracked stock is back on your shelf.\n\n` +
@@ -122,7 +130,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
             `Your money is on its way back — ${facts.store_name}`,
             `Your order (${facts.order_number}) didn't ship, so the protection kicked in: your refund is automatic and already underway.\n\n` +
             `What happens next: the money returns to your original payment method — usually within a few business days. Nothing more will be charged.\n\n` +
-            `The full story: ${orderLink(orderId)}`)
+            `The full story: ${orderLink(orderId)}`, true)
           await send(facts.owner_email,
             `${facts.order_number} was refunded automatically`,
             `${facts.buyer_name}'s order passed the protection threshold without shipping, so it was refunded and closed.\n\n` +
@@ -133,10 +141,42 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
     },
   ]
 
+  // C12-1: the promised letter — "we'll tell you the moment it's on its way"
+  const dispatched: OutboxConsumer = {
+    consumer: 'notify.order-dispatched',
+    eventTypes: ['orders.order.dispatched'],
+    async handle(tx, event) {
+      const send = letter(tx, event, 'notify.order-dispatched')
+      const payload = event.payload as { order_id?: string; method?: string; partial?: boolean; carrier?: string | null; tracking_ref?: string | null }
+      const orderId = String(payload.order_id ?? '')
+      const facts = await orderFacts(tx, orderId)
+      if (!facts) return
+      if (payload.method === 'pickup') {
+        await send(facts.buyer_email,
+          `Ready for pickup — ${facts.store_name}`,
+          `Your order (${facts.order_number}) is ready and waiting for you at ${facts.store_name}.\n\n` +
+          `What happens next: come collect it whenever suits — the maker has it set aside.\n\n` +
+          `The story: ${orderLink(orderId)}`)
+        return
+      }
+      const trackingLine = payload.tracking_ref
+        ? `Tracking${payload.carrier ? ` with ${payload.carrier}` : ''}: ${payload.tracking_ref}\n\n`
+        : ''
+      await send(facts.buyer_email,
+        `It's on its way — ${facts.store_name}`,
+        `${payload.partial ? `Part of your order` : `Your order`} (${facts.order_number}) just left ${facts.store_name}'s workshop.\n\n` +
+        trackingLine +
+        `What happens next: it makes its way to you${payload.partial ? '; the rest follows separately' : ''}. Nothing to do but look forward to it.\n\n` +
+        `Follow it here: ${orderLink(orderId)}`)
+    },
+  }
+  orders.push(dispatched)
+
   const cancelRequested: OutboxConsumer = {
     consumer: 'notify.cancel-requested',
     eventTypes: ['orders.order.cancel_requested'],
     async handle(tx, event) {
+      const send = letter(tx, event, 'notify.cancel-requested')
       const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
       const facts = await orderFacts(tx, orderId)
       if (!facts) return
@@ -154,6 +194,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.refund-issued',
       eventTypes: ['payments.refund.issued'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.cancel-requested')
         const payload = event.payload as { order_id?: string; amount_minor?: number; currency?: string; cause_key?: string }
         const orderId = String(payload.order_id ?? '')
         const facts = await orderFacts(tx, orderId)
@@ -162,13 +203,14 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
           `${money(Number(payload.amount_minor ?? 0), String(payload.currency ?? facts.currency))} is on its way back to you`,
           `A refund for your order (${facts.order_number}) at ${facts.store_name} has been issued.\n\n` +
           `What happens next: it lands back on your original payment method, usually within a few business days.\n\n` +
-          `The story: ${orderLink(orderId)}`)
+          `The story: ${orderLink(orderId)}`, true)
       },
     },
     {
       consumer: 'notify.hold-released',
       eventTypes: ['payments.hold.released'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.hold-released')
         const payload = event.payload as { order_id?: string; amount_minor?: number; currency?: string }
         const orderId = String(payload.order_id ?? '')
         const facts = await orderFacts(tx, orderId)
@@ -186,6 +228,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.payout-paid',
       eventTypes: ['payments.payout.paid'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.payout-paid')
         const payload = event.payload as { business_id?: string; amount_minor?: number; currency?: string }
         if (!payload.business_id) return
         const { rows } = await asClient(tx as never).query<{ email: string | null }>(
@@ -197,7 +240,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
         const amount = money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))
         await send(rows[0].email,
           `${amount} is on its way to your bank`,
-          `Your payout of ${amount} has left for your bank — banks usually take a day or two.\n\nNothing to do. The full story is on your Getting Paid card: ${workshopLink()}`)
+          `Your payout of ${amount} has left for your bank — banks usually take a day or two.\n\nNothing to do. The full story is on your Getting Paid card: ${workshopLink()}`, true)
       },
     },
     {
@@ -205,6 +248,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.payout-failed',
       eventTypes: ['payments.payout.failed'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.payout-failed')
         const payload = event.payload as { business_id?: string; amount_minor?: number; currency?: string }
         if (!payload.business_id) return
         const { rows } = await asClient(tx as never).query<{ email: string | null }>(
@@ -216,7 +260,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
         const amount = money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))
         await send(rows[0].email,
           `Your payout needs another try`,
-          `The bank transfer of ${amount} didn't go through. Your money is safe with us and we'll retry on our own.\n\nIf it keeps happening, your bank details at Stripe may need a look — the Getting Paid card has the door: ${workshopLink()}`)
+          `The bank transfer of ${amount} didn't go through. Your money is safe with us and we'll retry on our own.\n\nIf it keeps happening, your bank details at Stripe may need a look — the Getting Paid card has the door: ${workshopLink()}`, true)
       },
     },
     {
@@ -225,6 +269,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.dispute-opened',
       eventTypes: ['payments.dispute.opened'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.dispute-opened')
         const payload = event.payload as { business_id?: string | null; amount_minor?: number; currency?: string; reason?: string | null; evidence_due_at?: string | null }
         if (!payload.business_id) return
         const { rows } = await asClient(tx as never).query<{ email: string | null }>(
@@ -239,13 +284,14 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
           `A payment of ${money(Number(payload.amount_minor ?? 0), String(payload.currency ?? 'EUR'))} on one of your orders is being disputed${payload.reason ? ` (reason given: ${payload.reason})` : ''}.\n\n` +
           `What this means: nothing is decided yet, and a dispute alone never makes you liable — DOF carries ordinary good-faith losses.\n\n` +
           `What you can do: if you have photos, tracking, or messages that tell the story, send them to support before ${due} — evidence wins disputes.\n\n` +
-          `The bench: ${workshopLink()}`)
+          `The bench: ${workshopLink()}`, true)
       },
     },
     {
       consumer: 'notify.dispute-closed',
       eventTypes: ['payments.dispute.closed'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.dispute-closed')
         const payload = event.payload as { business_id?: string | null; amount_minor?: number; currency?: string; outcome?: string }
         if (!payload.business_id) return
         const { rows } = await asClient(tx as never).query<{ email: string | null }>(
@@ -259,7 +305,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
           payload.outcome === 'won' ? `Dispute won — ${amount} is yours again` : `Dispute lost — and it isn't coming out of your pocket`,
           payload.outcome === 'won'
             ? `The bank sided with the sale. The ${amount} that was set aside is back in your balance.\n\nNothing to do — carry on.\n\nThe bench: ${workshopLink()}`
-            : `The bank sided with the buyer on the ${amount} dispute. Under DOF's launch policy, ordinary good-faith losses are ours, not yours — your balance is not being debited.\n\nNothing to do. If disputes repeat we may reach out to look at causes together.\n\nThe bench: ${workshopLink()}`)
+            : `The bank sided with the buyer on the ${amount} dispute. Under DOF's launch policy, ordinary good-faith losses are ours, not yours — your balance is not being debited.\n\nNothing to do. If disputes repeat we may reach out to look at causes together.\n\nThe bench: ${workshopLink()}`, true)
       },
     },
     {
@@ -267,6 +313,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.account-updated',
       eventTypes: ['payments.account.updated'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.account-updated')
         const payload = event.payload as { business_id?: string; charges_enabled?: boolean; disabled_reason?: string | null }
         const { rows } = await asClient(tx as never).query<{ email: string | null }>(
           `SELECT u.email FROM users u
@@ -298,6 +345,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.return-requested',
       eventTypes: ['operations.return.requested'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.return-requested')
         const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
         const facts = await orderFacts(tx, orderId)
         if (!facts) return
@@ -312,6 +360,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.return-authorized',
       eventTypes: ['operations.return.authorized'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.return-authorized')
         const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
         const facts = await orderFacts(tx, orderId)
         if (!facts) return
@@ -326,6 +375,7 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
       consumer: 'notify.return-resolved',
       eventTypes: ['operations.return.resolved'],
       async handle(tx, event) {
+        const send = letter(tx, event, 'notify.return-resolved')
         const payload = event.payload as { order_id?: string; refund_minor?: number }
         const orderId = String(payload.order_id ?? '')
         const facts = await orderFacts(tx, orderId)

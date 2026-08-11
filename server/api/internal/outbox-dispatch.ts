@@ -104,6 +104,9 @@ export default defineEventHandler(async (event) => {
       return { prepared: swept.opIds.length, settled, skipped: swept.skipped }
     })
     .catch(() => ({ prepared: -1, settled: -1, skipped: -1 }))
+  // C12-1: the letters lane — phases 2+3 for journaled mail (the dispatchers
+  // above already nudged it; this pass catches backoff-due retries and crashes)
+  const letters = await container.mailJournal.drivePending().catch(() => ({ sent: -1, suppressed: -1, failed: -1, retried: -1 }))
   // §7: the recovery driver — re-drives anything pending past the grace window
   // (crashes between phases, provider hiccups, sweep-enqueued work)
   const boundary = await container.payments.boundary.driveAll().catch(() => ({ driven: -1, settled: -1 }))
@@ -112,6 +115,6 @@ export default defineEventHandler(async (event) => {
   return {
     dispatched, failed,
     carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed,
-    carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging, payouts, boundary, reconciled,
+    carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging, payouts, letters, boundary, reconciled,
   }
 })

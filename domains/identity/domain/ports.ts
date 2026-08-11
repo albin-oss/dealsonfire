@@ -26,7 +26,11 @@ export interface TokenHasher {
 }
 
 export interface EmailPort {
-  send(message: { to: string; template: 'verify' | 'reset'; vars: Record<string, string> }): Promise<void>
+  /** C12-1: the send happens INSIDE the caller's transaction because the
+   *  production provider JOURNALS the letter there (§7 — the network call
+   *  belongs to the driver, later, outside any transaction). A rolled-back
+   *  command therefore never mails anyone about something that didn't happen. */
+  send(tx: Tx, message: { to: string; template: 'verify' | 'reset'; vars: Record<string, string> }): Promise<void>
 }
 
 export interface UserRow {

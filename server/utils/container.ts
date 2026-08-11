@@ -87,7 +87,7 @@ import { PgSessionStore } from '@domains/identity/infrastructure/session-store'
 import { PgRecoveryStore, PgGuestTokenStore, PgClaimStore, PgPasskeyStore } from '@domains/identity/infrastructure/token-stores'
 import { PasskeyService } from '@domains/identity/application/passkey-service'
 import { Argon2PasswordHasher, Sha256TokenHasher } from '@domains/identity/infrastructure/crypto'
-import { TransactionalEmail, SandboxEmailProvider, type EmailProvider } from '@domains/identity/infrastructure/email'
+import { TransactionalEmail, SandboxEmailProvider, JournalingEmailProvider, type EmailProvider } from '@domains/identity/infrastructure/email'
 import { WebAuthnService, MemoryChallengeStore } from '@domains/identity/infrastructure/webauthn'
 import { identityOrderingScopeOf } from '@domains/identity/domain/events'
 import type { IdentityDeps } from '@domains/identity/domain/ports'
@@ -111,7 +111,8 @@ import { ReconciliationService } from '@domains/payments/application/reconciliat
 import { paymentsOrderingScopeOf } from '@domains/payments/shared-kernel/events'
 import { ordersPayloadValidators } from '@contracts/schemas/events/orders-payloads'
 import { paymentsPayloadValidators } from '@contracts/schemas/events/payments-payloads'
-import { SandboxMailer, type MailPort } from '@platform/mail'
+import { SandboxMailer, ResendMailAdapter, type MailPort } from '@platform/mail'
+import { MailJournalDriver } from '@platform/mail-journal'
 import { notificationConsumers } from './notifications'
 import { getServerConfig } from './config'
 
@@ -203,6 +204,8 @@ export interface Container {
   }
   /** C7: the one outbound-mail boundary (sandbox unless a provider binds). */
   mail: MailPort
+  /** C12-1: §7 phases 2+3 for journaled letters (drive + bounce intake). */
+  mailJournal: MailJournalDriver
   orders: {
     dispatcher: OutboxDispatcher
     carts: PgCartRepository
@@ -367,8 +370,17 @@ export function buildContainer(databaseUrl: string): Container {
   // MerchantAccessPort (structural typing — CDC-001 §3), honest L2 stock port until the
   // ledger lands in Batch 2 (no stock_items table exists, so no location can hold stock).
   // ————— C7: the notification seam — a MailPort + event consumers, not a domain.
-  const mailer = new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
-  const notify = notificationConsumers({ pool, mail: mailer, appBaseUrl: getServerConfig().appBaseUrl })
+  // C12-1: the production transport binds by config at the SAME port; sandbox
+  // everywhere else (nothing leaves the machine without a configured key).
+  // Consumers no longer send — they JOURNAL (§7); the MailJournalDriver below
+  // drives pending letters outside any transaction.
+  const mailProviderName = optionalEnv('NUXT_MAIL_PROVIDER')
+  const resendKey = optionalEnv('NUXT_RESEND_API_KEY')
+  const mailFrom = optionalEnv('NUXT_MAIL_FROM', 'DOF <letters@dof.example>')
+  const mailer: MailPort = mailProviderName === 'resend' && resendKey
+    ? new ResendMailAdapter(resendKey, mailFrom)
+    : new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
+  const notify = notificationConsumers({ pool, appBaseUrl: getServerConfig().appBaseUrl })
 
   // RM-H3: a critical alarm is a letter, not a log line. stdout stays (structured,
   // greppable); when NUXT_OPS_ALARM_EMAIL is configured the same words also reach a
@@ -384,6 +396,12 @@ export function buildContainer(databaseUrl: string): Container {
       body: `${message}\n\nWhat happened: an automated protection hit a wall and stopped safely.\nWhat next: the runbook is docs/runbooks/order-reconstruction.md; the queue is /api/v1/ops/alarms.\nWhat you can do: acknowledge with an ops note once you've seen it.`,
     }).catch((error) => logger.error(`ops alarm mail failed: ${(error as Error).message}`, { component: 'ops-alarm' }))
   }
+
+  // C12-1: phases 2+3 for journaled letters — driven after every outbox
+  // dispatch (low latency in dev/tests) and by the cron tick (production).
+  // Alarm mail above stays a DIRECT send: it has no domain event to ride,
+  // duplicates are acceptable, and its failure must never loop into itself.
+  const mailDriver = new MailJournalDriver({ pool, mail: mailer, alarm: opsAlarm })
 
   const operationsAudit = new PgAuditLog(pool, { auditTable: 'operations_audit_logs' })
   // C2 (OPS Batch 2): the honest-L2 stub is replaced by the real stock query.
@@ -545,7 +563,12 @@ export function buildContainer(databaseUrl: string): Container {
   const passwordHasher = new Argon2PasswordHasher()
   const tokenHasher = new Sha256TokenHasher()
   const sandboxEmail = identityProd ? null : new SandboxEmailProvider()
-  const emailProvider: EmailProvider = sandboxEmail ?? new SandboxEmailProvider() // real provider adapter binds by config in prod
+  // C12-1: with a real mail transport configured, identity letters ride the
+  // mail journal (§7 — journaled in the command's tx, sent by the driver);
+  // sandbox everywhere else so identity tests keep their inspectable outbox.
+  const emailProvider: EmailProvider = mailer.name === 'provider'
+    ? new JournalingEmailProvider()
+    : (sandboxEmail ?? new SandboxEmailProvider())
   // SystemClock satisfies the identity domain's minimal Clock port structurally (P2).
   const identityClock = new SystemClock()
   const identityDeps: IdentityDeps = {
@@ -584,6 +607,19 @@ export function buildContainer(databaseUrl: string): Container {
     identityPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'identity-outbox' }) },
   )
+
+  // C12-1: after ANY outbox dispatch, drive freshly journaled letters — phase 2
+  // runs outside the dispatch transactions by construction, and tests/dev get
+  // letter latency of "immediately after the consumer ran", exactly as before.
+  for (const d of [dispatcher, commerceDispatcher, operationsDispatcher, ordersDispatcher, paymentsDispatcher, identityDispatcher]) {
+    const original = d.dispatchPending.bind(d)
+    d.dispatchPending = async () => {
+      const result = await original()
+      await mailDriver.drivePending().catch((error) =>
+        logger.error(`mail drive failed: ${(error as Error).message}`, { component: 'mail' }))
+      return result
+    }
+  }
 
   return {
     pool,
@@ -669,6 +705,7 @@ export function buildContainer(databaseUrl: string): Container {
       returns: returnsRepository,
     },
     mail: mailer,
+    mailJournal: mailDriver,
     orders: {
       dispatcher: ordersDispatcher,
       carts: cartRepository,
