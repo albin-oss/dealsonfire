@@ -149,8 +149,10 @@ describe('email adapter', () => {
     const email = new TransactionalEmail(provider, 'https://dof.dev')
     // the adapter builds the link itself from baseUrl + token (the contract): the caller
     // supplies the token, never a pre-built URL — so a wrong base can never be emailed.
-    await email.send({ to: 'rosa@example.com', template: 'reset', vars: { token: 'abc123' } })
-    await email.send({ to: 'rosa@example.com', template: 'verify', vars: { token: 'xyz789' } })
+    // C12-1: send carries the caller's tx (the production provider journals
+    // there); the sandbox ignores it — null is the honest stand-in here
+    await email.send(null as never, { to: 'rosa@example.com', template: 'reset', vars: { token: 'abc123' } })
+    await email.send(null as never, { to: 'rosa@example.com', template: 'verify', vars: { token: 'xyz789' } })
     expect(provider.outbox).toHaveLength(2)
     expect(provider.outbox[0]!.subject).toMatch(/reset/i)
     expect(provider.outbox[0]!.body).toContain('https://dof.dev/reset?token=abc123')
