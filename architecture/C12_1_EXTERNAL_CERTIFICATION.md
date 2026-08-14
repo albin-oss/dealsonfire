@@ -156,7 +156,7 @@ Final transactional sending domain (`mail.dealsonfire.ca` or equivalent) · prod
 
 ## 19b. Final Gate Results (post-walk release candidate)
 
-Recorded after the external run: one clean sweep, honest exit code — see the release record for the exact counts (unit incl. the race suite / UI / integration / e2e / structural / lint / typecheck, EXIT=0).
+One clean run, honest exit code (`sweep-c12-1f`, 2026-08-14): **SWEEP EXIT=0** — unit **300/300** (incl. the adapter contract suite) · UI **163/163** · integration **299/299** (incl. the payout-race route suite) · e2e **147/147** · build, all five structural gates, lint, typecheck: PASS. No test skipped, no assertion weakened, no unexplained flake accepted.
 
 ## 22. C12-2 Readiness
 
