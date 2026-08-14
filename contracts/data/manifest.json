@@ -1254,6 +1254,50 @@
       "delete_class": "hard-delete-on-schedule",
       "cross_domain_refs": [],
       "notes": "C12-1 delivery-outcome facts (bounce/complaint) from the provider webhook; suppression is derived, never stored."
+    },
+    {
+      "table": "rate_limit_buckets",
+      "owner": "platform",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": null,
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "expired windows deleted on write",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "C12-2 durable rate limiting. Keys are HMAC digests (scope + normalized address) \u2014 raw IPs never persisted; loss costs one open window."
+    },
+    {
+      "table": "webauthn_challenges",
+      "owner": "identity",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": "user_id",
+      "pii_tier": "P1",
+      "pii_columns": [
+        "user_id"
+      ],
+      "retention": "5-minute TTL; opportunistic delete",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "C12-2 one-time WebAuthn ceremony state (retires D-40e). Challenge hashed at rest; anonymous auth ceremonies carry NULL user."
+    },
+    {
+      "table": "abuse_reports",
+      "owner": "operations",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": null,
+      "pii_tier": "P2",
+      "pii_columns": [
+        "reporter_id",
+        "note"
+      ],
+      "retention": "24 months then review",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "C12-2 safety intake. Closed subject/reason vocabularies; note bounded and treated sensitive (users paste PII); reporter is pseudonymous visitor or user id."
     }
   ]
 }

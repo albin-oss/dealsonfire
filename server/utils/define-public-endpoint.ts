@@ -12,6 +12,7 @@ import type { Result } from '@shared/result'
 import { type DomainError, domainError } from '@shared/errors'
 import { uuidv7, isUuid } from '@domains/merchant/shared-kernel/uuid'
 import { sendProblem, internalProblem } from './problem'
+import { normalizeAddress } from './rate-limit'
 import { getContainer } from './container'
 
 export interface PublicEndpointOptions<TBody, TOut> {
@@ -35,9 +36,11 @@ export function definePublicEndpoint<TBody, TOut>(options: PublicEndpointOptions
       const container = getContainer()
 
       if (options.rateLimit) {
-        const ip = getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
+        // C12-2: IPv6 collapses to /64 BEFORE the key is built — in-prefix
+        // rotation shares one budget; the durable adapter HMACs the whole key
+        const ip = normalizeAddress(getRequestIP(event, { xForwardedFor: true }) ?? 'unknown')
         const key = `${options.name}:${ip}`
-        if (!container.rateLimiter.allow(key, options.rateLimit.limit, options.rateLimit.windowSeconds)) {
+        if (!(await container.rateLimiter.allow(key, options.rateLimit.limit, options.rateLimit.windowSeconds))) {
           return sendProblem(event, domainError('RATE_LIMITED', 'too many attempts — wait a moment and try again'), correlationId)
         }
       }
