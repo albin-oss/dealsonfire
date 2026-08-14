@@ -25,6 +25,10 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | FOUNDER_REVIEW_C6_C9 | **RECORD** (the operational campaign's closing packet) |
 | C11_MERCHANT_EXPERIENCE_VALIDATION | **RECORD** (the payout copy read as the maker; five binding corrections, applied) |
 | **C11_PRODUCTION_CERTIFICATION** | **CLOSURE** — the live Stripe payout certification (GO, v1.43.0): two real payouts, four-view equality, the five certification repairs, the closure-unblock findings. **The Commerce Program C1–C11 is complete and externally proven.** |
+| POST_COMMERCE_STRATEGIC_REVIEW · POST_COMMERCE_ROADMAP | **RATIFIED** — the five-phase direction after commerce (Launch Foundations → Living Street → Merchant Evidence → Trust & Reputation → AI on real signals) |
+| C12_LAUNCH_FOUNDATIONS_PROGRAM_PLAN · C12_PRINCIPAL_ENGINEER_REVIEW · C12_2_READINESS_REVIEW | **APPROVED** — the stranger test, the three increments, the PE corrections, the amended C12-2 scope |
+| MAIL_PROVIDER_DECISION | **DECIDED** (Founder-delegated) — Resend behind MailPort; portability recorded |
+| **C12_1_EXTERNAL_CERTIFICATION** | **CLOSURE** — The Letters Arrive (GO, v1.44.0): real provider + real inbox walk, the payout.paid race found and fixed, binding production-mail cutover gates |
 
 Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
 reconstructs any order without SQL, incl. the §7 provider-operation journal) and

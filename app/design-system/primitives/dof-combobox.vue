@@ -8,7 +8,7 @@ import {
   ComboboxRoot, ComboboxAnchor, ComboboxInput, ComboboxTrigger,
   ComboboxContent, ComboboxViewport, ComboboxItem, ComboboxItemIndicator, ComboboxEmpty,
 } from 'reka-ui'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Size } from '../types'
 import { cx } from '../utils/cx'
 import DofField from './dof-field.vue'
@@ -56,6 +56,21 @@ watch(open, async (isOpen) => {
   await nextTick()
   inputRef.value?.$el?.removeAttribute('aria-activedescendant')
 })
+// A one-shot removal is not enough in a real browser: reka re-patches the
+// attribute on later renders while closed (C12-1 sweep evidence). The
+// invariant is enforced CONTINUOUSLY: while collapsed, the attribute is
+// stripped the moment anything re-adds it. Removing it while absent is a
+// no-op, so the observer cannot loop.
+let ghostObserver: MutationObserver | null = null
+onMounted(() => {
+  const el = inputRef.value?.$el
+  if (!el || typeof MutationObserver === 'undefined') return
+  ghostObserver = new MutationObserver(() => {
+    if (!open.value && el.hasAttribute('aria-activedescendant')) el.removeAttribute('aria-activedescendant')
+  })
+  ghostObserver.observe(el, { attributes: true, attributeFilter: ['aria-activedescendant'] })
+})
+onBeforeUnmount(() => ghostObserver?.disconnect())
 const filteredItems = computed(() => {
   const folded = fold(term.value.trim())
   if (folded === '') return props.items

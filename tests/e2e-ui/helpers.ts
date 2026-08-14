@@ -22,6 +22,20 @@ export async function gotoStory(page: Page, id: string, globals?: string): Promi
   if (globals) params.set('globals', globals)
   await page.goto(`/iframe.html?${params.toString()}`)
   await page.waitForSelector('#storybook-root :first-child', { state: 'attached' })
+  // C12-1 sweep finding: the root attaching only means the story RENDERED —
+  // its play() may still be driving interactions, and a scan mid-play judges
+  // transitional states no user ever holds (e.g. the one-tick window between
+  // a select-close and the wrapper's ARIA cleanup). Wait for Storybook to
+  // declare every render (including play) finished before looking.
+  await page.waitForFunction(
+    () => {
+      const preview = (window as unknown as { __STORYBOOK_PREVIEW__?: { storyRenders?: Array<{ phase: string }> } }).__STORYBOOK_PREVIEW__
+      const renders = preview?.storyRenders ?? []
+      return renders.length > 0 && renders.every((r) => ['finished', 'errored', 'aborted'].includes(r.phase))
+    },
+    undefined,
+    { timeout: 15_000 },
+  )
   // C11 closure finding: scans must never race a ONE-SHOT animation — axe once
   // caught a toast mid-fade (200ms leave transition of a 6s auto-settle) and
   // read the blended colors as a contrast violation. Wait until every finite

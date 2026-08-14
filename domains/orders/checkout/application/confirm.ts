@@ -395,6 +395,15 @@ export class PgConfirmService {
       ...(input.carrier ? { carrier: input.carrier } : {}),
       ...(input.trackingRef ? { tracking_ref: input.trackingRef } : {}),
     })
+    // C12-1: the fact the confirmation letter promised to follow up on —
+    // "we'll tell you the moment it's on its way" now has an event to ride
+    const { rows: orderRow } = await client.query<{ id: string; business_id: string; store_id: string }>(
+      `SELECT id, business_id, store_id FROM orders WHERE id = $1`, [orderId])
+    if (orderRow[0]) {
+      await this.events.append(tx, [this.orderEvent(orderRow[0], 'orders.order.dispatched', {
+        method: input.method, partial: !allDone, carrier: input.carrier, tracking_ref: input.trackingRef,
+      })])
+    }
     return { orderState: newState }
   }
 

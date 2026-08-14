@@ -1222,6 +1222,38 @@
       "retention": "with parent case",
       "delete_class": "never",
       "cross_domain_refs": []
+    },
+    {
+      "table": "mail_journal",
+      "owner": "platform",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": null,
+      "pii_tier": "P2",
+      "pii_columns": [
+        "recipient",
+        "subject",
+        "body"
+      ],
+      "retention": "12 months",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "C12-1 \u00a77 mail journal: one row per logical letter (consumer, dedup_ref, recipient). Send truth; opportunistic retention cleanup in the driver."
+    },
+    {
+      "table": "mail_bounces",
+      "owner": "platform",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": null,
+      "pii_tier": "P2",
+      "pii_columns": [
+        "recipient"
+      ],
+      "retention": "12 months",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "C12-1 delivery-outcome facts (bounce/complaint) from the provider webhook; suppression is derived, never stored."
     }
   ]
 }

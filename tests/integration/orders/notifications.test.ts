@@ -106,6 +106,21 @@ describe('C7 — the letters', () => {
     expect(letters.filter((l) => l.includes('on its way back to you')).length).toBe(1)
   })
 
+  it('C12-1: the dispatch letter — the promise "we\'ll tell you the moment it\'s on its way" is finally kept', async () => {
+    const ownerEmail = `rosa-${uuidv7().slice(-6)}@maker.example`
+    const m = await merchant(ownerEmail)
+    const orderId = await buy(m.variantId)
+    await http.request('POST', `/api/v1/orders/${orderId}/dispatch`, { headers: { cookie: m.cookie }, body: { carrier: 'bpost', tracking_ref: 'TRACK-1' } })
+    await drain()
+    const letter = mailbox().find((msg) => msg.to === 'jonas@buyer.example' && msg.subject.includes("It's on its way"))
+    expect(letter).toBeTruthy()
+    expect(letter!.body).toMatch(/TRACK-1/)
+    expect(letter!.body).toMatch(/bpost/)
+    // replay: dispatching events again composes nothing twice
+    await drain()
+    expect(mailbox().filter((msg) => msg.subject.includes("It's on its way"))).toHaveLength(1)
+  })
+
   it('the payout letter: the quiet week passes → the merchant hears the money moved', async () => {
     const ownerEmail = `rosa-${uuidv7().slice(-6)}@maker.example`
     const m = await merchant(ownerEmail)

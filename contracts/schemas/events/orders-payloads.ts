@@ -48,6 +48,17 @@ export const ORDERS_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
     business_id: uuid,
     store_id: uuid,
   }).passthrough(),
+  // C12-1: the parcel left the bench — the letter the confirmation promised
+  // ("we'll tell you the moment it's on its way") finally has a fact to ride
+  'orders.order.dispatched': z.object({
+    order_id: uuid,
+    business_id: uuid,
+    store_id: uuid,
+    method: z.enum(['ship', 'pickup']),
+    partial: z.boolean(),
+    carrier: z.string().nullable(),
+    tracking_ref: z.string().nullable(),
+  }).passthrough(),
 }
 
 export function ordersPayloadValidators(): Record<string, PayloadValidator> {

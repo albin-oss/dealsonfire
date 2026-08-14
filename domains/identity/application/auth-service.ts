@@ -161,7 +161,7 @@ export class AuthService {
       id: uuidv7(), userId, tokenHash: this.deps.tokens.hash(token), purpose,
       expiresAt: new Date(Date.now() + RESET_TTL_MS),
     })
-    await this.email.send({
+    await this.email.send(tx as never, {
       to,
       template: purpose === 'password_reset' ? 'reset' : 'verify',
       vars: { token },

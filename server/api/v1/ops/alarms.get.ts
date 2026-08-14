@@ -13,6 +13,9 @@
  *   risk_paused    — a till paused by the exposure limits; HUMAN review resumes
  *   recon_unmatched — Stripe and the ledger disagree (never adjusted silently)
  *   negative_payable — refunds outran the merchant's balance (RM-H5)
+ *   mail_failed    — a letter failed permanently or is stuck retrying (C12-1)
+ *   mail_bounced_critical — a CRITICAL letter bounced/complained: the person
+ *                    may not have received identity/money truth (C12-1)
  * Acknowledged = an operator wrote an ack note on the order; the alarm stays
  * listed (state is still true) but carries the human's initials.
  */
@@ -26,7 +29,7 @@ export default defineQueryEndpoint({
   async handler({ event, auth }) {
     if (!isOperator(auth.userId)) return sendProblem(event, domainError('NOT_FOUND', 'not found'))
     const c = getContainer()
-    const [stuck, orphaned, broken, holds, disputes, riskPaused, unmatched, negativePayable, payoutStuck, payoutFailed, acks] = await Promise.all([
+    const [stuck, orphaned, broken, holds, disputes, riskPaused, unmatched, negativePayable, payoutStuck, payoutFailed, mailFailed, mailBouncedCritical, acks] = await Promise.all([
       c.pool.query(
         `SELECT id, order_number, state, placed_at FROM orders
           WHERE state = 'payment_pending' AND placed_at < now() - interval '2 hours'
@@ -77,6 +80,15 @@ export default defineQueryEndpoint({
                                AND later.created_at > e.created_at)
           ORDER BY e.created_at LIMIT 100`),
       c.pool.query(
+        `SELECT id, consumer AS order_number, COALESCE(last_error, state) AS state, created_at AS placed_at
+          FROM mail_journal
+          WHERE state = 'failed' OR (state = 'pending' AND attempts >= 5)
+          ORDER BY created_at LIMIT 100`),
+      c.pool.query(
+        `SELECT b.id, j.consumer AS order_number, b.kind AS state, b.received_at AS placed_at
+          FROM mail_bounces b JOIN mail_journal j ON j.provider_ref = b.provider_ref
+          WHERE j.critical ORDER BY b.received_at LIMIT 100`),
+      c.pool.query(
         `SELECT DISTINCT order_id FROM order_timeline
           WHERE entry_type = 'note' AND (message->>'ack')::boolean IS TRUE`),
     ])
@@ -95,6 +107,8 @@ export default defineQueryEndpoint({
         ...shape('negative_payable', negativePayable.rows),
         ...shape('payout_stuck', payoutStuck.rows),
         ...shape('payout_failed', payoutFailed.rows),
+        ...shape('mail_failed', mailFailed.rows),
+        ...shape('mail_bounced_critical', mailBouncedCritical.rows),
       ],
     }
   },
