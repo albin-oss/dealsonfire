@@ -59,6 +59,7 @@ import searchGet from '../../server/api/v1/public/search.get'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
 import sparksPost from '../../server/api/v1/sparks/index.post'
 import mailWebhookPost from '../../server/api/webhooks/mail.post'
+import stripeWebhookPost from '../../server/api/webhooks/stripe.post'
 import sparksGet from '../../server/api/v1/sparks/index.get'
 import sparkDeletePost from '../../server/api/v1/sparks/[sparkId]/delete.post'
 import publicSparkGet from '../../server/api/v1/public/stores/[handle]/sparks/[sparkId].get'
@@ -223,6 +224,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/auth/resend-verification', authResendVerification)
   router.get('/api/internal/outbox-dispatch', outboxDispatch)
   router.post('/api/webhooks/mail', mailWebhookPost)
+  router.post('/api/webhooks/stripe', stripeWebhookPost)
   app.use(router)
 
   const server: Server = createServer(toNodeListener(app))

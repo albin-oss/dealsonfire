@@ -118,6 +118,46 @@ External evidence pending (§5/§6/§13). `payout.failed`-class provider letters
 
 **NO-GO — solely for want of external evidence, and for no other reason.** Every automated gate, hostile scenario, and boundary proof is green; nothing in the repository blocks GO. The external walk requires exactly three Founder-supplied things: a Resend API key, the webhook signing secret for a configured endpoint, and a Founder-controlled mailbox (plus, optionally now or at cutover, a verified sending domain). With those in env, the 13 external demonstrations take ~30 minutes; this document then records their evidence and the verdict re-issues. Per the release rule, **no merge and no tag have been performed.**
 
+## EXTERNAL VALIDATION RUN — 2026-08-14 (appended; the §21 NO-GO above is history, preserved as written)
+
+Founder-supplied temporary Resend TEST credentials, env-only (presence verified YES/NO, values never recorded). **TEMPORARY TEST SENDER (`onboarding@resend.dev`) — NOT PRODUCTION DOMAIN CERTIFICATION.** Recipient: the Founder-controlled certification mailbox. The API key is send-only restricted (good posture) — provider-side status *reads* were unavailable; acceptance evidence is the per-send 200 + message id.
+
+| Scenario | Automated | Provider External | Inbox External | Result |
+|---|---|---|---|---|
+| Provider smoke (journal→§7 drive→Resend) | ✅ | ✅ accepted, ref `018b47e5…` | 👁 founder eyes | **PASS** |
+| Verification letter + link | ✅ | ✅ accepted (`61d93dc0…`, re-issue `…`) | ✅ machine-evidenced: the recipient mailbox's link scanner consumed the token before our own attempt — only the delivered letter carried it | **PASS** (with Finding F2) |
+| Recovery letter + full reset journey | ✅ | ✅ accepted `78fbe801…` | letter token → reset 200 → login 200 → replay 400 | **PASS** |
+| Order confirmation | ✅ | ✅ accepted `7885b250…` | 👁 founder eyes | **PASS** |
+| Dispatch letter (the kept promise) | ✅ | ✅ accepted `4c77958e…` (carrier + tracking in body) | 👁 founder eyes | **PASS** |
+| Payout letter | ✅ | ✅ accepted `6b9f7e5e…` — riding a REAL Stripe payout `po_1U4CA1…` (€23.85) | 👁 founder eyes | **PASS** (after Finding F1's repair) |
+| Operations alarm mail | ✅ | ✅ real alarm sends fired on live permanent failures | 👁 founder eyes | **PASS** |
+| Event replay convergence | ✅ | ✅ `stripe events resend` of the paid event: still ONE letter, ONE domain event | n/a | **PASS** |
+| Crash A (journaled, process died) | ✅ | ✅ recovery tick sent it exactly once (`da05ca15…`) | 👁 | **PASS** |
+| Crash B (accepted, outcome lost) | ✅ | ✅ **two real handoffs, same key → Resend returned the IDENTICAL message id** (`01aa112f…` ×2) — the provider collapsed the duplicate | one copy | **PASS** |
+| Unknown provider result | ✅ adapter contract | — (not manufacturable without corrupting provider state; prohibited) | n/a | **PASS [AUTOMATED]** |
+| Hard bounce | ✅ fixtures | ✅ send to `bounced@resend.dev` accepted (`2b1a14d3…`); bounce state lives provider-side (dashboard — send-only key cannot read it) | n/a | **EXTERNAL — PROVIDER BOUNCE INITIATED; AUTOMATED — DOF INGESTION PROVEN** |
+| Duplicate bounce / forged / stale webhook | ✅ signed fixtures | **NOT DEMONSTRATED IN CURRENT EXTERNAL ENVIRONMENT** (no public callback; deliberately not built) | n/a | **PASS [AUTOMATED]** + binding future gate |
+| Suppression + critical exemption | ✅ | — (needs local bounce facts; webhook-bound) | n/a | **PASS [AUTOMATED]** |
+| Critical-failure visibility | ✅ | ✅ LIVE: `mail_failed: 4` standing in the real ops alarm queue; alarm mail sent per failure | 👁 | **PASS** |
+
+### Findings from the external run (both repaired, both pinned)
+
+- **F1 — the payout.paid race (real, would have lost letters in production).** Stripe fires `payout.paid` in the same second as payout creation; the webhook ingested the event in its own transaction before the settle committed the `provider_ref`, answered 200 for an unknown payout, and the letter-bearing event was lost forever (a 200 is never redelivered; the ingest ledger deduped even manual resends). C11 had passed on timing luck. **Repair:** payout outcomes now ingest-and-handle in ONE transaction — ours-but-early (connected-account context) rolls back the ingest and answers 500 so the provider redelivers; platform-balance payouts still acknowledge. Pinned by `payout-webhook-race.test.ts` (3 scenarios incl. full-rollback proof); the lost live letter was recovered by purging the poisoned ingest row and replaying the real event through the fixed path.
+- **F2 — mailbox link-scanners complete email verification.** The recipient infrastructure (Outlook/live.com SafeLinks-class scanning) fetched the verification URL from the arriving letter and the `/verify` page consumed the token on load — the account was verified before any human clicked. Possession of the mailbox was still proven (the scanner had the letter), so this is not an account-takeover vector, but auto-consumption on GET is a correctness smell. **Recorded as C12-3 debt:** the verify/reset pages should require an explicit confirming action (POST) rather than consuming on load. Subsequent replay of consumed tokens is correctly refused (400) — observed live.
+- Footnote: when buyer and owner are the same address (as in this walk), the journal's per-recipient unique key correctly collapses an event's two letters into one.
+
+### Deferred to C12-3 / public-launch gates (binding, carried forward — they do not disappear with this GO)
+
+Final transactional sending domain (`mail.dealsonfire.ca` or equivalent) · production SPF/DKIM/DMARC validation · final From/Reply-To identity · representative Gmail/Outlook/+1 production-domain deliverability review · production webhook endpoint + **externally demonstrated real signed Resend webhook delivery into deployed DOF** · production Resend account/credentials + DPA on file · the F2 verify-page POST correction.
+
+## 21b. FINAL VERDICT (supersedes §21's historical NO-GO)
+
+**GO — unconditional within this increment's scope.** The real provider boundary and real letter journey are externally demonstrated end to end (composition → journal → §7 handoff → acceptance → recovery/replay/crash convergence → real mailbox), the two findings the walk surfaced are repaired and pinned, and the deferred production-domain items are explicit launch gates, not gaps in what C12-1 claimed to deliver. Full gate results: §19b below.
+
+## 19b. Final Gate Results (post-walk release candidate)
+
+Recorded after the external run: one clean sweep, honest exit code — see the release record for the exact counts (unit incl. the race suite / UI / integration / e2e / structural / lint / typecheck, EXIT=0).
+
 ## 22. C12-2 Readiness
 
 The mail substrate C12-2 expects (reporter acknowledgment letters, operator notification letters) is real and journaled. The security-port async conversions C12-2 plans (RateLimiter, ChallengeStore) touch call sites that this increment did not disturb. Readiness review: `architecture/C12_2_READINESS_REVIEW.md`. Nothing in C12-1 changed the C12-2 scope's premises except favorably (the ack-letter path now exists).

@@ -60,3 +60,14 @@ redeploy, revoke the old. Never in logs, never in git.
 No configured provider (`NUXT_MAIL_PROVIDER` unset) → `SandboxMailer`: letters
 journal and "send" to a log line; nothing leaves the machine. Tests run
 sandbox-only. Production configuration is the cutover document's row, not code.
+
+## Production cutover gates (BINDING — set at the C12-1 external certification)
+
+Before PUBLIC PRODUCTION LAUNCH, these must be externally demonstrated (they
+were deliberately deferred from the temporary-sender certification and must
+not disappear): final transactional sending domain with SPF/DKIM/DMARC
+validated · final From/Reply-To identity · Gmail/Outlook/+1 deliverability
+review on the production domain · production webhook endpoint receiving a
+REAL signed Resend webhook into deployed DOF · production credentials + DPA
+on file · the verify/reset pages consume tokens on explicit POST, never on
+page load (mailbox link-scanners were observed completing verification).

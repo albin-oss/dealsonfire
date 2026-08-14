@@ -48,6 +48,44 @@ export default defineEventHandler(async (event) => {
   const objectIntentRef = typeof object.payment_intent === 'object' ? object.payment_intent?.id : object.payment_intent
   const intentRef = object.object === 'payment_intent' ? object.id ?? null : objectIntentRef ?? null
   const c = getContainer()
+
+  // C12-1 EXTERNAL-WALK FINDING: Stripe's payout.paid can arrive in the SAME
+  // second the payout is created — BEFORE our settle commits the provider_ref.
+  // The old shape ingested the event first (own tx), found no journal row,
+  // answered 200 — and the letter-bearing event was lost forever (Stripe never
+  // redelivers a 200, and the ingest ledger would dedup a manual resend).
+  // Payout outcomes therefore ingest-and-handle in ONE transaction: an
+  // ours-but-unknown payout (the event carries a connected-account context)
+  // ROLLS BACK the ingest and answers 500 so the provider redelivers after our
+  // settle. A platform-balance payout (no account context) is foreign-but-
+  // benign: acknowledged and category-noted by reconciliation, never retried.
+  if (object.object === 'payout' && object.id
+      && (stripeEvent.type === 'payout.paid' || stripeEvent.type === 'payout.failed')) {
+    const outcome = await c.deps.uow.withTransaction(async (tx) => {
+      const ingest = await c.payments.service.ingestProviderEvent(tx, {
+        provider: 'stripe', eventId: stripeEvent.id, intentRef,
+        kind: stripeEvent.type, payload: stripeEvent.data.object,
+      })
+      if (!ingest.fresh) return { ok: true as const, fresh: false }
+      const { handled } = await c.payments.service.handlePayoutOutcome(tx, {
+        providerPayoutId: object.id!,
+        outcome: stripeEvent.type === 'payout.paid' ? 'paid' : 'failed',
+        detail: (object as { failure_message?: string }).failure_message ?? null,
+      })
+      if (!handled && stripeEvent.account) {
+        // the rollback law: an err-shaped return leaves no partial writes —
+        // the ingest row vanishes with this transaction
+        return { ok: false as const, detail: 'connected payout not yet settled locally — redeliver' }
+      }
+      return { ok: true as const, fresh: true }
+    })
+    if (outcome.ok === false) {
+      setResponseStatus(event, 500)
+      return { retry: true }
+    }
+    return { received: true, fresh: outcome.fresh }
+  }
+
   const result = await c.deps.uow.withTransaction((tx) =>
     c.payments.service.ingestProviderEvent(tx, {
       provider: 'stripe',
@@ -93,17 +131,7 @@ export default defineEventHandler(async (event) => {
         c.payments.service.resolveDispute(tx, { providerDisputeId: object.id!, outcome }))
     }
   }
-  // C11 S2 — the payout's later truth, from the CONNECTED account's event stream
-  // (stripeEvent.account carries the acct context; our journal knows the payout
-  // by its po_ id, so the account field needs no separate plumbing). paid →
-  // the letter-bearing event; failed → payable comes home + the retry re-arms.
-  if (result.fresh && object.object === 'payout' && object.id
-      && (stripeEvent.type === 'payout.paid' || stripeEvent.type === 'payout.failed')) {
-    await c.deps.uow.withTransaction((tx) => c.payments.service.handlePayoutOutcome(tx, {
-      providerPayoutId: object.id!,
-      outcome: stripeEvent.type === 'payout.paid' ? 'paid' : 'failed',
-      detail: (object as { failure_message?: string }).failure_message ?? null,
-    }))
-  }
+  // (payout.paid / payout.failed are handled above, in one transaction with
+  // their ingest — the C12-1 external-walk race made the old two-tx shape lossy)
   return { received: true, fresh: result.fresh }
 })
