@@ -7,21 +7,21 @@ import type { H3Event } from 'h3'
 describe('MemoryRateLimiter (REVIEW-001 L-1)', () => {
   afterEach(() => vi.useRealTimers())
 
-  it('enforces the sliding window and recovers after it passes', () => {
+  it('enforces the sliding window and recovers after it passes', async () => {
     vi.useFakeTimers()
     const limiter = new MemoryRateLimiter()
-    expect(limiter.allow('k', 2, 60)).toBe(true)
-    expect(limiter.allow('k', 2, 60)).toBe(true)
-    expect(limiter.allow('k', 2, 60)).toBe(false)
+    expect(await limiter.allow('k', 2, 60)).toBe(true)
+    expect(await limiter.allow('k', 2, 60)).toBe(true)
+    expect(await limiter.allow('k', 2, 60)).toBe(false)
     vi.advanceTimersByTime(61_000)
-    expect(limiter.allow('k', 2, 60)).toBe(true)
+    expect(await limiter.allow('k', 2, 60)).toBe(true)
   })
 
-  it('keys are independent (no global reset behavior)', () => {
+  it('keys are independent (no global reset behavior)', async () => {
     const limiter = new MemoryRateLimiter()
-    expect(limiter.allow('a', 1, 60)).toBe(true)
-    expect(limiter.allow('a', 1, 60)).toBe(false)
-    expect(limiter.allow('b', 1, 60)).toBe(true) // unaffected by a's exhaustion
+    expect(await limiter.allow('a', 1, 60)).toBe(true)
+    expect(await limiter.allow('a', 1, 60)).toBe(false)
+    expect(await limiter.allow('b', 1, 60)).toBe(true) // unaffected by a's exhaustion
   })
 })
 
