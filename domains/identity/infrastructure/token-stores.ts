@@ -5,15 +5,17 @@
 import type { Tx } from '../../../platform/types'
 import { asClient } from '../../../platform/db'
 
+export type RecoveryPurpose = 'password_reset' | 'email_verify' | 'email_change_new' | 'email_change_revert'
+
 export class PgRecoveryStore {
-  async create(tx: Tx, r: { id: string; userId: string; tokenHash: string; purpose: 'password_reset' | 'email_verify'; expiresAt: Date }): Promise<void> {
+  async create(tx: Tx, r: { id: string; userId: string; tokenHash: string; purpose: RecoveryPurpose; expiresAt: Date }): Promise<void> {
     await asClient(tx).query(
       `INSERT INTO user_recovery_tokens (id, user_id, token_hash, purpose, expires_at) VALUES ($1, $2, $3, $4, $5)`,
       [r.id, r.userId, r.tokenHash, r.purpose, r.expiresAt])
   }
 
   /** Consume atomically: single-use is enforced by the UPDATE ... WHERE consumed_at IS NULL guard. */
-  async consume(tx: Tx, tokenHash: string, purpose: 'password_reset' | 'email_verify'): Promise<string | null> {
+  async consume(tx: Tx, tokenHash: string, purpose: RecoveryPurpose): Promise<string | null> {
     const { rows } = await asClient(tx).query<{ user_id: string }>(
       `UPDATE user_recovery_tokens SET consumed_at = now()
        WHERE token_hash = $1 AND purpose = $2 AND consumed_at IS NULL AND expires_at > now()
@@ -22,7 +24,7 @@ export class PgRecoveryStore {
   }
 
   /** Invalidate a user's other outstanding tokens of a purpose (issued anew / after reset). */
-  async invalidateOutstanding(tx: Tx, userId: string, purpose: 'password_reset' | 'email_verify'): Promise<void> {
+  async invalidateOutstanding(tx: Tx, userId: string, purpose: RecoveryPurpose): Promise<void> {
     await asClient(tx).query(
       `UPDATE user_recovery_tokens SET consumed_at = now()
        WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL`, [userId, purpose])

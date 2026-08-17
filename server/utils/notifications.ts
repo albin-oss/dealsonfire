@@ -20,6 +20,10 @@ import { journalLetter } from '@platform/mail-journal'
 interface Deps {
   pool: pg.Pool
   appBaseUrl: string
+  /** C12-3: mint an order-scoped guest key INSIDE the consumer's tx — the
+   *  confirmation letter carries a link that survives cookie loss without
+   *  pretending to be an account. */
+  issueOrderKey: (tx: unknown, orderId: string) => Promise<string>
 }
 
 interface OrderFacts {
@@ -70,11 +74,12 @@ export function notificationConsumers(deps: Deps): { orders: OutboxConsumer[]; p
         const orderId = String((event.payload as { order_id?: string }).order_id ?? '')
         const facts = await orderFacts(tx, orderId)
         if (!facts) return
+        const orderKey = await deps.issueOrderKey(tx, orderId)
         await send(facts.buyer_email,
           `${facts.store_name} has your order`,
           `It's really happening — your order (${facts.order_number}) is confirmed and ${facts.store_name} is on it.\n\n` +
           `What happens next: they make it ready and ship it; we'll tell you the moment it's on its way.\n\n` +
-          `Follow the whole story here: ${orderLink(orderId)}`, true)
+          `Follow the whole story here (this link is yours — it works on any device):\n${orderLink(orderId)}?key=${encodeURIComponent(orderKey)}`, true)
         await send(facts.owner_email,
           `Someone just bought from you — ${facts.order_number}`,
           `${facts.buyer_name} bought from your shop for ${money(facts.total_minor, facts.currency)}.\n\n` +

@@ -4,7 +4,7 @@
  * indistinguishable 404. Private, never cacheable.
  */
 import { z } from 'zod'
-import { getRouterParam, setResponseHeader } from 'h3'
+import { getRouterParam, getQuery, setResponseHeader } from 'h3'
 import { definePublicEndpoint } from '../../../../utils/define-public-endpoint'
 import { getContainer } from '../../../../utils/container'
 import { getVisitorId } from '../../../../utils/visitor'
@@ -20,9 +20,25 @@ export default definePublicEndpoint({
   async handler({ event }): Promise<Result<BuyerOrderResponse, DomainError>> {
     setResponseHeader(event, 'Cache-Control', 'private, no-store')
     const orderId = getRouterParam(event, 'orderId') ?? ''
-    const buyerId = getVisitorId(event)
-    if (!buyerId || !isUuid(orderId)) return err(domainError('NOT_FOUND', 'this order does not exist'))
+    if (!isUuid(orderId)) return err(domainError('NOT_FOUND', 'this order does not exist'))
     const c = getContainer()
+    // C12-3: the confirmation letter's key authorizes exactly THIS order —
+    // purpose-bound (scope 'order'), hashed at rest, time-bound, and read-only
+    // by nature (viewing is idempotent; replay is the point: any device, any
+    // day inside the window). A wrong/expired/foreign key falls through to the
+    // cookie path and the same masked 404 — no oracle, no enumeration, no
+    // account minted, no broader identity granted.
+    let buyerId = getVisitorId(event)
+    const key = getQuery(event).key
+    if (typeof key === 'string' && key.length >= 10) {
+      const scope = await c.identity.guestClaim.resolveGuestToken(key)
+      if (scope && scope.scopeType === 'order' && scope.scopeRef === orderId) {
+        const { rows } = await c.pool.query<{ buyer_id: string }>(
+          `SELECT buyer_id FROM orders WHERE id = $1`, [orderId])
+        if (rows[0]) buyerId = rows[0].buyer_id
+      }
+    }
+    if (!buyerId) return err(domainError('NOT_FOUND', 'this order does not exist'))
     const result = await c.deps.uow.withTransaction(async (tx) => {
       const order = await c.orders.checkout.getBuyerOrder(tx, buyerId, orderId)
       if (!order) return null

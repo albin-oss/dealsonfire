@@ -25,12 +25,17 @@ export interface TokenHasher {
   generate(): string
 }
 
+export type IdentityLetter =
+  | 'verify' | 'reset'
+  | 'email_change_confirm' | 'email_change_notice' | 'email_change_already_yours'
+  | 'email_change_revert' | 'email_change_reverted'
+
 export interface EmailPort {
   /** C12-1: the send happens INSIDE the caller's transaction because the
    *  production provider JOURNALS the letter there (§7 — the network call
    *  belongs to the driver, later, outside any transaction). A rolled-back
    *  command therefore never mails anyone about something that didn't happen. */
-  send(tx: Tx, message: { to: string; template: 'verify' | 'reset'; vars: Record<string, string> }): Promise<void>
+  send(tx: Tx, message: { to: string; template: IdentityLetter; vars: Record<string, string> }): Promise<void>
 }
 
 export interface UserRow {

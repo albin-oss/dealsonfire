@@ -89,6 +89,8 @@ import { PasskeyService } from '@domains/identity/application/passkey-service'
 import { Argon2PasswordHasher, Sha256TokenHasher } from '@domains/identity/infrastructure/crypto'
 import { TransactionalEmail, SandboxEmailProvider, JournalingEmailProvider, type EmailProvider } from '@domains/identity/infrastructure/email'
 import { WebAuthnService, MemoryChallengeStore, PgChallengeStore } from '@domains/identity/infrastructure/webauthn'
+import { EmailChangeService } from '@domains/identity/application/email-change-service'
+import { uuidv7 } from '@platform/uuid'
 import { identityOrderingScopeOf } from '@domains/identity/domain/events'
 import type { IdentityDeps } from '@domains/identity/domain/ports'
 import { identityPayloadValidators } from '@contracts/schemas/events/identity-payloads'
@@ -179,6 +181,8 @@ export interface Container {
     webauthn: WebAuthnService
     passkeyService: PasskeyService
     passkeys: PgPasskeyStore
+    emailChange: EmailChangeService
+    guestTokens: PgGuestTokenStore
     users: PgUserRepository
     emailOutbox: SandboxEmailProvider | null
   }
@@ -380,7 +384,19 @@ export function buildContainer(databaseUrl: string): Container {
   const mailer: MailPort = mailProviderName === 'resend' && resendKey
     ? new ResendMailAdapter(resendKey, mailFrom)
     : new SandboxMailer((line) => logger.info(line, { component: 'mail' }))
-  const notify = notificationConsumers({ pool, appBaseUrl: getServerConfig().appBaseUrl })
+  const notify = notificationConsumers({
+    pool, appBaseUrl: getServerConfig().appBaseUrl,
+    // C12-3: order keys ride the dormant guest_tokens machinery — hashed at
+    // rest, purpose-bound (scope 'order'), 30-day TTL, minted in the SAME tx
+    issueOrderKey: async (tx, orderId) => {
+      const token = tokenHasher.generate()
+      await identityGuestStore.create(tx as never, {
+        id: uuidv7(), tokenHash: tokenHasher.hash(token), scopeType: 'order', scopeRef: orderId,
+        expiresAt: new Date(Date.now() + 30 * 86_400_000),
+      })
+      return token
+    },
+  })
 
   // RM-H3: a critical alarm is a letter, not a log line. stdout stays (structured,
   // greppable); when NUXT_OPS_ALARM_EMAIL is configured the same words also reach a
@@ -585,8 +601,16 @@ export function buildContainer(databaseUrl: string): Container {
   const identityGuestStore = new PgGuestTokenStore()
   const identityClaimStore = new PgClaimStore()
   const identityPasskeys = new PgPasskeyStore()
-  const identityAuth = new AuthService(identityDeps, identityRecovery, new TransactionalEmail(emailProvider, appBaseUrl))
+  const identityEmail = new TransactionalEmail(emailProvider, appBaseUrl)
+  const identityAuth = new AuthService(identityDeps, identityRecovery, identityEmail)
   const identitySessions = new SessionService(deps.uow, identitySessionStore, tokenHasher, identityClock, identityEventStore)
+  // C12-3: THE email-change state machine — an account-takeover surface with
+  // possession proof, old-address notice, and the bounded 72h way back
+  const identityEmailChange = new EmailChangeService({
+    uow: deps.uow, recovery: identityRecovery, tokens: tokenHasher, email: identityEmail,
+    audit: identityAudit, events: identityEventStore,
+    revokeSessions: (tx, userId, keep) => identitySessionStore.revokeAllForUser(tx, userId, keep),
+  })
   const identityGuestClaim = new GuestClaimService(deps.uow, tokenHasher, identityGuestStore, identityClaimStore, identityAudit)
   // C12-2: ceremonies persist in Postgres by default (restart/multi-instance
   // safe — D-40e retired); tests may bind MemoryChallengeStore explicitly.
@@ -691,6 +715,8 @@ export function buildContainer(databaseUrl: string): Container {
       webauthn: identityWebauthn,
       passkeyService: identityPasskeyService,
       passkeys: identityPasskeys,
+      emailChange: identityEmailChange,
+      guestTokens: identityGuestStore,
       users: identityDeps.users as PgUserRepository,
       emailOutbox: sandboxEmail,
     },
