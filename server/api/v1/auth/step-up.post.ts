@@ -1,6 +1,7 @@
 /** POST /api/v1/auth/step-up (WP-R1-B1 US-5). Fresh re-auth on the CURRENT session; no new session. */
 import { defineEventHandler, readBody, getRequestIP } from 'h3'
 import { resolveAuth } from '../../../utils/identity'
+import { normalizeAddress } from '../../../utils/rate-limit'
 import { getContainer } from '../../../utils/container'
 import { sendProblem } from '../../../utils/problem'
 import { stepUpRequest } from '@contracts/schemas/identity/auth.schema'
@@ -12,7 +13,7 @@ export default defineEventHandler(async (event) => {
   const sessionId = event.context.sessionId as string | undefined
   if (!auth || !sessionId) return sendProblem(event, domainError('AUTH_REQUIRED', 'authentication required'))
   const c = getContainer()
-  if (!c.rateLimiter.allow(`auth.step-up:${getRequestIP(event, { xForwardedFor: true }) ?? auth.userId}`, 10, 300)) {
+  if (!(await c.rateLimiter.allow(`auth.step-up:${normalizeAddress(getRequestIP(event, { xForwardedFor: true }) ?? auth.userId)}`, 10, 300))) {
     return sendProblem(event, domainError('RATE_LIMITED', 'too many attempts — wait a moment'))
   }
   const parsed = stepUpRequest.safeParse(await readBody(event).catch(() => ({})))

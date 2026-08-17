@@ -29,6 +29,7 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | C12_LAUNCH_FOUNDATIONS_PROGRAM_PLAN · C12_PRINCIPAL_ENGINEER_REVIEW · C12_2_READINESS_REVIEW | **APPROVED** — the stranger test, the three increments, the PE corrections, the amended C12-2 scope |
 | MAIL_PROVIDER_DECISION | **DECIDED** (Founder-delegated) — Resend behind MailPort; portability recorded |
 | **C12_1_EXTERNAL_CERTIFICATION** | **CLOSURE** — The Letters Arrive (GO, v1.44.0): real provider + real inbox walk, the payout.paid race found and fixed, binding production-mail cutover gates |
+| **C12_2_CERTIFICATION** | **CLOSURE** — Locks for Strangers (GO, v1.45.0): durable HMAC rate limits, one-time WebAuthn ceremonies, named boot refusals, the audited abuse loop with enforcement_hold semantics preserved to the cent, the webhook invariant generalized |
 
 Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
 reconstructs any order without SQL, incl. the §7 provider-operation journal) and

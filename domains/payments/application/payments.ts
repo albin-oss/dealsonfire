@@ -871,6 +871,15 @@ export class PaymentsService {
 
   /** Webhook ingestion: dedupe by provider event id (A8-7 layer 4), then record the
    *  fact — WITH the provider's exact payload preserved (RM-M1: forensics). */
+  /** C12-2 (the webhook invariant, generalized): an event whose LEGITIMATE
+   *  processing failed after ingest must become deliverable again — observed
+   *  is not consumed. The webhook's compensating catch un-ingests so the
+   *  provider's redelivery reprocesses; successes stay deduped forever. */
+  async forgetProviderEvent(tx: Tx, provider: string, eventId: string): Promise<void> {
+    await asClient(tx).query(
+      `DELETE FROM provider_events WHERE provider = $1 AND event_id = $2`, [provider, eventId])
+  }
+
   async ingestProviderEvent(tx: Tx, input: { provider: string; eventId: string; intentRef: string | null; kind: string; payload?: unknown; detail?: Record<string, unknown> }):
     Promise<{ fresh: boolean }> {
     const client = asClient(tx)

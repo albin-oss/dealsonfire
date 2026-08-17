@@ -60,6 +60,9 @@ import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagem
 import sparksPost from '../../server/api/v1/sparks/index.post'
 import mailWebhookPost from '../../server/api/webhooks/mail.post'
 import stripeWebhookPost from '../../server/api/webhooks/stripe.post'
+import publicReportPost from '../../server/api/v1/public/report.post'
+import opsStoreHoldPost from '../../server/api/v1/ops/stores/[storeId]/hold.post'
+import opsStoreReleasePost from '../../server/api/v1/ops/stores/[storeId]/release.post'
 import sparksGet from '../../server/api/v1/sparks/index.get'
 import sparkDeletePost from '../../server/api/v1/sparks/[sparkId]/delete.post'
 import publicSparkGet from '../../server/api/v1/public/stores/[handle]/sparks/[sparkId].get'
@@ -225,6 +228,9 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/internal/outbox-dispatch', outboxDispatch)
   router.post('/api/webhooks/mail', mailWebhookPost)
   router.post('/api/webhooks/stripe', stripeWebhookPost)
+  router.post('/api/v1/public/report', publicReportPost)
+  router.post('/api/v1/ops/stores/:storeId/hold', opsStoreHoldPost)
+  router.post('/api/v1/ops/stores/:storeId/release', opsStoreReleasePost)
   app.use(router)
 
   const server: Server = createServer(toNodeListener(app))

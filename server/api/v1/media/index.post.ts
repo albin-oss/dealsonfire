@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     const auth = (event.context.auth ?? resolveAuth(event)) as { userId: string } | null
     if (!auth) return sendProblem(event, domainError('AUTH_REQUIRED', 'authentication required'), correlationId)
 
-    if (!container.rateLimiter.allow(`media.upload:${auth.userId}`, 60, 3600)) {
+    if (!(await container.rateLimiter.allow(`media.upload:${auth.userId}`, 60, 3600))) {
       return sendProblem(event, domainError('RATE_LIMITED', 'too many uploads — wait a moment'), correlationId)
     }
 

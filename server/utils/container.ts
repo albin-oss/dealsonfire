@@ -88,7 +88,7 @@ import { PgRecoveryStore, PgGuestTokenStore, PgClaimStore, PgPasskeyStore } from
 import { PasskeyService } from '@domains/identity/application/passkey-service'
 import { Argon2PasswordHasher, Sha256TokenHasher } from '@domains/identity/infrastructure/crypto'
 import { TransactionalEmail, SandboxEmailProvider, JournalingEmailProvider, type EmailProvider } from '@domains/identity/infrastructure/email'
-import { WebAuthnService, MemoryChallengeStore } from '@domains/identity/infrastructure/webauthn'
+import { WebAuthnService, MemoryChallengeStore, PgChallengeStore } from '@domains/identity/infrastructure/webauthn'
 import { identityOrderingScopeOf } from '@domains/identity/domain/events'
 import type { IdentityDeps } from '@domains/identity/domain/ports'
 import { identityPayloadValidators } from '@contracts/schemas/events/identity-payloads'
@@ -96,7 +96,7 @@ import { AuthService } from '@domains/identity/application/auth-service'
 import { SessionService } from '@domains/identity/application/session-service'
 import { GuestClaimService } from '@domains/identity/application/guest-claim-service'
 import { merchantAccessAdapter } from './merchant-access'
-import { MemoryRateLimiter, type RateLimiterPort } from './rate-limit'
+import { MemoryRateLimiter, PgRateLimiter, type RateLimiterPort } from './rate-limit'
 import { PgCartRepository } from '@domains/orders/cart/application/carts'
 import { PgCheckoutService, type PaymentPort } from '@domains/orders/checkout/application/checkout'
 import { PgConfirmService } from '@domains/orders/checkout/application/confirm'
@@ -588,9 +588,11 @@ export function buildContainer(databaseUrl: string): Container {
   const identityAuth = new AuthService(identityDeps, identityRecovery, new TransactionalEmail(emailProvider, appBaseUrl))
   const identitySessions = new SessionService(deps.uow, identitySessionStore, tokenHasher, identityClock, identityEventStore)
   const identityGuestClaim = new GuestClaimService(deps.uow, tokenHasher, identityGuestStore, identityClaimStore, identityAudit)
+  // C12-2: ceremonies persist in Postgres by default (restart/multi-instance
+  // safe — D-40e retired); tests may bind MemoryChallengeStore explicitly.
   const identityWebauthn = new WebAuthnService(
     { rpName: 'DOF', rpId: webauthnRpId, origin: webauthnOrigin },
-    new MemoryChallengeStore(),
+    process.env.VITEST ? new MemoryChallengeStore() : new PgChallengeStore(pool),
   )
   const identityPasskeyService = new PasskeyService(deps.uow, identityWebauthn, identityPasskeys, identitySessions, identityAudit)
   const identityDispatcher = new OutboxDispatcher(
@@ -636,7 +638,12 @@ export function buildContainer(databaseUrl: string): Container {
     logger,
     metrics: new NoopMetrics(),
     flags: new EnvFeatureFlags(),
-    rateLimiter: new MemoryRateLimiter(),
+    // C12-2: durable limits bind when the HMAC secret is configured (the boot
+    // gate REQUIRES it in production); tests/dev-without-secret keep the
+    // inspectable in-memory limiter with its reset() hook.
+    rateLimiter: optionalEnv('NUXT_RATE_LIMIT_HMAC_SECRET')
+      ? new PgRateLimiter(pool, optionalEnv('NUXT_RATE_LIMIT_HMAC_SECRET'))
+      : new MemoryRateLimiter(),
     audit,
     commerce: {
       deps: commerceDeps,
@@ -743,7 +750,7 @@ export function buildContainer(databaseUrl: string): Container {
           const products = await commerceDeps.productReads.listPublicShelf(tx, asBusinessId(front.businessId), front.storeId)
           const sparks = await sparkRepository.listPublicByChannel(tx, asBusinessId(front.businessId), front.storeId)
           return {
-            store: { handle: front.handle, name: front.name, published_at: front.publishedAt },
+            store: { id: front.storeId, handle: front.handle, name: front.name, published_at: front.publishedAt },
             brand: front.brand,
             sparks,
             products: products.map((p) => ({

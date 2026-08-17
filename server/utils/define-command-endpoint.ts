@@ -39,12 +39,12 @@ export function defineCommandEndpoint<TBody, TOut>(options: CommandEndpointOptio
     const auth = (event.context.auth as AuthContext | null | undefined) ?? resolveAuth(event)
     if (!auth) return sendProblem(event, domainError('AUTH_REQUIRED', 'authentication required'), correlationId)
 
-    if (!container.rateLimiter.allow(`global:${auth.userId}`, GLOBAL_RATE_LIMIT.limit, GLOBAL_RATE_LIMIT.windowSeconds)) {
+    if (!(await container.rateLimiter.allow(`global:${auth.userId}`, GLOBAL_RATE_LIMIT.limit, GLOBAL_RATE_LIMIT.windowSeconds))) {
       return sendProblem(event, domainError('RATE_LIMITED', 'too many requests'), correlationId)
     }
     if (options.rateLimit) {
       const key = `${options.command}:${auth.userId}`
-      if (!container.rateLimiter.allow(key, options.rateLimit.limit, options.rateLimit.windowSeconds)) {
+      if (!(await container.rateLimiter.allow(key, options.rateLimit.limit, options.rateLimit.windowSeconds))) {
         return sendProblem(event, domainError('RATE_LIMITED', 'too many requests'), correlationId)
       }
     }
@@ -135,7 +135,7 @@ export function defineQueryEndpoint<TOut>(options: {
     const correlationId = requestId && isUuid(requestId) ? requestId : uuidv7()
     const auth = (event.context.auth as AuthContext | null | undefined) ?? resolveAuth(event)
     if (!auth) return sendProblem(event, domainError('AUTH_REQUIRED', 'authentication required'), correlationId)
-    if (!getContainer().rateLimiter.allow(`global:${auth.userId}`, GLOBAL_RATE_LIMIT.limit, GLOBAL_RATE_LIMIT.windowSeconds)) {
+    if (!(await getContainer().rateLimiter.allow(`global:${auth.userId}`, GLOBAL_RATE_LIMIT.limit, GLOBAL_RATE_LIMIT.windowSeconds))) {
       return sendProblem(event, domainError('RATE_LIMITED', 'too many requests'), correlationId)
     }
     try {
