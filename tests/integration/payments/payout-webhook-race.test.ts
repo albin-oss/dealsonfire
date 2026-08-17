@@ -97,4 +97,61 @@ describe('C12-1 — payout.paid racing the settle', () => {
     const { rows } = await container.pool.query(`SELECT count(*)::int AS n FROM provider_events WHERE event_id = 'evt_race_3'`)
     expect(rows[0].n).toBe(1) // ingested (recon will category-note it), no retry storm invited
   })
+
+  it('CONCURRENT delivery of one event: the unique ingest serializes it — one domain event, ever', async () => {
+    const biz = uuidv7()
+    await container.pool.query(
+      `INSERT INTO provider_operations (id, kind, provider, idempotency_key, business_id, amount_minor, currency, state, provider_ref, detail)
+       VALUES ($1, 'payout', 'stripe', $2, $3, 4365, 'EUR', 'succeeded', 'po_concurrent', $4)`,
+      [uuidv7(), `payout:${biz}:1`, biz, JSON.stringify({ period: 1, account: 'acct_x' })])
+    const { payload, header } = signedPayoutEvent({ eventId: 'evt_race_cc', payoutId: 'po_concurrent', account: 'acct_x' })
+    const [a, b] = await Promise.all([post(payload, header), post(payload, header)])
+    expect([a.status, b.status]).toEqual([200, 200])
+    expect([a.body.fresh, b.body.fresh].sort()).toEqual([false, true]) // exactly one was the first
+    const { rows } = await container.pool.query(
+      `SELECT count(*)::int AS n FROM payments_domain_events WHERE payload->>'provider_payout_id' = 'po_concurrent'`)
+    expect(rows[0].n).toBe(1)
+  })
+
+  it('a forged signature is refused with NOTHING recorded', async () => {
+    const { payload } = signedPayoutEvent({ eventId: 'evt_forged', payoutId: 'po_x', account: 'acct_x' })
+    const res = await http.request('POST', '/api/webhooks/stripe', {
+      headers: { 'stripe-signature': 't=1,v1=forgedforgedforged', 'content-type': 'application/json' },
+      body: payload,
+    })
+    expect(res.status).toBe(400)
+    const { rows } = await container.pool.query(`SELECT count(*)::int AS n FROM provider_events`)
+    expect(rows[0].n).toBe(0)
+  })
+
+  it('THE INVARIANT, generalized: a non-payout event whose processing FAILS is un-ingested — redelivery reprocesses; success then dedups', async () => {
+    // a dispute.created with an unparseable evidence deadline makes
+    // the branch throw AFTER ingest — the compensating envelope must un-consume
+    const badPayload = JSON.stringify({
+      id: 'evt_downstream', object: 'event', type: 'charge.dispute.created', api_version: '2026-06-24.dahlia',
+      data: { object: { id: 'du_race_1', object: 'dispute', amount: 2250, currency: 'eur', reason: 'fraudulent', evidence_details: { due_by: 'garbage' } } },
+    })
+    const badHeader = Stripe.webhooks.generateTestHeaderString({ payload: badPayload, secret: WEBHOOK_SECRET })
+    const failed = await post(badPayload, badHeader)
+    expect(failed.status).toBe(500)
+    const { rows: afterFail } = await container.pool.query(`SELECT count(*)::int AS n FROM provider_events WHERE event_id = 'evt_downstream'`)
+    expect(afterFail[0].n).toBe(0) // observed ≠ consumed: the event is deliverable again
+
+    // the provider redelivers (here: a corrected payload under the SAME id) — it processes as FRESH
+    const goodPayload = JSON.stringify({
+      id: 'evt_downstream', object: 'event', type: 'charge.dispute.created', api_version: '2026-06-24.dahlia',
+      data: { object: { id: 'du_race_1', object: 'dispute', amount: 2250, currency: 'eur', reason: 'fraudulent' } },
+    })
+    const goodHeader = Stripe.webhooks.generateTestHeaderString({ payload: goodPayload, secret: WEBHOOK_SECRET })
+    const redelivered = await post(goodPayload, goodHeader)
+    expect(redelivered.status).toBe(200)
+    const { rows: dispute } = await container.pool.query(`SELECT count(*)::int AS n FROM payment_disputes WHERE provider_dispute_id = 'du_race_1'`)
+    expect(dispute[0].n).toBe(1)
+    // and a SUCCESSFUL event replayed does NOT execute twice
+    const replay = await post(goodPayload, goodHeader)
+    expect(replay.status).toBe(200)
+    expect(replay.body.fresh).toBe(false)
+    const { rows: still } = await container.pool.query(`SELECT count(*)::int AS n FROM payment_disputes WHERE provider_dispute_id = 'du_race_1'`)
+    expect(still[0].n).toBe(1)
+  })
 })

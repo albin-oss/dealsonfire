@@ -95,41 +95,62 @@ export default defineEventHandler(async (event) => {
       payload: stripeEvent.data.object, // RM-M1: the provider's exact words, kept
     }))
 
-  // Slice 2 — the buyer's confirmation became provider truth: converge the order.
-  // Runs AFTER the ingest transaction (§7); idempotent with the client's return
-  // in either order. A failure here answers 500 → Stripe retries → convergence.
-  if (result.fresh && intentRef && stripeEvent.type === 'payment_intent.amount_capturable_updated') {
-    await completePaymentAuthorization(c, intentRef)
-  }
-
-  // Slice 3 — the connected account's capabilities changed: land the snapshot
-  // (idempotent with the onboarding-return sync in either order); the letter to
-  // the maker rides the payments outbox when something actually changed.
-  if (result.fresh && stripeEvent.type === 'account.updated' && object.object === 'account' && object.id) {
-    const state = await c.payments.boundary.connectReadAccount(object.id)
-    await c.deps.uow.withTransaction((tx) =>
-      c.payments.service.applyAccountSnapshot(tx, { accountId: object.id!, state }))
-  }
-
-  // Slice 4 — chargebacks (RM-C3): opened freezes the merchant's unreleased
-  // entitlement + letters the maker with the DEADLINE; closed settles per the
-  // approved loss policy. Both idempotent by the provider's dispute id.
-  if (result.fresh && object.object === 'dispute' && object.id) {
-    if (stripeEvent.type === 'charge.dispute.created') {
-      await c.deps.uow.withTransaction((tx) => c.payments.service.openDispute(tx, {
-        providerDisputeId: object.id!,
-        providerRef: objectIntentRef ?? null,
-        amountMinor: object.amount ?? 0,
-        currency: (object.currency ?? 'eur').toUpperCase(),
-        reason: object.reason ?? null,
-        evidenceDueAt: object.evidence_details?.due_by ? new Date(object.evidence_details.due_by * 1000).toISOString() : null,
-      }))
+  // C12-2 — THE WEBHOOK INVARIANT, GENERALIZED (the C12-1 payout race, closed
+  // for every event class): an event is not permanently consumed merely
+  // because it was observed. Payout outcomes ingest-and-handle atomically
+  // (above); every other branch runs in this compensating envelope — a
+  // processing failure UN-INGESTS the event (its dedup row vanishes) and
+  // answers 500, so the provider's redelivery is FRESH and reprocesses.
+  // Successes stay consumed forever; replay protection is untouched. The
+  // remaining crash window (process death between ingest-commit and branch)
+  // is covered by the §8 convergence lanes these branches share signals with
+  // (confirm sweep reads provider truth; account sync lands on return;
+  // reconciliation surfaces dispute drift).
+  try {
+    // Slice 2 — the buyer's confirmation became provider truth: converge the order.
+    // Runs AFTER the ingest transaction (§7); idempotent with the client's return
+    // in either order.
+    if (result.fresh && intentRef && stripeEvent.type === 'payment_intent.amount_capturable_updated') {
+      await completePaymentAuthorization(c, intentRef)
     }
-    if (stripeEvent.type === 'charge.dispute.closed') {
-      const outcome = object.status === 'won' ? 'won' as const : 'lost' as const
+
+    // Slice 3 — the connected account's capabilities changed: land the snapshot
+    // (idempotent with the onboarding-return sync in either order); the letter to
+    // the maker rides the payments outbox when something actually changed.
+    if (result.fresh && stripeEvent.type === 'account.updated' && object.object === 'account' && object.id) {
+      const state = await c.payments.boundary.connectReadAccount(object.id)
       await c.deps.uow.withTransaction((tx) =>
-        c.payments.service.resolveDispute(tx, { providerDisputeId: object.id!, outcome }))
+        c.payments.service.applyAccountSnapshot(tx, { accountId: object.id!, state }))
     }
+
+    // Slice 4 — chargebacks (RM-C3): opened freezes the merchant's unreleased
+    // entitlement + letters the maker with the DEADLINE; closed settles per the
+    // approved loss policy. Both idempotent by the provider's dispute id.
+    if (result.fresh && object.object === 'dispute' && object.id) {
+      if (stripeEvent.type === 'charge.dispute.created') {
+        await c.deps.uow.withTransaction((tx) => c.payments.service.openDispute(tx, {
+          providerDisputeId: object.id!,
+          providerRef: objectIntentRef ?? null,
+          amountMinor: object.amount ?? 0,
+          currency: (object.currency ?? 'eur').toUpperCase(),
+          reason: object.reason ?? null,
+          evidenceDueAt: object.evidence_details?.due_by ? new Date(object.evidence_details.due_by * 1000).toISOString() : null,
+        }))
+      }
+      if (stripeEvent.type === 'charge.dispute.closed') {
+        const outcome = object.status === 'won' ? 'won' as const : 'lost' as const
+        await c.deps.uow.withTransaction((tx) =>
+          c.payments.service.resolveDispute(tx, { providerDisputeId: object.id!, outcome }))
+      }
+    }
+  } catch (error) {
+    if (result.fresh) {
+      await c.deps.uow.withTransaction((tx) =>
+        c.payments.service.forgetProviderEvent(tx, 'stripe', stripeEvent.id)).catch(() => {})
+    }
+    console.error(`[stripe-webhook] processing failed for ${stripeEvent.id} (${stripeEvent.type}) — event un-ingested for redelivery:`, (error as Error).message)
+    setResponseStatus(event, 500)
+    return { retry: true }
   }
   // (payout.paid / payout.failed are handled above, in one transaction with
   // their ingest — the C12-1 external-walk race made the old two-tx shape lossy)
