@@ -750,7 +750,7 @@ export function buildContainer(databaseUrl: string): Container {
           const products = await commerceDeps.productReads.listPublicShelf(tx, asBusinessId(front.businessId), front.storeId)
           const sparks = await sparkRepository.listPublicByChannel(tx, asBusinessId(front.businessId), front.storeId)
           return {
-            store: { handle: front.handle, name: front.name, published_at: front.publishedAt },
+            store: { id: front.storeId, handle: front.handle, name: front.name, published_at: front.publishedAt },
             brand: front.brand,
             sparks,
             products: products.map((p) => ({

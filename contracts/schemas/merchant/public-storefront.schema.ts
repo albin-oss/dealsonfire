@@ -7,6 +7,9 @@ import { z } from 'zod'
 
 export const publicStorefrontResponse = z.object({
   store: z.object({
+    /** C12-2: the report door names its subject by id (uuids are already
+     *  public on every product; the store's is no more secret). */
+    id: z.string().uuid(),
     handle: z.string(),
     name: z.string(),
     published_at: z.string().nullable(),

@@ -176,7 +176,7 @@ async function merchantWorld(priceMinor = 4500) {
   return { cookie, businessId: biz.body.business_id as string, storeId: store.body.store_id as string, handle, variantId: pub.body.product.variants[0].id as string }
 }
 
-async function operator(): Promise<{ headers: Record<string, string> }> {
+async function operator(): Promise<{ headers: { cookie: string; 'x-dof-step-up': string } }> {
   const reg = await http.request('POST', '/api/v1/auth/register', { body: { email: `ops-${uuidv7()}@dof.example`, password: 'a long passphrase' } })
   const set = reg.headers.get('set-cookie')!
   const cookie = `${SESSION_COOKIE}=${decodeURIComponent(new RegExp(`${SESSION_COOKIE}=([^;]+)`).exec(set)![1]!)}`
