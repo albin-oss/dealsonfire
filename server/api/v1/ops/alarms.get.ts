@@ -16,6 +16,7 @@
  *   mail_failed    — a letter failed permanently or is stuck retrying (C12-1)
  *   mail_bounced_critical — a CRITICAL letter bounced/complained: the person
  *                    may not have received identity/money truth (C12-1)
+ *   abuse_report   — someone said something here is wrong; a human decides (C12-2)
  * Acknowledged = an operator wrote an ack note on the order; the alarm stays
  * listed (state is still true) but carries the human's initials.
  */
@@ -29,7 +30,7 @@ export default defineQueryEndpoint({
   async handler({ event, auth }) {
     if (!isOperator(auth.userId)) return sendProblem(event, domainError('NOT_FOUND', 'not found'))
     const c = getContainer()
-    const [stuck, orphaned, broken, holds, disputes, riskPaused, unmatched, negativePayable, payoutStuck, payoutFailed, mailFailed, mailBouncedCritical, acks] = await Promise.all([
+    const [stuck, orphaned, broken, holds, disputes, riskPaused, unmatched, negativePayable, payoutStuck, payoutFailed, mailFailed, mailBouncedCritical, abuseReports, acks] = await Promise.all([
       c.pool.query(
         `SELECT id, order_number, state, placed_at FROM orders
           WHERE state = 'payment_pending' AND placed_at < now() - interval '2 hours'
@@ -89,6 +90,9 @@ export default defineQueryEndpoint({
           FROM mail_bounces b JOIN mail_journal j ON j.provider_ref = b.provider_ref
           WHERE j.critical ORDER BY b.received_at LIMIT 100`),
       c.pool.query(
+        `SELECT id, subject_type || ':' || subject_ref AS order_number, reason AS state, created_at AS placed_at
+          FROM abuse_reports WHERE state = 'open' ORDER BY created_at LIMIT 100`),
+      c.pool.query(
         `SELECT DISTINCT order_id FROM order_timeline
           WHERE entry_type = 'note' AND (message->>'ack')::boolean IS TRUE`),
     ])
@@ -109,6 +113,7 @@ export default defineQueryEndpoint({
         ...shape('payout_failed', payoutFailed.rows),
         ...shape('mail_failed', mailFailed.rows),
         ...shape('mail_bounced_critical', mailBouncedCritical.rows),
+        ...shape('abuse_report', abuseReports.rows),
       ],
     }
   },

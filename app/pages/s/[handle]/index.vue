@@ -176,6 +176,9 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
         <DofText v-if="brand?.promise" role="caption" class="text-positive">✓ {{ brand.promise }}</DofText>
       </section>
 
+      <!-- C12-2: the quiet report door — findable, never theater -->
+      <ReportDoor subject-type="store" :subject-ref="store.id" />
+
       <NuxtLink to="/home" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/60 underline-offset-4 hover:underline focus-visible:focus-ring">
         More shops like this on DOF →
       </NuxtLink>

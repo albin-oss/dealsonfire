@@ -191,6 +191,11 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       </section>
     </main>
 
+    <!-- C12-2: the quiet report door -->
+    <div class="mx-auto max-w-4xl px-4">
+      <ReportDoor subject-type="product" :subject-ref="product.id" />
+    </div>
+
     <!-- ——— more from this store (the shelf, minus this product) -->
     <section v-if="related.length > 0" aria-label="more from this store" class="border-t border-foreground/10">
       <div class="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-8">
