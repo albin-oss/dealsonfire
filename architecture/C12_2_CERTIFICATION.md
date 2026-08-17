@@ -79,11 +79,11 @@ Three tables, manifest-declared: `rate_limit_buckets` P0 (HMAC digests only — 
 
 ## FULL GATE RESULTS
 
-*(recorded from the release-candidate sweep — see the release record; filled only from the actual run)*
+One clean run, honest exit code (`sweep-c12-2c`, 2026-08-17): **SWEEP EXIT=0** — unit **300/300** · UI **163/163** · integration **315/315** (incl. the 13-scenario locks matrix and the 6-scenario webhook-invariant suite) · e2e **147/147** · build, token/boundary/data/identity/operations gates, lint, **typecheck** (which earned its keep: it caught the storefront report door naming a subject the public payload didn't carry — fixed by exposing the store id the DAO always had): PASS. No test skipped, no assertion weakened, no unexplained flake. Two pre-candidate failures were both REAL and both fixed as call-site truths of the async conversion and the door's payload — neither was reclassified as flake.
 
 ## GO / NO-GO
 
-*(issued with the gate results)*
+**GO — unconditional.** Every scope item implemented, every hostile scenario demonstrated, every gate green in one clean run, no HIGH/CRITICAL open, no scope borrowed from the Living Street or later phases.
 
 ## C12-3 READINESS
 
