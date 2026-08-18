@@ -2,6 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "nuxt-session",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "/Users/akj/Desktop/DOF/node_modules/tsx/dist/cli.mjs",
+        "/Users/akj/Desktop/DOF/scripts/dev-session.ts"
+      ],
+      "port": 3000
+    },
+    {
       "name": "nuxt-dev",
       "runtimeExecutable": "node",
       "runtimeArgs": [
