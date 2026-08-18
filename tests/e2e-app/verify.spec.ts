@@ -33,11 +33,21 @@ test('no token → pending state invites the user to check their inbox, axe-clea
   await axeClean(page)
 })
 
-test('an invalid/expired token shows the expiry message with a resend affordance', async ({ page }) => {
+test('a token lands WITHOUT consuming (scanner-safe); only the press reveals expiry + resend', async ({ page }) => {
+  // the scanner-safety law (C12-3): a GET with a token must fire ZERO consuming requests
+  const consumed: string[] = []
+  page.on('request', (r) => { if (r.url().includes('/api/v1/auth/verify-email')) consumed.push(r.method()) })
   await page.goto('/verify?token=this-is-not-a-real-token-value')
+  await expect(page.getByRole('button', { name: 'Yes, confirm my email' })).toBeVisible()
+  await expect(page.getByText('Nothing happens until you press it.')).toBeVisible()
+  expect(consumed).toEqual([]) // the landing spent nothing
+  await axeClean(page)
+  // only the explicit press posts; the invalid token then shows honest expiry + resend
+  await page.getByRole('button', { name: 'Yes, confirm my email' }).click()
   await expect(page.getByText('That link is no longer valid')).toBeVisible()
   await expect(page.getByText(/expire after 30 minutes/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Send a new link' })).toBeVisible()
+  expect(consumed).toEqual(['POST'])
   await axeCleanExceptHeadingOrder(page)
 })
 
