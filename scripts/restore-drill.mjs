@@ -82,8 +82,6 @@ const check = (label, ok, detail = '') => {
 }
 
 // every table travelled, with every row
-const countsSql = `
-  SELECT relname AS table, n_live_tup FROM pg_stat_user_tables ORDER BY relname`
 const exactCount = async (url, table) =>
   Number((await query(url, `SELECT count(*)::bigint AS n FROM ${table}`))[0].n)
 const tables = (await query(source, `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`)).map((r) => r.tablename)
