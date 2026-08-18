@@ -1298,6 +1298,37 @@
       "delete_class": "hard-delete-on-schedule",
       "cross_domain_refs": [],
       "notes": "C12-2 safety intake. Closed subject/reason vocabularies; note bounded and treated sensitive (users paste PII); reporter is pseudonymous visitor or user id."
+    },
+    {
+      "table": "email_changes",
+      "owner": "identity",
+      "class": "aggregate",
+      "tenancy_key": null,
+      "scope_key": "user_id",
+      "pii_tier": "P2",
+      "pii_columns": [
+        "old_email",
+        "new_email"
+      ],
+      "retention": "24 months (account-takeover forensics) then hard-delete",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "C12-3: THE email-change state machine (pending/completed/reverted/superseded). One live attempt per account by partial unique index; the 72h revert window lives here."
+    },
+    {
+      "table": "consent_facts",
+      "owner": "identity",
+      "class": "ledger",
+      "tenancy_key": null,
+      "scope_key": "user_id",
+      "pii_tier": "P1",
+      "pii_columns": [
+        "user_id"
+      ],
+      "retention": "life of account + statutory (counsel-configurable)",
+      "delete_class": "tombstone",
+      "cross_domain_refs": [],
+      "notes": "C12-3: append-only consent facts; effective consent = latest fact per (user, document). Documents/versions are code constants (contracts/legal), never a CMS. No IP stored."
     }
   ]
 }

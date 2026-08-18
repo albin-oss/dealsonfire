@@ -16,8 +16,11 @@ const route = useRoute()
 const orderId = computed(() => String(route.params.orderId ?? ''))
 const justPlaced = computed(() => route.query.welcome === '1')
 
+// C12-3: the confirmation letter's key rides along — the page works on any
+// device inside the key's window, cookie or no cookie
+const orderKey = computed(() => typeof route.query.key === 'string' ? route.query.key : null)
 const { data, pending, error } = await useFetch<BuyerOrderResponse>(
-  () => `/api/v1/public/orders/${encodeURIComponent(orderId.value)}`,
+  () => `/api/v1/public/orders/${encodeURIComponent(orderId.value)}${orderKey.value ? `?key=${encodeURIComponent(orderKey.value)}` : ''}`,
   { lazy: true, server: false },
 )
 const order = computed(() => data.value?.order ?? null)

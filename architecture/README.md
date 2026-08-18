@@ -30,6 +30,9 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | MAIL_PROVIDER_DECISION | **DECIDED** (Founder-delegated) — Resend behind MailPort; portability recorded |
 | **C12_1_EXTERNAL_CERTIFICATION** | **CLOSURE** — The Letters Arrive (GO, v1.44.0): real provider + real inbox walk, the payout.paid race found and fixed, binding production-mail cutover gates |
 | **C12_2_CERTIFICATION** | **CLOSURE** — Locks for Strangers (GO, v1.45.0): durable HMAC rate limits, one-time WebAuthn ceremonies, named boot refusals, the audited abuse loop with enforcement_hold semantics preserved to the cent, the webhook invariant generalized |
+| **C12_3_CERTIFICATION** | **CLOSURE** — A Person, and a Proven Recovery (GO, v1.46.0): scanner-safety law (GET never consumes), the email-change state machine with the 72-hour way back browser-proven against an attacker, guest order keys, consent facts, legal placeholders, and an ACTUAL restore drill that first failed honestly on real schema drift |
+| **PRODUCTION_CUTOVER** | **BINDING** — every launch gate in five classes: PROVEN / CONFIGURED-NOT-PROVEN / FOUNDER-COUNSEL / DEPLOYMENT / PUBLIC-LAUNCH-GATE; the public-launch NO-GO list in one place |
+| **LAUNCH_FOUNDATIONS_RETROSPECTIVE** | **CLOSURE** — C12 program retrospective: ten questions answered from evidence, and the controlled-stranger-cohort GO/NO-GO judgment |
 
 Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
 reconstructs any order without SQL, incl. the §7 provider-operation journal) and

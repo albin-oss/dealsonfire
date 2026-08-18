@@ -63,6 +63,10 @@ import stripeWebhookPost from '../../server/api/webhooks/stripe.post'
 import publicReportPost from '../../server/api/v1/public/report.post'
 import opsStoreHoldPost from '../../server/api/v1/ops/stores/[storeId]/hold.post'
 import opsStoreReleasePost from '../../server/api/v1/ops/stores/[storeId]/release.post'
+import accountGet from '../../server/api/v1/account/index.get'
+import accountEmailChangePost from '../../server/api/v1/account/email-change.post'
+import emailChangeConfirmPost from '../../server/api/v1/auth/email-change/confirm.post'
+import emailChangeRevertPost from '../../server/api/v1/auth/email-change/revert.post'
 import sparksGet from '../../server/api/v1/sparks/index.get'
 import sparkDeletePost from '../../server/api/v1/sparks/[sparkId]/delete.post'
 import publicSparkGet from '../../server/api/v1/public/stores/[handle]/sparks/[sparkId].get'
@@ -231,6 +235,10 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/public/report', publicReportPost)
   router.post('/api/v1/ops/stores/:storeId/hold', opsStoreHoldPost)
   router.post('/api/v1/ops/stores/:storeId/release', opsStoreReleasePost)
+  router.get('/api/v1/account', accountGet)
+  router.post('/api/v1/account/email-change', accountEmailChangePost)
+  router.post('/api/v1/auth/email-change/confirm', emailChangeConfirmPost)
+  router.post('/api/v1/auth/email-change/revert', emailChangeRevertPost)
   app.use(router)
 
   const server: Server = createServer(toNodeListener(app))

@@ -64,6 +64,8 @@ const expectedEndpoints = [
   'login.post.ts', 'logout-all.post.ts', 'logout.post.ts', 'register.post.ts', 'session.get.ts',
   'step-up.post.ts', 'verify-email.post.ts', 'resend-verification.post.ts',
   'recovery/request.post.ts', 'recovery/reset.post.ts',
+  // C12-3: the email-change possession/revert doors (scanner-safe, POST-only)
+  'email-change/confirm.post.ts', 'email-change/revert.post.ts',
   'webauthn/authenticate.post.ts', 'webauthn/authentication-options.post.ts',
   'webauthn/registration-options.post.ts', 'webauthn/verify-registration.post.ts',
 ].sort()
