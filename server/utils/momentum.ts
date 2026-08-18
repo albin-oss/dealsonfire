@@ -24,11 +24,17 @@ export interface MerchantMomentum {
   sparks_published: number
   /** The last few business facts, newest first — a timeline from existing data. */
   recent_activity: Array<{ kind: 'spark' | 'deal' | 'product' | 'follower'; label: string; at: string }>
+  /**
+   * LS-1 demand receipt (the honest minimum, no dashboard): people who actually
+   * looked this week (DISTINCT known visitors), anonymous glances counted apart,
+   * and the door most of them came through. Null until attention facts exist.
+   */
+  attention_this_week: { people: number; glances: number; top_source: string | null } | null
 }
 
 export async function merchantMomentum(tx: Tx, businessId: string): Promise<MerchantMomentum> {
   const client = asClient(tx)
-  const [followers, quiet, unsparked, firesWeek, followersWeek, counts, activity] = await Promise.all([
+  const [followers, quiet, unsparked, firesWeek, followersWeek, counts, activity, attention] = await Promise.all([
     client.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM store_follows f
        JOIN stores s ON s.id = f.store_id
@@ -90,6 +96,23 @@ export async function merchantMomentum(tx: Tx, businessId: string): Promise<Merc
          JOIN stores s ON s.id = f.store_id WHERE s.business_id = $1
        ) acts ORDER BY at DESC LIMIT 6`,
       [businessId]),
+    // LS-1: passive attention on this business's stores, last 7 days. People are
+    // DISTINCT known visitors (one attacker = one person); anonymous rows are
+    // glances and never inflate the people count.
+    client.query<{ people: number; glances: number; top_source: string | null }>(
+      `SELECT
+         count(DISTINCT a.visitor_id) FILTER (WHERE a.visitor_id IS NOT NULL)::int AS people,
+         count(*) FILTER (WHERE a.visitor_id IS NULL)::int AS glances,
+         (SELECT a2.source FROM attention_facts a2
+          JOIN stores s2 ON s2.id = a2.store_id
+          WHERE s2.business_id = $1 AND a2.occurred_at > now() - interval '7 days'
+            AND a2.event_type IN ('store_view', 'product_view', 'deal_view', 'spark_view')
+          GROUP BY a2.source ORDER BY count(*) DESC LIMIT 1) AS top_source
+       FROM attention_facts a
+       JOIN stores s ON s.id = a.store_id
+       WHERE s.business_id = $1 AND a.occurred_at > now() - interval '7 days'
+         AND a.event_type IN ('store_view', 'product_view', 'deal_view', 'spark_view')`,
+      [businessId]),
   ])
   return {
     followers: Number(followers.rows[0]?.n ?? 0),
@@ -105,5 +128,10 @@ export async function merchantMomentum(tx: Tx, businessId: string): Promise<Merc
       label: r.label,
       at: new Date(r.at).toISOString(),
     })),
+    attention_this_week: (() => {
+      const a = attention.rows[0]
+      if (!a || (Number(a.people) === 0 && Number(a.glances) === 0)) return null
+      return { people: Number(a.people), glances: Number(a.glances), top_source: a.top_source ?? null }
+    })(),
   }
 }

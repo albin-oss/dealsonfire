@@ -396,7 +396,7 @@ export async function listMyMerchants(tx: Tx, visitorId: string): Promise<Array<
   handle: string; name: string; tagline: string | null
 }>> {
   const { rows } = await asClient(tx).query<{ handle: string; name: string; tagline: string | null }>(
-    `SELECT s.handle, s.name, b.voice->>'tone' AS tagline
+    `SELECT s.id, s.handle, s.name, b.voice->>'tone' AS tagline
      FROM store_follows f
      JOIN stores s ON s.id = f.store_id AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
      LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
@@ -481,7 +481,7 @@ export async function listLiveShops(tx: Tx): Promise<Array<{
  * within each group, newest first — matches are found, never ranked.
  */
 export interface SearchResults {
-  shops: Array<{ handle: string; name: string; tagline: string | null }>
+  shops: Array<{ id: string; handle: string; name: string; tagline: string | null }>
   products: Array<{ id: string; title: string; price_minor: number | null; currency: string | null; store_handle: string; store_name: string }>
   deals: Array<{ id: string; headline: string; store_handle: string; store_name: string }>
   sparks: Array<{ id: string; excerpt: string; store_handle: string; store_name: string }>
@@ -492,7 +492,7 @@ export async function searchStreet(tx: Tx, q: string): Promise<SearchResults> {
   const client = asClient(tx)
   const [shops, products, deals, sparks] = await Promise.all([
     client.query<SearchResults['shops'][number]>(
-      `SELECT s.handle, s.name, b.voice->>'tone' AS tagline
+      `SELECT s.id, s.handle, s.name, b.voice->>'tone' AS tagline
        FROM stores s LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
        WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
          AND s.name ILIKE $1

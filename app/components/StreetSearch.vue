@@ -9,12 +9,12 @@ import { computed, ref, watch } from 'vue'
 import { DofText, DofIcon, DofMoney } from '@ds/index'
 
 interface Results {
-  shops: Array<{ handle: string; name: string; tagline: string | null }>
+  shops: Array<{ id: string; handle: string; name: string; tagline: string | null }>
   products: Array<{ id: string; title: string; price_minor: number | null; currency: string | null; store_handle: string; store_name: string }>
   deals: Array<{ id: string; headline: string; store_handle: string; store_name: string }>
   sparks: Array<{ id: string; excerpt: string; store_handle: string; store_name: string }>
 }
-interface Option { to: string; label: string; context: string; group: string }
+interface Option { to: string; label: string; context: string; group: string; kind: 'store' | 'product' | 'deal' | 'spark'; subjectId: string }
 
 const router = useRouter()
 const q = ref('')
@@ -44,6 +44,12 @@ watch(q, (value) => {
     searching.value = true
     try {
       results.value = await $fetch<Results>(`/api/v1/public/search?q=${encodeURIComponent(value.trim())}`)
+      // LS-1: the street learns its own vocabulary — what people look for, and
+      // whether it had an answer (zero-result queries are the missing words)
+      if (results.value) {
+        const r = results.value
+        recordSearch(value.trim(), r.shops.length + r.products.length + r.deals.length + r.sparks.length > 0)
+      }
     } catch { results.value = null } finally { searching.value = false }
   }, 200)
 })
@@ -51,15 +57,16 @@ watch(q, (value) => {
 const options = computed<Option[]>(() => {
   if (!results.value) return []
   return [
-    ...results.value.shops.map((s) => ({ to: `/s/${s.handle}`, label: s.name, context: s.tagline ?? 'a shop on DOF', group: 'Shops' })),
-    ...results.value.products.map((p) => ({ to: `/s/${p.store_handle}/p/${p.id}`, label: p.title, context: p.store_name, group: 'Products' })),
-    ...results.value.deals.map((d) => ({ to: `/s/${d.store_handle}/d/${d.id}`, label: d.headline, context: d.store_name, group: 'Deals' })),
-    ...results.value.sparks.map((sp) => ({ to: `/s/${sp.store_handle}/sparks/${sp.id}`, label: sp.excerpt, context: sp.store_name, group: 'Updates' })),
+    ...results.value.shops.map((s) => ({ to: `/s/${s.handle}`, label: s.name, context: s.tagline ?? 'a shop on DOF', group: 'Shops', kind: 'store' as const, subjectId: s.id })),
+    ...results.value.products.map((p) => ({ to: `/s/${p.store_handle}/p/${p.id}`, label: p.title, context: p.store_name, group: 'Products', kind: 'product' as const, subjectId: p.id })),
+    ...results.value.deals.map((d) => ({ to: `/s/${d.store_handle}/d/${d.id}`, label: d.headline, context: d.store_name, group: 'Deals', kind: 'deal' as const, subjectId: d.id })),
+    ...results.value.sparks.map((sp) => ({ to: `/s/${sp.store_handle}/sparks/${sp.id}`, label: sp.excerpt, context: sp.store_name, group: 'Updates', kind: 'spark' as const, subjectId: sp.id })),
   ]
 })
 const empty = computed(() => results.value !== null && options.value.length === 0 && !searching.value)
 
 function go(option: Option) {
+  recordSearchClick(option.kind, option.subjectId, q.value.trim()) // LS-1: the chosen answer
   rememberSearch(q.value.trim())
   open.value = false
   q.value = ''
@@ -150,6 +157,7 @@ function onBlur() {
       <div v-else-if="empty" class="flex flex-col gap-1 px-2 py-3">
         <DofText role="body">Nothing on the street matches “{{ q.trim() }}”.</DofText>
         <DofText role="caption" tone="muted">Try a shorter word — or <NuxtLink to="/shops" class="underline underline-offset-4">browse every shop</NuxtLink>.</DofText>
+        <DofText role="caption" tone="muted">The street remembers what people look for — it learns what's missing.</DofText>
       </div>
     </div>
   </div>

@@ -7,9 +7,11 @@
 --
 -- HONESTY CONTRACT
 -- • Aggregates only — no emails, no raw visitor ids, no PII in output.
--- • DOF persists NO visits/views/impressions (watermarks are cookies).
---   "Return activity" is therefore a PROXY: distinct calendar days on
---   which a visitor performed any engagement write.
+-- • Since LS-1, DOF persists bounded PASSIVE attention facts
+--   (attention_facts: impressions/views/searches, 90-day retention,
+--   never identity-minting — anonymous rows are glances, not people).
+--   "Return activity" remains an engagement-write proxy; attention
+--   sections are marked LS-1 and read the new table.
 -- • Cross-sectional comparisons (story vs no-story, pulse vs none)
 --   are CORRELATION. Nothing here establishes causation.
 -- • Every definition lives in this file; changing one is a reviewed
@@ -158,3 +160,44 @@ SELECT
      / greatest(count(DISTINCT s.id), 1), 1)
    FROM store_follows f JOIN stores s ON s.id = f.store_id)                                          AS followed_stores_fresh_7d_pct,
   (SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY gap_hours)::numeric, 1) FROM gaps WHERE gap_hours IS NOT NULL) AS median_publish_gap_hours;
+
+-- @section LS1a · Attention — what the street was shown vs what people stopped for
+-- (impressions vs views; people = DISTINCT known visitors, glances = anonymous rows)
+SELECT
+  event_type,
+  count(*)                                                     AS facts,
+  count(DISTINCT visitor_id) FILTER (WHERE visitor_id IS NOT NULL) AS people,
+  count(*) FILTER (WHERE visitor_id IS NULL)                   AS glances
+FROM attention_facts
+WHERE occurred_at > now() - interval '7 days'
+GROUP BY event_type
+ORDER BY facts DESC;
+
+-- @section LS1b · The street's vocabulary — what people search for (top 20, 30 days)
+SELECT query, count(*) AS asked,
+       count(*) FILTER (WHERE had_results = false) AS unanswered
+FROM attention_facts
+WHERE event_type = 'search' AND occurred_at > now() - interval '30 days'
+GROUP BY query
+ORDER BY asked DESC, query
+LIMIT 20;
+
+-- @section LS1c · The missing words — searches the street could not answer (30 days)
+-- Each row is a gap: a real person looked for something and found nothing.
+SELECT query, count(*) AS asked
+FROM attention_facts
+WHERE event_type = 'search' AND had_results = false
+  AND occurred_at > now() - interval '30 days'
+GROUP BY query
+HAVING count(*) >= 2   -- twice = a pattern, once = a typo until proven otherwise
+ORDER BY asked DESC, query
+LIMIT 20;
+
+-- @section LS1d · Doors — where attention enters from (views by source, 7 days)
+SELECT source, count(*) AS views,
+       count(DISTINCT visitor_id) FILTER (WHERE visitor_id IS NOT NULL) AS people
+FROM attention_facts
+WHERE event_type IN ('store_view', 'product_view', 'deal_view', 'spark_view')
+  AND occurred_at > now() - interval '7 days'
+GROUP BY source
+ORDER BY views DESC;

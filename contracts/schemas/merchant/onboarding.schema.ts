@@ -30,6 +30,12 @@ export const onboardingProgressResponse = z.object({
       label: z.string(),
       at: z.string(),
     })),
+    /** LS-1 demand receipt: who actually looked this week, and through which door. */
+    attention_this_week: z.object({
+      people: z.number().int(),
+      glances: z.number().int(),
+      top_source: z.string().nullable(),
+    }).nullable(),
   }).nullable(),
 })
 export type OnboardingProgressResponse = z.infer<typeof onboardingProgressResponse>
