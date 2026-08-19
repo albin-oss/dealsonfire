@@ -20,8 +20,9 @@ describe('the learning ledger (Release 1.4)', () => {
   const source = readFileSync(join(__dirname, '../../../scripts/learning.sql'), 'utf8')
   const sections = parseSections(source)
 
-  it('covers the six experiments plus scale', () => {
-    expect(sections.map((s) => s.title.slice(0, 2))).toEqual(['E0', 'E1', 'E2', 'E3', 'E4', 'E5', 'E6'])
+  it('covers the six experiments, scale, and the LS-1 attention sections', () => {
+    expect(sections.map((s) => s.title.slice(0, 4))).toEqual(
+      ['E0 ·', 'E1 ·', 'E2 ·', 'E3 ·', 'E4 ·', 'E5 ·', 'E6 ·', 'LS1a', 'LS1b', 'LS1c', 'LS1d'].map((t) => t.slice(0, 4)))
   })
 
   it.each(sections.map((s) => [s.title.slice(0, 2), s] as const))(

@@ -63,7 +63,11 @@ const { data: engagement } = useFetch<{ followers: number; viewer_follows: boole
 // continuity: remember this visit on this device (Capability 02)
 import { useRecentlyViewed } from '../../../composables/use-recently-viewed'
 const { record } = useRecentlyViewed()
-onMounted(() => record({ kind: 'shop', to: `/s/${store.value.handle}`, title: store.value.name, context: brand.value?.tagline ?? 'a shop on DOF' }))
+onMounted(() => {
+  record({ kind: 'shop', to: `/s/${store.value.handle}`, title: store.value.name, context: brand.value?.tagline ?? 'a shop on DOF' })
+  // LS-1: the shop noticed someone stopped by — and where they came from
+  recordView('store', store.value.id, attentionSource(window.history.state?.back))
+})
 
 const { scopeAttrs } = useBrandKit(computed(() => ({
   accent: brand.value?.palette.primary,

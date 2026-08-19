@@ -76,6 +76,8 @@ const { data: shelf } = useFetch<PublicStorefrontResponse>(
 )
 const moreSparks = computed(() =>
   (shelf.value?.sparks ?? []).filter((sp) => sp.id !== spark.value.id).slice(0, 3))
+// LS-1: attention fact — this spark was actually opened
+onMounted(() => recordView('spark', spark.value.id, attentionSource(window.history.state?.back)))
 </script>
 
 <template>

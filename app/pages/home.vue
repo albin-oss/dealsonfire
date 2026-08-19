@@ -114,6 +114,12 @@ async function keepCorner() {
   }
 }
 
+// LS-1: the street notices what people stop for — half-visible cards record one
+// impression per subject per page-load; maker (brand-story) cards record nothing
+const impressions = useFeedImpressions('home')
+const attentionKind = (t: HomeFeedItem['type']) =>
+  t === 'deal' || t === 'spark' || t === 'store' || t === 'product' ? t : null
+
 /** The first-unread divider sits before the first already-seen item (when new ones exist). */
 const dividerIndex = computed(() => {
   const list = items.value
@@ -284,7 +290,12 @@ function jumpToUnread() {
             <span class="h-px flex-1 bg-foreground/15" />
           </li>
 
-          <li class="flex flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-4">
+          <li
+            :ref="impressions.observe"
+            :data-attention-type="attentionKind(item.type) ?? undefined"
+            :data-attention-id="attentionKind(item.type) ? item.id : undefined"
+            class="flex flex-col gap-3 rounded-large border border-foreground/10 bg-foreground/[0.02] p-4"
+          >
             <div class="flex items-baseline justify-between gap-2">
               <div class="flex min-w-0 items-baseline gap-2">
                 <NuxtLink :to="`/s/${item.store_handle}`" class="dof-interactive shrink-0 rounded-small text-caption font-medium text-foreground/70 hover:text-foreground focus-visible:focus-ring">

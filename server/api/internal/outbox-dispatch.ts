@@ -104,6 +104,13 @@ export default defineEventHandler(async (event) => {
       return { prepared: swept.opIds.length, settled, skipped: swept.skipped }
     })
     .catch(() => ({ prepared: -1, settled: -1, skipped: -1 }))
+  // LS-1: the attention retention promise (manifest: 90 days then hard-delete),
+  // kept on this same clock in bounded batches so one sweep never locks the table
+  const attentionPurged = await container.pool.query(
+    `DELETE FROM attention_facts WHERE id IN (
+       SELECT id FROM attention_facts WHERE occurred_at < now() - interval '90 days' LIMIT 5000)`)
+    .then((r) => r.rowCount ?? 0)
+    .catch(() => -1)
   // C12-1: the letters lane — phases 2+3 for journaled mail (the dispatchers
   // above already nudged it; this pass catches backoff-due retries and crashes)
   const letters = await container.mailJournal.drivePending().catch(() => ({ sent: -1, suppressed: -1, failed: -1, retried: -1 }))
@@ -116,5 +123,6 @@ export default defineEventHandler(async (event) => {
     dispatched, failed,
     carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed,
     carts_purged: cartsPurged, attempts_purged: attemptsPurged, aging, payouts, letters, boundary, reconciled,
+    attention_purged: attentionPurged,
   }
 })

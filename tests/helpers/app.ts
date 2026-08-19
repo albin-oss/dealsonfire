@@ -56,6 +56,7 @@ import ordersGet from '../../server/api/v1/public/orders/index.get'
 import orderGet from '../../server/api/v1/public/orders/[orderId].get'
 import shopsGet from '../../server/api/v1/public/shops.get'
 import searchGet from '../../server/api/v1/public/search.get'
+import attentionPost from '../../server/api/v1/public/attention.post'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
 import sparksPost from '../../server/api/v1/sparks/index.post'
 import mailWebhookPost from '../../server/api/webhooks/mail.post'
@@ -179,6 +180,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/public/orders/:orderId', orderGet)
   router.get('/api/v1/public/shops', shopsGet)
   router.get('/api/v1/public/search', searchGet)
+  router.post('/api/v1/public/attention', attentionPost)
   router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
   router.post('/api/v1/sparks', sparksPost)
   router.get('/api/v1/sparks', sparksGet)

@@ -85,6 +85,8 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
   text: brand.value?.palette.text,
   textMuted: brand.value?.palette.text,
 })))
+// LS-1: attention fact — this deal was actually opened
+onMounted(() => recordView('deal', deal.value.id, attentionSource(window.history.state?.back)))
 </script>
 
 <template>

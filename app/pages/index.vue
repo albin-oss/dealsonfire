@@ -47,6 +47,24 @@ const momentum = computed(() => progress.value?.momentum ?? null)
 const ACTIVITY_ICON = { spark: 'message-circle', deal: 'flame', product: 'package', follower: 'users' } as const
 // momentum is only computed once a store exists — a zero-cost store proxy
 const hasStore = computed(() => progress.value?.momentum != null)
+
+// LS-1: the demand receipt as one honest sentence — no dashboard, just the fact
+const SOURCE_WORDS: Record<string, string> = {
+  home: 'the street feed', shops: 'the shop directory', storefront: 'other shops\u2019 pages',
+  search: 'search', direct: 'direct links',
+}
+const attentionSentence = computed(() => {
+  const a = momentum.value?.attention_this_week
+  if (!a) return null
+  const people = a.people > 0
+    ? `${a.people} ${a.people === 1 ? 'person' : 'people'} stopped by your shop this week`
+    : null
+  const glances = a.glances > 0 ? `${a.glances} more ${a.glances === 1 ? 'glance' : 'glances'} passed through` : null
+  const via = a.top_source && a.people > 0 ? ` — most came from ${SOURCE_WORDS[a.top_source] ?? a.top_source}` : ''
+  if (people && glances) return `${people}, and ${glances}${via}.`
+  if (people) return `${people}${via}.`
+  return `${glances} this week — glances, not yet people.`
+})
 // a mentor never repeats itself: the pulse keeps its sentence but yields its button
 // when the hero opportunity already points at the same door
 const pulseAction = computed(() => (pulse.value && pulse.value.to !== opportunity.value.to ? pulse.value : null))
@@ -121,6 +139,11 @@ const greeting = computed(() =>
         <DofText role="headline" as="p">{{ stat.value }}</DofText>
       </NuxtLink>
     </section>
+
+    <!-- LS-1: people found you — the street says so in one sentence -->
+    <DofText v-if="attentionSentence" role="body" tone="muted" aria-label="attention this week">
+      {{ attentionSentence }}
+    </DofText>
 
     <DofCard>
       <template #header>

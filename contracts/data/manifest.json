@@ -1329,6 +1329,21 @@
       "delete_class": "tombstone",
       "cross_domain_refs": [],
       "notes": "C12-3: append-only consent facts; effective consent = latest fact per (user, document). Documents/versions are code constants (contracts/legal), never a CMS. No IP stored."
+    },
+    {
+      "table": "attention_facts",
+      "owner": "platform",
+      "class": "operational",
+      "tenancy_key": null,
+      "scope_key": "visitor_id",
+      "pii_tier": "P1",
+      "pii_columns": [
+        "visitor_id"
+      ],
+      "retention": "90 days then hard-delete (cron sweep, bounded batches)",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": "LS-1: passive attention facts (impressions, views, search vocabulary). Beacon NEVER mints identity — visitor_id only when the engagement-born cookie already exists; anonymous rows are glances, never people. Explicit acts (follow/save/fire) stay in their own tables; no act recorded twice. Every event type has a named consumer (LIVING_STREET_PROGRAM_PLAN §6)."
     }
   ]
 }

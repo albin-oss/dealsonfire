@@ -102,7 +102,11 @@ const addedAt = computed(() =>
 
 import { useRecentlyViewed } from '../../../../composables/use-recently-viewed'
 const { record } = useRecentlyViewed()
-onMounted(() => record({ kind: 'product', to: `/s/${store.value.handle}/p/${product.value.id}`, title: product.value.title, context: store.value.name }))
+onMounted(() => {
+  record({ kind: 'product', to: `/s/${store.value.handle}/p/${product.value.id}`, title: product.value.title, context: store.value.name })
+  // LS-1: attention fact — this thing was actually looked at
+  recordView('product', product.value.id, attentionSource(window.history.state?.back))
+})
 
 const { scopeAttrs } = useBrandKit(computed(() => ({
   accent: brand.value?.palette.primary,
