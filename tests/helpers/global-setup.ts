@@ -16,6 +16,15 @@ export default async function setup(): Promise<() => Promise<void>> {
 
   if (!url) {
     const { default: EmbeddedPostgres } = await import('embedded-postgres')
+    // embedded-postgres registers async-exit-hook, whose 'beforeExit' handler
+    // re-exits the process with code 0 — CLOBBERING vitest's failing exit code
+    // (a red suite reported green to the sweep). A filter that returns true
+    // swallows that event; our teardown stops PG explicitly, and the signal
+    // hooks (SIGINT/SIGTERM crash cleanup) stay armed. Honest exits > tidy exits.
+    const { default: exitHook } = await import('async-exit-hook')
+    const hook = exitHook as unknown as { hookEvent: (e: string, c: number | undefined, f: () => boolean) => void }
+    hook.hookEvent('beforeExit', 0, () => true)
+    hook.hookEvent('exit', undefined, () => true) // same swallow: the sync path calls the async hook without its callback
     const port = 54000 + Math.floor(Math.random() * 1000)
     const dataDir = mkdtempSync(join(tmpdir(), 'dof-pg-'))
     const pg = new EmbeddedPostgres({
