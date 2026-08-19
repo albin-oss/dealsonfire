@@ -21,6 +21,7 @@ export default async function setup(): Promise<() => Promise<void>> {
     // (a red suite reported green to the sweep). A filter that returns true
     // swallows that event; our teardown stops PG explicitly, and the signal
     // hooks (SIGINT/SIGTERM crash cleanup) stay armed. Honest exits > tidy exits.
+    // @ts-expect-error — async-exit-hook ships no types; the shape is asserted below
     const { default: exitHook } = await import('async-exit-hook')
     const hook = exitHook as unknown as { hookEvent: (e: string, c: number | undefined, f: () => boolean) => void }
     hook.hookEvent('beforeExit', 0, () => true)
