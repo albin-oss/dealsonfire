@@ -162,7 +162,7 @@ describe('the living Home (Release 0.7)', () => {
     const found = await http.request('GET', '/api/v1/public/search?q=lavender')
     expect(found.status).toBe(200)
     expect(found.body.products.map((p: { title: string }) => p.title)).toEqual(['Lavender blanket'])
-    expect(found.body.sparks[0].excerpt).toContain('Searchable lavender')
+    expect(found.body.sparks[0].excerpt.replace(/[⟪⟫]/g, '')).toContain('Searchable lavender') // LS-2: excerpts carry match markers
     expect(found.body.shops.map((s: { name: string }) => s.name)).toEqual([])
 
     // hide the product → search must not become a visibility oracle
