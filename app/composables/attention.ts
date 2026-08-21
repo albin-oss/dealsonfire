@@ -76,11 +76,11 @@ export function recordView(kind: SubjectType, subjectId: string, source: Source)
 }
 
 /** A search the street answered (or honestly couldn't). Dedup on consecutive repeats. */
-export function recordSearch(query: string, hadResults: boolean) {
+export function recordSearch(query: string, hadResults: boolean, source: Source = 'home') {
   const q = query.trim().toLowerCase()
   if (q.length < 2 || q === lastSearch) return
   lastSearch = q
-  enqueue({ type: 'search', query: q.slice(0, 80), had_results: hadResults, source: 'home' })
+  enqueue({ type: 'search', query: q.slice(0, 80), had_results: hadResults, source })
 }
 
 /** A search result the visitor chose — the honest relevance judgment. */

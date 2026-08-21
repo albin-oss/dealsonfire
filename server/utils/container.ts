@@ -59,7 +59,8 @@ import { toggleSubjectEngagementInTx } from '@domains/commerce/catalog/applicati
 import { PgSparkRepository, publishSparkCommand, deleteSparkCommand, listSparksQuery, SPARK_REACTION_SUBJECT } from '@domains/commerce/catalog/application/sparks'
 import { followStoreCommand } from '@domains/merchant/core/application/commands/follow-store'
 import { merchantMomentum, type MerchantMomentum } from './momentum'
-import { listMyMerchants, storeEngagementSnapshot, cornerContents, isCornerKept, listLiveShops, searchStreet, type SearchResults, type FeedVoice } from './deals-feed'
+import { listMyMerchants, storeEngagementSnapshot, cornerContents, isCornerKept, listLiveShops, type FeedVoice } from './deals-feed'
+import { searchStreet, type StreetSearchResults, type SearchScope } from './street-search'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -263,7 +264,7 @@ export interface Container {
     /** Capability 02 — the shop directory (live stores, newest first). */
     liveShops: () => Promise<Awaited<ReturnType<typeof listLiveShops>>>
     /** Increment 08 — grouped street search over visible entities. */
-    searchStreet: (q: string) => Promise<SearchResults>
+    searchStreet: (q: string, opts?: { scope?: SearchScope; page?: number }) => Promise<StreetSearchResults>
     /** Release 1.3 — what a visitor's corner holds (the continuity stakes). */
     cornerContents: (visitorId: string) => Promise<{ merchants: number; saved: number }>
     /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
@@ -882,7 +883,7 @@ export function buildContainer(databaseUrl: string): Container {
       cornerContents: (visitorId) =>
         deps.uow.withTransaction((tx) => cornerContents(tx, visitorId)),
       liveShops: () => deps.uow.withTransaction((tx) => listLiveShops(tx)),
-      searchStreet: (q) => deps.uow.withTransaction((tx) => searchStreet(tx, q)),
+      searchStreet: (q, opts) => deps.uow.withTransaction((tx) => searchStreet(tx, q, opts)),
       storeEngagement: (handle, visitorId) =>
         deps.uow.withTransaction(async (tx) => {
           const publicDao = new PgPublicStorefrontDao()
