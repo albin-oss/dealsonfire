@@ -242,3 +242,17 @@ JOIN stores s ON s.id = f.subject_id
 WHERE f.event_type = 'store_view' AND f.subject_type = 'store'
   AND s.published_at > now() - interval '30 days'
   AND f.occurred_at > now() - interval '30 days';
+
+-- @section LS4a · The street pulse — why each of the top items is there
+-- The operator's "why is this here?": every factor visible, no dashboard.
+-- fresh = the freshness term; people = distinct intentional actors (7d);
+-- stops = distinct identified viewers; glances = raw exposure (never evidence).
+SELECT rp.subject_type, left(rp.subject_id::text, 8) AS subject,
+       round(exp(-extract(epoch FROM (now() - rp.published_at)) / 3600.0 / 72)::numeric, 3) AS fresh,
+       rp.people_7d AS people, rp.stops_7d AS stops, rp.glances_7d AS glances,
+       round((exp(-extract(epoch FROM (now() - rp.published_at)) / 3600.0 / 72)
+              + 0.35 * ln(1 + rp.people_7d) + 0.10 * ln(1 + rp.stops_7d))::numeric, 3) AS score,
+       s.enforcement_hold <> 'none' AS held_hidden_at_read
+FROM rm_street_pulse rp JOIN stores s ON s.id = rp.store_id
+ORDER BY score DESC
+LIMIT 15;

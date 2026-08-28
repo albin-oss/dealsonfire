@@ -84,7 +84,7 @@ describe('manifest completeness', () => {
       expect(entry.retention, entry.table).toBeTruthy()
       expect(entry.delete_class, entry.table).toBeTruthy()
     }
-    expect(manifestTableNames().size).toBe(90) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1) +1 deals (R0.3) +3 engagement (R0.4) +2 sparks (R0.6) +6 orders (Commerce Foundation C1) +3 stock (C2) +5 checkout (C3) +10 payments (C4) +3 fulfillment (C6) +2 returns (C9) +1 boundary journal +3 disputes-reconciliation (C10) +2 mail (C12-1: mail_journal, mail_bounces) +3 locks (C12-2: rate_limit_buckets, webauthn_challenges, abuse_reports) +2 person (C12-3: email_changes, consent_facts) +1 attention (LS-1: attention_facts)
+    expect(manifestTableNames().size).toBe(91) // +5 operations (OPS-001A) +11 identity (R1-B1) +1 onboarding (MER-002) +2 catalog attrs (PROMPT-016) +1 media (UX-AUTHOR) +1 listings (CS1) +1 deals (R0.3) +3 engagement (R0.4) +2 sparks (R0.6) +6 orders (Commerce Foundation C1) +3 stock (C2) +5 checkout (C3) +10 payments (C4) +3 fulfillment (C6) +2 returns (C9) +1 boundary journal +3 disputes-reconciliation (C10) +2 mail (C12-1: mail_journal, mail_bounces) +3 locks (C12-2: rate_limit_buckets, webauthn_challenges, abuse_reports) +2 person (C12-3: email_changes, consent_facts) +1 attention (LS-1: attention_facts) +1 street pulse (LS-4: rm_street_pulse — first read_model)
   })
 })
 

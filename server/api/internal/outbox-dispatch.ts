@@ -119,6 +119,10 @@ export default defineEventHandler(async (event) => {
   const boundary = await container.payments.boundary.driveAll().catch(() => ({ driven: -1, settled: -1 }))
   // RM-H1: the daily reconciliation (self-gating — runs once per 24h of watermark)
   const reconciled = await container.payments.reconciliation.maybeRun().catch(() => ({ ran: false, matched: -1, unmatched: -1 }))
+  // LS-4: the street pulse rebuilds on the same clock — cheap full recompute,
+  // shadow-swap atomic; a failed rebuild leaves the previous pulse standing.
+  await container.engagement.rebuildStreetPulse().catch(() => {})
+
   return {
     dispatched, failed,
     carts_swept: cartsSwept, reservations_swept: reservationsSwept, orders_confirmed: ordersConfirmed,

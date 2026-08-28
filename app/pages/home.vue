@@ -29,6 +29,39 @@ useSeoMeta({
 })
 
 type Filter = 'all' | 'saved' | 'following'
+/**
+ * LS-4: the dual voice. 'street' = the shared pulse (what is worth noticing
+ * right now — NOT personalization); 'newest' = the untouched chronological
+ * stream. When the pulse is absent/cold the street voice quietly renders the
+ * newest stream instead (fallback law).
+ */
+type StreetVoice = 'street' | 'newest'
+const streetVoice = ref<StreetVoice>('street')
+interface StreetItemView {
+  subject_type: 'store' | 'product' | 'deal' | 'spark'
+  id: string; title: string; text: string | null
+  store_handle: string; store_name: string
+  price_minor: number | null; currency: string | null; image_url: string | null
+  published_at: string
+  reasons: Array<'fresh' | 'people_stopping' | 'new_maker' | 'exploration'>
+}
+const { data: street } = useFetch<{ mode: 'pulse' | 'chronology'; items: StreetItemView[] }>(
+  '/api/v1/public/street', { server: false, lazy: true })
+const streetLive = computed(() => streetVoice.value === 'street' && street.value?.mode === 'pulse' && street.value.items.length > 0)
+/** ONE quiet cue per card, strongest first — never a badge collection. */
+function streetCue(item: StreetItemView): string | null {
+  if (item.reasons.includes('people_stopping')) return 'People are stopping here'
+  if (item.reasons.includes('new_maker')) return 'New maker'
+  if (item.reasons.includes('fresh')) return 'Fresh on the street'
+  return null
+}
+function streetLink(item: StreetItemView): string {
+  if (item.subject_type === 'store') return `/s/${item.store_handle}`
+  if (item.subject_type === 'product') return `/s/${item.store_handle}/p/${item.id}`
+  if (item.subject_type === 'deal') return `/s/${item.store_handle}/d/${item.id}`
+  return `/s/${item.store_handle}/sparks/${item.id}`
+}
+
 const filter = ref<Filter>('all')
 // voice filter (Capability 02): one kind of thing, still chronological
 type Voice = 'all' | 'deals' | 'sparks' | 'products' | 'makers'
@@ -201,6 +234,47 @@ function jumpToUnread() {
         </ul>
       </section>
 
+      <div class="flex items-center gap-2" role="group" aria-label="choose your street voice">
+        <DofChip label="The Street" :selected="streetVoice === 'street'" selectable @toggle="streetVoice = 'street'" />
+        <DofChip label="Newest" :selected="streetVoice === 'newest'" selectable @toggle="streetVoice = 'newest'" />
+        <DofText v-if="streetVoice === 'street' && street && street.mode === 'chronology'" role="caption" class="text-foreground/50">
+          the street is still waking — showing newest
+        </DofText>
+      </div>
+
+      <!-- LS-4: the street voice — a shared pulse, hard diversity, honest cues -->
+      <ul v-if="streetLive" class="flex list-none flex-col gap-4 p-0" aria-label="the street">
+        <li
+          v-for="item in street!.items"
+          :key="`${item.subject_type}-${item.id}`"
+          :ref="impressions.observe"
+          :data-attention-type="item.subject_type"
+          :data-attention-id="item.id"
+        >
+          <NuxtLink
+            :to="streetLink(item)"
+            class="dof-interactive flex flex-col gap-2 rounded-large border p-4 transition-colors hover:border-accent focus-visible:focus-ring"
+            :class="item.subject_type === 'deal' ? 'border-accent/25 bg-accent/5' : 'border-foreground/10 bg-foreground/[0.02]'"
+          >
+            <div class="flex items-baseline justify-between gap-2">
+              <DofText role="caption" tone="muted">{{ item.subject_type === 'store' ? 'a shop on the street' : item.store_name }}</DofText>
+              <DofText v-if="streetCue(item)" role="caption" class="shrink-0 text-accent">{{ streetCue(item) }}</DofText>
+            </div>
+            <div class="flex gap-3">
+              <PublicImg v-if="item.image_url" :src="item.image_url" :alt="item.title" class="size-20 shrink-0 rounded-medium object-cover" />
+              <div class="flex min-w-0 flex-col gap-1">
+                <DofText role="body" :class="item.subject_type === 'spark' ? 'italic text-foreground/85' : 'font-medium'">
+                  {{ item.subject_type === 'spark' ? `“${item.title}…”` : item.title }}
+                </DofText>
+                <DofText v-if="item.text && item.subject_type !== 'spark'" role="caption" class="line-clamp-2 text-foreground/70">{{ item.text }}</DofText>
+                <DofMoney v-if="item.price_minor !== null" :amount="item.price_minor" :currency="item.currency ?? 'EUR'" class="text-caption font-medium" />
+              </div>
+            </div>
+          </NuxtLink>
+        </li>
+      </ul>
+
+      <div v-show="!streetLive" class="contents">
       <div class="sticky top-0 layer-sticky -mx-4 flex flex-wrap gap-2 border-b border-foreground/5 bg-surface/90 px-4 py-2 backdrop-blur" role="group" aria-label="filter the stream">
         <DofChip
           v-for="f in FILTERS" :key="f.value"
@@ -421,6 +495,7 @@ function jumpToUnread() {
           </button>
         </template>
       </DofEmptyState>
+      </div>
     </main>
 
     <footer class="border-t border-foreground/10">
