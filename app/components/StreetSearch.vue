@@ -60,7 +60,7 @@ const options = computed<Option[]>(() => {
     ...results.value.shops.map((s) => ({ to: `/s/${s.handle}`, label: s.name, context: s.tagline ?? 'a shop on DOF', group: 'Shops', kind: 'store' as const, subjectId: s.id })),
     ...results.value.products.map((p) => ({ to: `/s/${p.store_handle}/p/${p.id}`, label: p.title, context: p.store_name, group: 'Products', kind: 'product' as const, subjectId: p.id })),
     ...results.value.deals.map((d) => ({ to: `/s/${d.store_handle}/d/${d.id}`, label: d.headline, context: d.store_name, group: 'Deals', kind: 'deal' as const, subjectId: d.id })),
-    ...results.value.sparks.map((sp) => ({ to: `/s/${sp.store_handle}/sparks/${sp.id}`, label: sp.excerpt, context: sp.store_name, group: 'Updates', kind: 'spark' as const, subjectId: sp.id })),
+    ...results.value.sparks.map((sp) => ({ to: `/s/${sp.store_handle}/sparks/${sp.id}`, label: sp.excerpt.replace(/[⟪⟫]/g, ''), context: sp.store_name, group: 'Updates', kind: 'spark' as const, subjectId: sp.id })),
   ]
 })
 const empty = computed(() => results.value !== null && options.value.length === 0 && !searching.value)
@@ -78,7 +78,16 @@ function onKeydown(event: KeyboardEvent) {
   if (event.key === 'ArrowDown') { event.preventDefault(); active.value = Math.min(active.value + 1, options.value.length - 1) }
   else if (event.key === 'ArrowUp') { event.preventDefault(); active.value = Math.max(active.value - 1, -1) }
   else if (event.key === 'Enter' && active.value >= 0 && options.value[active.value]) { event.preventDefault(); go(options.value[active.value]!) }
+  else if (event.key === 'Enter' && q.value.trim().length >= 2) { event.preventDefault(); deepSearch() }
   else if (event.key === 'Escape') { open.value = false; active.value = -1 }
+}
+function deepSearch() {
+  const query = q.value.trim()
+  rememberSearch(query)
+  open.value = false
+  q.value = ''
+  results.value = null
+  void router.push({ path: '/search', query: { q: query } })
 }
 function onBlur() {
   // let option mousedown land before closing
@@ -153,10 +162,19 @@ function onBlur() {
         <DofText role="caption" tone="muted">Searching the street…</DofText>
       </div>
 
+      <button
+        v-if="options.length > 0 && q.trim().length >= 2"
+        type="button"
+        class="dof-interactive mt-1 w-full rounded-medium px-2 py-2 text-start text-caption text-accent hover:bg-accent/10 focus-visible:focus-ring"
+        @mousedown.prevent="deepSearch"
+      >
+        See everything for “{{ q.trim() }}” →
+      </button>
+
       <!-- honest empty guidance -->
       <div v-else-if="empty" class="flex flex-col gap-1 px-2 py-3">
         <DofText role="body">Nothing on the street matches “{{ q.trim() }}”.</DofText>
-        <DofText role="caption" tone="muted">Try a shorter word — or <NuxtLink to="/shops" class="underline underline-offset-4">browse every shop</NuxtLink>.</DofText>
+        <DofText role="caption" tone="muted">Try a shorter word, <button type="button" class="underline underline-offset-4" @mousedown.prevent="deepSearch">search the whole street</button>, or <NuxtLink to="/shops" class="underline underline-offset-4">browse every shop</NuxtLink>.</DofText>
         <DofText role="caption" tone="muted">The street remembers what people look for — it learns what's missing.</DofText>
       </div>
     </div>

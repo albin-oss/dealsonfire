@@ -201,3 +201,22 @@ WHERE event_type IN ('store_view', 'product_view', 'deal_view', 'spark_view')
   AND occurred_at > now() - interval '7 days'
 GROUP BY source
 ORDER BY views DESC;
+
+-- @section LS2a · Search health — zero-result rate and click-through (30 days)
+-- The two numbers that judge LS-2: how often the street had no answer, and how
+-- often an answer was chosen. Vanity-free: both improve only when search improves.
+SELECT count(*) FILTER (WHERE event_type = 'search') AS searches,
+       round(100.0 * count(*) FILTER (WHERE event_type = 'search' AND had_results = false)
+             / greatest(count(*) FILTER (WHERE event_type = 'search'), 1), 1) AS zero_result_pct,
+       round(100.0 * count(*) FILTER (WHERE event_type = 'search_click')
+             / greatest(count(*) FILTER (WHERE event_type = 'search' AND had_results = true), 1), 1) AS click_through_pct
+FROM attention_facts
+WHERE event_type IN ('search', 'search_click') AND occurred_at > now() - interval '30 days';
+
+-- @section LS2b · What kind of thing search finds — clicked-entity distribution (30 days)
+-- If one entity type never earns clicks, its results are noise in the groups.
+SELECT subject_type, count(*) AS clicks
+FROM attention_facts
+WHERE event_type = 'search_click' AND occurred_at > now() - interval '30 days'
+GROUP BY subject_type
+ORDER BY clicks DESC;
