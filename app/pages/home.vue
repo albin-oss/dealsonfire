@@ -33,6 +33,11 @@ const filter = ref<Filter>('all')
 // voice filter (Capability 02): one kind of thing, still chronological
 type Voice = 'all' | 'deals' | 'sparks' | 'products' | 'makers'
 const voice = ref<Voice>('all')
+
+// LS-3: the street's doors — shared geography above the stream
+interface LaneDoor { id: string; title: string; blurb: string; count: number; preview: string[] }
+const { data: laneDoors } = useFetch<{ lanes: LaneDoor[] }>('/api/v1/public/lanes', { server: false, lazy: true })
+const doors = computed(() => (laneDoors.value?.lanes ?? []).filter((l) => l.count > 0 || l.id === 'fresh-today'))
 const VOICES: Array<{ value: Voice; label: string }> = [
   { value: 'all', label: 'Everything' },
   { value: 'deals', label: 'Deals' },
@@ -211,6 +216,26 @@ function jumpToUnread() {
           selectable @toggle="voice = v.value"
         />
       </div>
+
+      <!-- LS-3: doors into the street — wander without typing -->
+      <nav v-if="filter === 'all' && doors.length > 0" aria-label="doors into the street" class="-mx-4 px-4">
+        <ul class="flex list-none gap-3 overflow-x-auto p-0 pb-2" style="scrollbar-width: thin">
+          <li v-for="lane in doors" :key="lane.id" class="shrink-0">
+            <NuxtLink
+              :to="`/street/${lane.id}`"
+              class="dof-interactive flex w-44 flex-col gap-1 rounded-large border border-foreground/10 bg-foreground/[0.02] p-3 transition-colors hover:border-accent focus-visible:focus-ring"
+            >
+              <div class="flex items-baseline justify-between gap-2">
+                <DofText role="body" class="font-medium">{{ lane.title }}</DofText>
+                <DofText v-if="lane.count > 0" role="caption" class="text-foreground/50">{{ lane.count }}</DofText>
+              </div>
+              <DofText role="caption" class="line-clamp-2 text-foreground/60">
+                {{ lane.preview.length > 0 ? lane.preview.join(' · ') : lane.blurb }}
+              </DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+      </nav>
 
       <!-- keep your corner (Release 1.3): continuity, not account ceremony -->
       <section

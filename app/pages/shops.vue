@@ -38,6 +38,11 @@ useSeoMeta({
 
 const { data, pending } = await useFetch<{ items: Shop[] }>('/api/v1/public/shops')
 const shops = computed(() => data.value?.items ?? [])
+
+// LS-3: the street's lanes — one navigation system with /street and search
+interface LaneDoor { id: string; title: string; count: number }
+const { data: laneDoors } = useFetch<{ lanes: LaneDoor[] }>('/api/v1/public/lanes', { server: false, lazy: true })
+const lanes = computed(() => (laneDoors.value?.lanes ?? []).filter((l) => l.count > 0))
 </script>
 
 <template>
@@ -52,6 +57,14 @@ const shops = computed(() => data.value?.items ?? [])
     </header>
 
     <main class="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8">
+    <nav v-if="lanes.length > 0" aria-label="lanes" class="flex flex-wrap gap-2">
+      <NuxtLink
+        v-for="l in lanes" :key="l.id" :to="`/street/${l.id}`"
+        class="dof-interactive rounded-full border border-foreground/15 px-3 py-1 text-caption text-foreground/70 transition-colors hover:border-accent focus-visible:focus-ring"
+      >
+        {{ l.title }} · {{ l.count }}
+      </NuxtLink>
+    </nav>
       <DofText role="body" tone="muted">Every shop here is a real person's work — newest doors first.</DofText>
 
       <div v-if="pending" class="grid gap-4 regular:grid-cols-2" aria-hidden="true">

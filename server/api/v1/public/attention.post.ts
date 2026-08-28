@@ -16,6 +16,7 @@ import { definePublicEndpoint } from '../../../utils/define-public-endpoint'
 import { getContainer } from '../../../utils/container'
 import { getVisitorId } from '../../../utils/visitor'
 import { uuidv7 } from '@platform/uuid'
+import { laneById } from '@contracts/discovery/lanes'
 import { ok, type Result } from '@shared/result'
 import { type DomainError } from '@shared/errors'
 
@@ -39,8 +40,21 @@ const searchClickEvent = z.object({
   source: z.literal('search'),
 })
 
+const laneViewEvent = z.object({
+  type: z.literal('lane_view'),
+  lane: z.string().regex(/^[a-z0-9-]{2,40}$/),
+  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct', 'lane']),
+})
+const laneClickEvent = z.object({
+  type: z.literal('lane_click'),
+  subject_type: z.enum(['store', 'product', 'deal', 'spark']),
+  subject_id: z.string().uuid(),
+  lane: z.string().regex(/^[a-z0-9-]{2,40}$/),
+  source: z.literal('lane'),
+})
+
 const schema = z.object({
-  events: z.array(z.discriminatedUnion('type', [subjectEvent, searchEvent, searchClickEvent])).min(1).max(25),
+  events: z.array(z.discriminatedUnion('type', [subjectEvent, searchEvent, searchClickEvent, laneViewEvent, laneClickEvent])).min(1).max(25),
 })
 
 /** One existence probe per entity type per batch; returns subject_id → store_id. */
@@ -86,6 +100,14 @@ export default definePublicEndpoint({
     for (const e of body.events) {
       if (e.type === 'search') {
         put([uuidv7(), 'search', null, null, null, e.source, visitorId, e.query.trim().toLowerCase(), e.had_results])
+      } else if (e.type === 'lane_view') {
+        if (!laneById(e.lane)) continue // a lane that doesn't exist is not a fact
+        put([uuidv7(), 'lane_view', null, null, null, e.source, visitorId, e.lane, null])
+      } else if (e.type === 'lane_click') {
+        if (!laneById(e.lane)) continue
+        const storeId = known.get(`${e.subject_type}:${e.subject_id}`)
+        if (!storeId) continue
+        put([uuidv7(), 'lane_click', e.subject_type, e.subject_id, storeId, 'lane', visitorId, e.lane, null])
       } else {
         const storeId = known.get(`${e.subject_type}:${e.subject_id}`)
         if (!storeId) continue // fabricated or unpublished subject — dropped, not reported

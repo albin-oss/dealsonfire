@@ -61,6 +61,7 @@ import { followStoreCommand } from '@domains/merchant/core/application/commands/
 import { merchantMomentum, type MerchantMomentum } from './momentum'
 import { listMyMerchants, storeEngagementSnapshot, cornerContents, isCornerKept, listLiveShops, type FeedVoice } from './deals-feed'
 import { searchStreet, type StreetSearchResults, type SearchScope } from './street-search'
+import { laneSummaries, laneContents, type LaneSummary, type LaneContents } from './lanes'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -265,6 +266,8 @@ export interface Container {
     liveShops: () => Promise<Awaited<ReturnType<typeof listLiveShops>>>
     /** Increment 08 — grouped street search over visible entities. */
     searchStreet: (q: string, opts?: { scope?: SearchScope; page?: number }) => Promise<StreetSearchResults>
+    laneSummaries: () => Promise<LaneSummary[]>
+    laneContents: (id: string) => Promise<LaneContents | null>
     /** Release 1.3 — what a visitor's corner holds (the continuity stakes). */
     cornerContents: (visitorId: string) => Promise<{ merchants: number; saved: number }>
     /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
@@ -884,6 +887,8 @@ export function buildContainer(databaseUrl: string): Container {
         deps.uow.withTransaction((tx) => cornerContents(tx, visitorId)),
       liveShops: () => deps.uow.withTransaction((tx) => listLiveShops(tx)),
       searchStreet: (q, opts) => deps.uow.withTransaction((tx) => searchStreet(tx, q, opts)),
+      laneSummaries: () => deps.uow.withTransaction((tx) => laneSummaries(tx)),
+      laneContents: (id) => deps.uow.withTransaction((tx) => laneContents(tx, id)),
       storeEngagement: (handle, visitorId) =>
         deps.uow.withTransaction(async (tx) => {
           const publicDao = new PgPublicStorefrontDao()

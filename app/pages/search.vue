@@ -108,6 +108,10 @@ function segments(text: string | null): Array<{ t: string; hit: boolean }> {
     part.startsWith('⟪') ? { t: part.slice(1, -1), hit: true } : { t: part, hit: false })
 }
 
+// wandering is the answer search can always give (LS-3)
+import { LANES } from '@contracts/discovery/lanes'
+const LANE_DOORS = LANES.filter((l) => l.kind === 'search').map((l) => ({ id: l.id, title: l.title }))
+
 const GROUPS = [
   { key: 'shops' as const, title: 'Shops & makers' },
   { key: 'products' as const, title: 'Things' },
@@ -261,6 +265,7 @@ const GROUPS = [
         The street remembers what people look for. Missing words like yours are how it learns what to bring next.
       </DofText>
       <div class="flex flex-wrap gap-2">
+        <NuxtLink v-for="l in LANE_DOORS" :key="l.id" :to="`/street/${l.id}`" class="dof-interactive rounded-full border border-foreground/15 px-4 py-2 text-caption hover:border-accent focus-visible:focus-ring">{{ l.title }} →</NuxtLink>
         <NuxtLink to="/shops" class="dof-interactive rounded-full border border-foreground/15 px-4 py-2 text-caption hover:border-accent focus-visible:focus-ring">Meet the shops →</NuxtLink>
         <NuxtLink to="/home" class="dof-interactive rounded-full border border-foreground/15 px-4 py-2 text-caption hover:border-accent focus-visible:focus-ring">See what’s happening today →</NuxtLink>
       </div>
