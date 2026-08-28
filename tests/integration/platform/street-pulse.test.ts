@@ -45,13 +45,6 @@ async function makeProduct(w: { cookie: string; businessId: string; storeId: str
   return r.body.product_id as string
 }
 
-/** N distinct people fire a deal / follow a store — the honest way to earn interest. */
-async function fires(dealId: string, n: number) {
-  for (let i = 0; i < n; i++) {
-    await http.request('POST', `/api/v1/public/deals/${dealId}/react`, { body: {} })
-  }
-}
-
 const rebuild = () => container.engagement.rebuildStreetPulse()
 const street = () => http.request('GET', '/api/v1/public/street')
 const pulseRows = async () => (await container.pool.query(
@@ -116,7 +109,7 @@ describe('LS-4 — manipulation resistance', () => {
     const productId = await makeProduct(w, 'Lavender Blanket')
 
     // one identified visitor: mint identity via an engagement write, then hammer
-    const react = await http.request('POST', `/api/v1/public/deals/${uuidv7()}/react`, { body: {} }) // 404s but mints nothing
+    await http.request('POST', `/api/v1/public/deals/${uuidv7()}/react`, { body: {} }) // 404s but mints nothing
     const follow = await http.request('POST', `/api/v1/public/stores/rosa-knits/follow`, { body: {} })
     const visitorCookie = /dof_visitor=[^;]+/.exec(follow.headers.get('set-cookie') ?? '')?.[0] ?? ''
     expect(visitorCookie).not.toBe('')
@@ -215,7 +208,7 @@ describe('LS-4 — merchant fairness simulation (Founder scenarios A–G)', () =
     expect(handles).toContain('fresh-thread')   // B: day-two maker present with zero history
     expect(handles).toContain('quiet-pots')     // D: small maker's fresh work present
     // F: a temporarily quiet merchant with old strong content decays rather than squatting the top
-    const positions = new Map(handles.map((h, i) => [h, handles.indexOf(h)]))
+    const positions = new Map(handles.map((h) => [h, handles.indexOf(h)]))
     expect(positions.get('fresh-thread')!).toBeLessThan(PULSE.PAGE) // reachable on page one
   })
 })
