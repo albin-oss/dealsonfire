@@ -1343,7 +1343,20 @@
       "retention": "90 days then hard-delete (cron sweep, bounded batches)",
       "delete_class": "hard-delete-on-schedule",
       "cross_domain_refs": [],
-      "notes": "LS-1: passive attention facts (impressions, views, search vocabulary). Beacon NEVER mints identity — visitor_id only when the engagement-born cookie already exists; anonymous rows are glances, never people. Explicit acts (follow/save/fire) stay in their own tables; no act recorded twice. Every event type has a named consumer (LIVING_STREET_PROGRAM_PLAN §6)."
+      "notes": "LS-1: passive attention facts (impressions, views, search vocabulary). Beacon NEVER mints identity \u2014 visitor_id only when the engagement-born cookie already exists; anonymous rows are glances, never people. Explicit acts (follow/save/fire) stay in their own tables; no act recorded twice. Every event type has a named consumer (LIVING_STREET_PROGRAM_PLAN \u00a76)."
+    },
+    {
+      "table": "rm_street_pulse",
+      "owner": "platform",
+      "class": "read_model",
+      "tenancy_key": null,
+      "scope_key": "store_id",
+      "pii_tier": "P0",
+      "pii_columns": [],
+      "retention": "derived \u2014 rebuilt from facts; deletable at will",
+      "delete_class": "hard-delete-on-schedule",
+      "cross_domain_refs": [],
+      "notes": null
     }
   ]
 }

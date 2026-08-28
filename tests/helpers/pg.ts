@@ -34,7 +34,8 @@ export async function truncateAll(pool: pg.Pool): Promise<void> {
       identity_event_deliveries, identity_outbox_events, identity_domain_events, identity_audit_logs,
       user_sessions, user_recovery_tokens, user_passkeys, user_credentials, guest_tokens, identity_claims, users,
       event_deliveries, outbox_events, domain_events, audit_logs,
-      mail_journal, mail_bounces, rate_limit_buckets, webauthn_challenges, abuse_reports, email_changes, consent_facts, attention_facts,
+      mail_journal, mail_bounces, rate_limit_buckets, webauthn_challenges, abuse_reports, email_changes, consent_facts,
+      attention_facts, attention_facts,
       request_idempotency_keys, business_entitlements, brand_kits,
       storefront_configs, staff_memberships, store_follows, stores, store_handles,
       businesses, merchant_accounts, onboarding_profiles

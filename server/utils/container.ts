@@ -62,6 +62,7 @@ import { merchantMomentum, type MerchantMomentum } from './momentum'
 import { listMyMerchants, storeEngagementSnapshot, cornerContents, isCornerKept, listLiveShops, type FeedVoice } from './deals-feed'
 import { searchStreet, type StreetSearchResults, type SearchScope } from './street-search'
 import { laneSummaries, laneContents, type LaneSummary, type LaneContents } from './lanes'
+import { streetPulseProjection, readStreet, rebuildStreetPulse, type StreetFeed } from './street-pulse'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -268,6 +269,8 @@ export interface Container {
     searchStreet: (q: string, opts?: { scope?: SearchScope; page?: number }) => Promise<StreetSearchResults>
     laneSummaries: () => Promise<LaneSummary[]>
     laneContents: (id: string) => Promise<LaneContents | null>
+    streetFeed: () => Promise<StreetFeed>
+    rebuildStreetPulse: () => Promise<void>
     /** Release 1.3 — what a visitor's corner holds (the continuity stakes). */
     cornerContents: (visitorId: string) => Promise<{ merchants: number; saved: number }>
     /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
@@ -319,7 +322,8 @@ export function buildContainer(databaseUrl: string): Container {
     kernelPayloadValidators(),
     { logError: (message) => logger.error(message, { component: 'outbox' }) },
   )
-  const projections = new ProjectionRegistry() // populated by Commerce Batch 8 (ADR-004 C5)
+  const projections = new ProjectionRegistry()
+  projections.register(streetPulseProjection) // LS-4: the first real read model
   const health = new HealthCheckRegistry()
   health.register('database', dbHealthCheck(pool))
   health.register('projections', projectionsHealthCheck(projections, pool))
@@ -889,6 +893,8 @@ export function buildContainer(databaseUrl: string): Container {
       searchStreet: (q, opts) => deps.uow.withTransaction((tx) => searchStreet(tx, q, opts)),
       laneSummaries: () => deps.uow.withTransaction((tx) => laneSummaries(tx)),
       laneContents: (id) => deps.uow.withTransaction((tx) => laneContents(tx, id)),
+      streetFeed: () => deps.uow.withTransaction((tx) => readStreet(tx)),
+      rebuildStreetPulse: () => rebuildStreetPulse(pool, projections),
       storeEngagement: (handle, visitorId) =>
         deps.uow.withTransaction(async (tx) => {
           const publicDao = new PgPublicStorefrontDao()
