@@ -11,12 +11,14 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 
 type SubjectType = 'store' | 'product' | 'deal' | 'spark'
-type Source = 'home' | 'shops' | 'storefront' | 'search' | 'direct'
+type Source = 'home' | 'shops' | 'storefront' | 'search' | 'direct' | 'lane'
 
 type AttentionEvent =
   | { type: 'feed_impression' | 'store_view' | 'product_view' | 'deal_view' | 'spark_view'; subject_type: SubjectType; subject_id: string; source: Source }
   | { type: 'search'; query: string; had_results: boolean; source: Source }
   | { type: 'search_click'; subject_type: SubjectType; subject_id: string; query: string; source: 'search' }
+  | { type: 'lane_view'; lane: string; source: Source }
+  | { type: 'lane_click'; subject_type: SubjectType; subject_id: string; lane: string; source: 'lane' }
 
 const BATCH_MAX = 25
 const FLUSH_AFTER_MS = 4000
@@ -27,6 +29,7 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 let flushHooked = false
 let lastSearch = ''
 let searchNavigated = false
+let laneNavigated = false
 
 function flush() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
@@ -59,6 +62,7 @@ function enqueue(event: AttentionEvent) {
 /** Where attention came from — derived from the page the visitor navigated FROM. */
 export function attentionSource(fromPath: string | null | undefined): Source {
   if (searchNavigated) { searchNavigated = false; return 'search' }
+  if (laneNavigated) { laneNavigated = false; return 'lane' }
   if (!fromPath) return 'direct'
   if (fromPath === '/' || fromPath === '/home') return 'home'
   if (fromPath === '/shops') return 'shops'
@@ -81,6 +85,20 @@ export function recordSearch(query: string, hadResults: boolean, source: Source 
   if (q.length < 2 || q === lastSearch) return
   lastSearch = q
   enqueue({ type: 'search', query: q.slice(0, 80), had_results: hadResults, source })
+}
+
+/** Someone stepped into a lane. One per lane per page-load. */
+let lastLane = ''
+export function recordLaneView(lane: string, source: Source = 'home') {
+  if (lane === lastLane) return
+  lastLane = lane
+  enqueue({ type: 'lane_view', lane, source })
+}
+
+/** A thing chosen from inside a lane — geography working. */
+export function recordLaneClick(kind: SubjectType, subjectId: string, lane: string) {
+  laneNavigated = true
+  enqueue({ type: 'lane_click', subject_type: kind, subject_id: subjectId, lane, source: 'lane' })
 }
 
 /** A search result the visitor chose — the honest relevance judgment. */

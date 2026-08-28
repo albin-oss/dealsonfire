@@ -220,3 +220,25 @@ FROM attention_facts
 WHERE event_type = 'search_click' AND occurred_at > now() - interval '30 days'
 GROUP BY subject_type
 ORDER BY clicks DESC;
+
+-- @section LS3a · Lanes — entrances and follow-through (30 days)
+-- A lane earns its place when people step in AND choose something inside.
+SELECT v.query AS lane,
+       count(*) FILTER (WHERE v.event_type = 'lane_view') AS entrances,
+       count(*) FILTER (WHERE v.event_type = 'lane_click') AS chose_something
+FROM attention_facts v
+WHERE v.event_type IN ('lane_view', 'lane_click') AND v.occurred_at > now() - interval '30 days'
+GROUP BY v.query
+ORDER BY entrances DESC;
+
+-- @section LS3b · New-maker reachability — do young shops get found through lanes? (30 days)
+-- The LS-3 fairness promise: a shop under 30 days old should receive discovery
+-- through lane doors, not only exact-name search.
+SELECT count(*) FILTER (WHERE f.source = 'lane') AS via_lanes,
+       count(*) FILTER (WHERE f.source = 'search') AS via_search,
+       count(*) FILTER (WHERE f.source NOT IN ('lane', 'search')) AS via_other
+FROM attention_facts f
+JOIN stores s ON s.id = f.subject_id
+WHERE f.event_type = 'store_view' AND f.subject_type = 'store'
+  AND s.published_at > now() - interval '30 days'
+  AND f.occurred_at > now() - interval '30 days';
