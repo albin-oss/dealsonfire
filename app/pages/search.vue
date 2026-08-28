@@ -223,7 +223,7 @@ const GROUPS = [
           <li v-for="sp in [...data.sparks, ...(scope === 'sparks' ? older as SparkHit[] : [])]" :key="sp.id">
             <NuxtLink
               :to="`/s/${sp.store_handle}/sparks/${sp.id}`"
-              class="dof-interactive flex flex-col gap-1 rounded-large border-l-2 border-foreground/20 bg-foreground/[0.02] p-4 pl-4 transition-colors hover:border-accent focus-visible:focus-ring"
+              class="dof-interactive flex flex-col gap-1 rounded-large border-s-2 border-foreground/20 bg-foreground/[0.02] p-4 ps-4 transition-colors hover:border-accent focus-visible:focus-ring"
               @click="chose('spark', sp.id)"
             >
               <DofText role="body" class="italic text-foreground/85">

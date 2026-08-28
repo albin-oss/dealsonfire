@@ -165,7 +165,7 @@ function onBlur() {
       <button
         v-if="options.length > 0 && q.trim().length >= 2"
         type="button"
-        class="dof-interactive mt-1 w-full rounded-medium px-2 py-2 text-left text-caption text-accent hover:bg-accent/10 focus-visible:focus-ring"
+        class="dof-interactive mt-1 w-full rounded-medium px-2 py-2 text-start text-caption text-accent hover:bg-accent/10 focus-visible:focus-ring"
         @mousedown.prevent="deepSearch"
       >
         See everything for “{{ q.trim() }}” →
