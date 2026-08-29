@@ -53,6 +53,11 @@ Nothing else. Cart/purchase/follow/save/fire stay where they are — the telemet
 - **LS-3 — Lanes (taxonomy-lite browse)**: derived lanes (food/home/art/gifts…, "fresh today", "under €X", "new shops") from existing product/store data — zero merchant homework; lanes on `/shops` and home.
 - **LS-4 — The street moves (honest ranking)**: first registered projection (`rm_street_pulse`); ranking as an explainable, *additional* lens — the chronological law stays as a voice, never silently replaced; explicit diversity floor so new makers surface.
 - **LS-5 — Threads (related discovery)**: same-shop, same-lane, followed-also-followed, "fresh nearby" on product/deal/spark/store pages.
+  **[REORDERED 2026-08-29, post-LS-4]: LS-5 is EVIDENCE-GATED and LS-8 moved ahead of it.** The LS-4
+  finding governs: the aliveness ceiling is content volume and reality, not machinery. LS-8 (shipped
+  next as the findability release) requires no behavioral assumptions and feeds the street real
+  visitors; LS-5 waits for cohort evidence of actual wandering patterns (dead-ends, "what else is
+  like this?", same-shop navigation loops). The historical ordering below is preserved unchanged.
 - **LS-6 — The return journey**: "since you were last here" built from watermark + follows + attention; follow digests ride the C12 mail journal.
 - **LS-7 — Demand receipts**: complete the merchant evidence sentences (found me / brought them / cared about / returned). No dashboards.
 - **LS-8 — The street is findable**: sitemap, Organization/ItemList JSON-LD, held/thin content excluded, enforcement_hold respected everywhere.
