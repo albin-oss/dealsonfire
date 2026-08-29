@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { itemListJsonLd } from '../composables/public-seo'
 /**
  * /shops (Capability 02) — the directory: every live shop as a maker card, newest
  * first (honest recency, never ranking). The page a visitor uses to browse
@@ -22,11 +23,15 @@ function activityLabel(shop: Shop): { text: string; live: boolean } | null {
 }
 
 const origin = useRequestURL().origin
-useHead({
+useHead(() => ({
   title: 'Shops on DOF',
   htmlAttrs: { 'data-scope': 'marketplace' },
   link: [{ rel: 'canonical', href: `${origin}/shops` }],
-})
+  // LS-8: the directory as an honest ItemList (only what the page truly shows)
+  script: shops.value && shops.value.length > 0
+    ? [{ type: 'application/ld+json', innerHTML: itemListJsonLd(origin, '/shops', shops.value.map((sh) => ({ name: sh.name, url: `/s/${sh.handle}` }))) }]
+    : [],
+}))
 useSeoMeta({
   description: 'Every independent shop on DOF — makers, bakers, roasters, coaches — newest first.',
   ogTitle: 'Shops on DOF',

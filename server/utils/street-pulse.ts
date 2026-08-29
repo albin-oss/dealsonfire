@@ -34,6 +34,13 @@
  * does NOT reset it) or under MIN_EXPOSURE_GLANCES of lifetime-window
  * exposure — ordered newest first. Deterministic, bounded, not pay-to-win.
  *
+ * WATCH ITEM (LS-8, honest limits): distinct-person counting stops one person
+ * becoming a crowd; it does NOT correct EXPOSURE BIAS — a heavily-shown item
+ * has more chances to earn distinct people than a barely-shown one. Learning
+ * section LS4b measures people-per-glance (sample-guarded) so judgment can
+ * see the bias; the formula here must not consume such ratios until real
+ * cohort evidence justifies a change.
+ *
  * FALLBACK LAW: if the projection is absent or empty, the street voice
  * degrades to chronology (the caller renders the Newest stream) — never a
  * closed door.

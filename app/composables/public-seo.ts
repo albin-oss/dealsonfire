@@ -159,3 +159,71 @@ export function sparkMeta(facts: SparkSeoFacts) {
     ...(image ? { twitterImage: image } : {}),
   }
 }
+
+// ————————————————————————————————————————————— LS-8: the street, findable
+
+/** Organization + WebSite (+ a truthful SearchAction — /search is real). One per site, on /home. */
+export function siteJsonLd(origin: string): string {
+  return JSON.stringify([
+    {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: 'DOF',
+      description: 'A street of independent shops — their deals, updates, and stories.',
+      url: origin,
+    },
+    {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'DOF',
+      url: origin,
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: { '@type': 'EntryPoint', urlTemplate: `${origin}/search?q={search_term_string}` },
+        'query-input': 'required name=search_term_string',
+      },
+    },
+  ])
+}
+
+/** The shop as an Organization — name, the maker's own words, canonical URL. Nothing invented. */
+export function storeJsonLd(facts: StoreSeoFacts & { story?: string | null }): string {
+  return JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: facts.storeName,
+    ...(facts.story || facts.tagline ? { description: facts.story ?? facts.tagline } : {}),
+    url: `${facts.origin}/s/${facts.handle}`,
+    ...(facts.imageUrl ? { image: absolute(facts.origin, facts.imageUrl) } : {}),
+  })
+}
+
+/** ItemList for enumeration surfaces (/shops, non-empty lanes). */
+export function itemListJsonLd(origin: string, listUrl: string, items: Array<{ name: string; url: string }>): string {
+  return JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    url: `${origin}${listUrl}`,
+    numberOfItems: items.length,
+    itemListElement: items.map((item, i) => ({
+      '@type': 'ListItem', position: i + 1, name: item.name, url: `${origin}${item.url}`,
+    })),
+  })
+}
+
+export function laneCanonical(origin: string, laneId: string): string {
+  return `${origin}/street/${laneId}`
+}
+
+export function laneMeta(facts: { origin: string; laneId: string; title: string; blurb: string }) {
+  return {
+    description: facts.blurb,
+    ogTitle: `${facts.title} — DOF`,
+    ogDescription: facts.blurb,
+    ogType: 'website' as const,
+    ogUrl: laneCanonical(facts.origin, facts.laneId),
+    twitterCard: 'summary' as const,
+    twitterTitle: `${facts.title} — DOF`,
+    twitterDescription: facts.blurb,
+  }
+}

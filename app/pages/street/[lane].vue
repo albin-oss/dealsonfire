@@ -10,6 +10,7 @@
 import { computed } from 'vue'
 import { DofText, DofMoney, DofSkeleton } from '@ds/index'
 import { recordLaneView, recordLaneClick } from '../../composables/attention'
+import { laneCanonical, laneMeta } from '../../composables/public-seo'
 
 interface ShopHit { id: string; handle: string; name: string; tagline: string | null; excerpt: string | null }
 interface ProductHit { id: string; title: string; price_minor: number | null; currency: string | null; store_handle: string; store_name: string; image_url: string | null; excerpt: string | null }
@@ -26,7 +27,17 @@ const laneId = computed(() => String(route.params.lane ?? ''))
 const { data, pending, error } = await useFetch<LanePayload>(() => `/api/v1/public/lanes/${laneId.value}`)
 if (error.value) throw createError({ statusCode: 404, statusMessage: 'This lane does not exist', fatal: true })
 
-useHead(() => ({ title: `${data.value?.lane.title ?? 'A lane'} — DOF` }))
+const origin = useRequestURL().origin
+const laneTotal = computed(() => data.value
+  ? data.value.totals.shops + data.value.totals.products + data.value.totals.deals + data.value.totals.sparks
+  : 0)
+useHead(() => ({
+  title: `${data.value?.lane.title ?? 'A lane'} — DOF`,
+  link: data.value ? [{ rel: 'canonical', href: laneCanonical(origin, data.value.lane.id) }] : [],
+  // thinness law: an empty lane is useful to wanderers but not index-worthy
+  meta: laneTotal.value === 0 ? [{ name: 'robots', content: 'noindex' }] : [],
+}))
+useSeoMeta(data.value ? laneMeta({ origin, laneId: data.value.lane.id, title: data.value.lane.title, blurb: data.value.lane.blurb }) : {})
 
 // the street notices lane entrances (one per lane per page-load)
 watchEffect(() => { if (import.meta.client && data.value) recordLaneView(data.value.lane.id, 'direct') })
