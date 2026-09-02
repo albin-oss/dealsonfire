@@ -54,3 +54,40 @@
 ## After
 
 Findings (verbatim confusion + learning-ledger readouts) go into a short COHORT_FINDINGS.md; Phase 2's remaining increments are reordered against it. Real cohort data outranks every internal judgment in this program.
+
+---
+
+## LS-8 update (2026-08-29) — the actionable checklist
+
+| # | Item | Class | Status |
+|---|---|---|---|
+| 1 | Platform safety + discovery (accounts, recovery, mail journal, locks, abuse loop, search, lanes, street, SEO) | ENGINEERING | **ALREADY PROVEN** (C12 + LS-1…LS-4 + LS-8 certifications) |
+| 2 | App-side sender configurability | ENGINEERING | **DONE** — `NUXT_MAIL_FROM` + `NUXT_MAIL_PROVIDER` env; boot gate names absences |
+| 3 | Reality Ledger (seeded vs real evidence, mechanical) | ENGINEERING | **DONE** — seed registry + learning R0 census; law: dev-demo never runs on cohort envs |
+| 4 | The street findable from outside (share links, direct entry) | ENGINEERING | **DONE** — LS-8 |
+| 5 | Verified sender domain in Resend | EXTERNAL / DNS | **FOUNDER — the 5-minute action below** |
+| 6 | Pilot framing ("pilot, no claims" invitation wording) | LEGAL / PILOT FRAMING | **FOUNDER** — write or approve ~4 sentences |
+| 7 | Operator on the abuse alarm during cohort hours | FOUNDER | assign (can be the Founder) |
+| 8 | Deployed environment (fresh DB, production posture, cron clock) | ENGINEERING + FOUNDER | gates are PROVEN in code; the HOST is a deployment action (PRODUCTION_CUTOVER — Founder picks the platform, engineering deploys) |
+
+**The 5-minute sender-domain action (item 5):**
+1. In Resend → Domains → Add Domain, enter the chosen sending domain — a transactional subdomain of the real DOF domain (e.g. `mail.<your-domain>`) is the conventional choice, but the domain itself is yours to pick.
+2. Add the DNS records Resend displays (SPF TXT + two DKIM CNAMEs) at your DNS provider; wait for Resend to show "Verified".
+3. Tell engineering the sender address (e.g. `street@mail.<your-domain>`); we set `NUXT_MAIL_FROM` and the letters speak with DOF's real voice. Nothing else changes — the mail journal, idempotency, and bounce facts are sender-agnostic (proven in C12-1).
+
+## Observation card (max 10 — behavior, not opinions)
+
+1. First 30 seconds, unprompted: what do they SAY this place is? (verbatim)
+2. Which door first: The Street, Newest, a lane, search, or /shops?
+3. Do they discover a maker they didn't already know? Which, via what path?
+4. What do they search for? (the platform records it — note only what they say aloud)
+5. Where do they dead-end (back button with nowhere to go)? (verbatim frustration)
+6. Do they follow/save/fire anything without being told those exist?
+7. Do they open a Spark, and do they understand whose voice it is?
+8. Do they ever switch The Street ↔ Newest? Which do they settle in?
+9. Handed a product link out of context (the share test): do they understand what it is and who made it within five seconds?
+10. Two days later, uninvited: did they come back? (the platform knows; don't ask, observe)
+
+## Reality Ledger law (binding)
+
+Learning readouts begin at section R0: any report quoting behavioral numbers states the seeded/real split. dev-demo seeding NEVER runs against a cohort or production environment. Founder walks in the demo world are CONTROLLED/DEMO evidence, never REAL COHORT.

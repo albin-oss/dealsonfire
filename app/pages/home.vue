@@ -10,6 +10,7 @@
 import { computed, ref } from 'vue'
 import { DofText, DofMoney, DofChip, DofEmptyState, DofSkeleton, DofInput, DofButton, DofTime, announce } from '@ds/index'
 import type { HomeFeedItem } from '../../server/utils/deals-feed'
+import { siteJsonLd } from '../composables/public-seo'
 
 definePageMeta({ layout: false })
 
@@ -18,6 +19,8 @@ useHead({
   title: 'Today on DOF',
   htmlAttrs: { 'data-scope': 'marketplace' },
   link: [{ rel: 'canonical', href: `${origin}/home` }],
+  // LS-8: what DOF is, for the open web — Organization + WebSite + a real SearchAction
+  script: [{ type: 'application/ld+json', innerHTML: siteJsonLd(origin) }],
 })
 useSeoMeta({
   description: 'One living stream from independent stores — deals worth firing and updates worth reading.',

@@ -256,3 +256,38 @@ SELECT rp.subject_type, left(rp.subject_id::text, 8) AS subject,
 FROM rm_street_pulse rp JOIN stores s ON s.id = rp.store_id
 ORDER BY score DESC
 LIMIT 15;
+
+-- @section R0 · Reality census — how much of this readout is synthetic?
+-- The Reality Ledger (LS-8): stores split by seed-registry membership
+-- (contracts/learning/seed-registry.ts — dev-demo's deterministic principals),
+-- and behavioral facts attached to each class. Any number quoted from the
+-- sections above must be read against this census: a report may never call
+-- seeded activity "people". Cohort/production environments must contain ZERO
+-- seeded stores (dev-demo never runs there).
+WITH seeded AS (
+  SELECT DISTINCT st.id FROM stores st
+  JOIN staff_memberships sm ON sm.business_id = st.business_id
+  WHERE sm.principal_id IN (
+    '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
+    '33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444',
+    '55555555-5555-4555-8555-555555555555', '66666666-6666-4666-8666-666666666666',
+    '77777777-7777-4777-8777-777777777777', '88888888-8888-4888-8888-888888888888')
+)
+SELECT (SELECT count(*) FROM stores WHERE status = 'live') AS live_stores,
+       (SELECT count(*) FROM seeded) AS seeded_stores,
+       (SELECT count(*) FROM attention_facts f WHERE f.store_id IN (SELECT id FROM seeded)) AS facts_on_seeded,
+       (SELECT count(*) FROM attention_facts f WHERE f.store_id IS NOT NULL AND f.store_id NOT IN (SELECT id FROM seeded)) AS facts_on_real;
+
+-- @section LS4b · Exposure honesty — interest per unit of being-shown (30 days)
+-- LS-4's distinct-person law stops one person becoming a crowd; it does NOT
+-- correct exposure bias (a thing shown 10,000 times has more chances to earn
+-- people than one shown 50 times). This readout exists so judgment can see
+-- that bias; sample-guarded (≥50 impressions) so tiny ratios never mislead.
+-- MEASUREMENT ONLY: the production ranking formula does not consume this.
+SELECT rp.subject_type, left(rp.subject_id::text, 8) AS subject,
+       rp.glances_7d AS impressions, rp.stops_7d AS viewers, rp.people_7d AS people,
+       round(rp.people_7d::numeric / greatest(rp.glances_7d, 1), 4) AS people_per_glance
+FROM rm_street_pulse rp
+WHERE rp.glances_7d >= 50
+ORDER BY people_per_glance DESC
+LIMIT 15;

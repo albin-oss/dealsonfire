@@ -9,7 +9,7 @@
 import { computed } from 'vue'
 import { useBrandKit, DofText, DofMoney, DofButton, DofEmptyState, DofTime } from '@ds/index'
 import type { PublicStorefrontResponse } from '@contracts/schemas/merchant/public-storefront.schema'
-import { storeMeta } from '../../../composables/public-seo'
+import { storeMeta, storeJsonLd } from '../../../composables/public-seo'
 
 definePageMeta({ layout: false })
 
@@ -35,6 +35,12 @@ useHead({
   title: () => `${store.value.name} — dof.dev/${store.value.handle}`,
   htmlAttrs: { 'data-scope': 'storefront' },
   link: [{ rel: 'canonical', href: `${origin}/s/${store.value.handle}` }],
+  // LS-8: the shop as an Organization — the maker's own words, nothing invented
+  script: [{ type: 'application/ld+json', innerHTML: storeJsonLd({
+    origin, handle: store.value.handle, storeName: store.value.name,
+    tagline: brand.value?.tagline ?? null, story: brand.value?.story ?? null,
+    imageUrl: products.value[0]?.image_url ?? null,
+  }) }],
 })
 useSeoMeta(storeMeta({
   origin,

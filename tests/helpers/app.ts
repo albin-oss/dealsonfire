@@ -59,6 +59,8 @@ import searchGet from '../../server/api/v1/public/search.get'
 import lanesGet from '../../server/api/v1/public/lanes/index.get'
 import laneGet from '../../server/api/v1/public/lanes/[laneId].get'
 import streetGet from '../../server/api/v1/public/street.get'
+import sitemapGet from '../../server/routes/sitemap.xml.get'
+import robotsGet from '../../server/routes/robots.txt.get'
 import attentionPost from '../../server/api/v1/public/attention.post'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
 import sparksPost from '../../server/api/v1/sparks/index.post'
@@ -186,6 +188,8 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/public/lanes', lanesGet)
   router.get('/api/v1/public/lanes/:laneId', laneGet)
   router.get('/api/v1/public/street', streetGet)
+  router.get('/sitemap.xml', sitemapGet)
+  router.get('/robots.txt', robotsGet)
   router.post('/api/v1/public/attention', attentionPost)
   router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
   router.post('/api/v1/sparks', sparksPost)
