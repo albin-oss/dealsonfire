@@ -11,7 +11,7 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 
 type SubjectType = 'store' | 'product' | 'deal' | 'spark'
-type Source = 'home' | 'shops' | 'storefront' | 'search' | 'direct' | 'lane'
+type Source = 'home' | 'shops' | 'storefront' | 'search' | 'direct' | 'lane' | 'thread'
 
 type AttentionEvent =
   | { type: 'feed_impression' | 'store_view' | 'product_view' | 'deal_view' | 'spark_view'; subject_type: SubjectType; subject_id: string; source: Source }
@@ -30,6 +30,7 @@ let flushHooked = false
 let lastSearch = ''
 let searchNavigated = false
 let laneNavigated = false
+let threadNavigated = false
 
 function flush() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null }
@@ -63,6 +64,7 @@ function enqueue(event: AttentionEvent) {
 export function attentionSource(fromPath: string | null | undefined): Source {
   if (searchNavigated) { searchNavigated = false; return 'search' }
   if (laneNavigated) { laneNavigated = false; return 'lane' }
+  if (threadNavigated) { threadNavigated = false; return 'thread' }
   if (!fromPath) return 'direct'
   if (fromPath === '/' || fromPath === '/home') return 'home'
   if (fromPath === '/shops') return 'shops'
@@ -86,6 +88,9 @@ export function recordSearch(query: string, hadResults: boolean, source: Source 
   lastSearch = q
   enqueue({ type: 'search', query: q.slice(0, 80), had_results: hadResults, source })
 }
+
+/** The next view arrived through a thread door (voice / nearby). */
+export function markThreadHop() { threadNavigated = true }
 
 /** Someone stepped into a lane. One per lane per page-load. */
 let lastLane = ''

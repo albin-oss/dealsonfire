@@ -24,13 +24,13 @@ const subjectEvent = z.object({
   type: z.enum(['feed_impression', 'store_view', 'product_view', 'deal_view', 'spark_view']),
   subject_type: z.enum(['store', 'product', 'deal', 'spark']),
   subject_id: z.string().uuid(),
-  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct']),
+  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct', 'lane', 'thread']),
 })
 const searchEvent = z.object({
   type: z.literal('search'),
   query: z.string().min(2).max(80),
   had_results: z.boolean(),
-  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct']),
+  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct', 'lane', 'thread']),
 })
 const searchClickEvent = z.object({
   type: z.literal('search_click'),
@@ -43,7 +43,7 @@ const searchClickEvent = z.object({
 const laneViewEvent = z.object({
   type: z.literal('lane_view'),
   lane: z.string().regex(/^[a-z0-9-]{2,40}$/),
-  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct', 'lane']),
+  source: z.enum(['home', 'shops', 'storefront', 'search', 'direct', 'lane', 'thread']),
 })
 const laneClickEvent = z.object({
   type: z.literal('lane_click'),

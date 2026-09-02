@@ -291,3 +291,24 @@ FROM rm_street_pulse rp
 WHERE rp.glances_7d >= 50
 ORDER BY people_per_glance DESC
 LIMIT 15;
+
+-- @section LS5a · Threads — does one opened thing lead to another? (30 days)
+-- The only question threads answer to: views that ARRIVED through a thread
+-- door, and whether those visitors kept going (any further identified act
+-- or view afterward that day). No click-count vanity.
+WITH thread_arrivals AS (
+  SELECT f.visitor_id, f.subject_type, f.subject_id, f.occurred_at
+  FROM attention_facts f
+  WHERE f.source = 'thread' AND f.event_type IN ('store_view', 'product_view', 'deal_view', 'spark_view')
+    AND f.occurred_at > now() - interval '30 days'
+)
+SELECT count(*) AS thread_arrivals,
+       count(DISTINCT visitor_id) FILTER (WHERE visitor_id IS NOT NULL) AS people,
+       count(*) FILTER (WHERE EXISTS (
+         SELECT 1 FROM attention_facts g
+         WHERE g.visitor_id = thread_arrivals.visitor_id AND g.visitor_id IS NOT NULL
+           AND g.occurred_at > thread_arrivals.occurred_at
+           AND g.occurred_at < thread_arrivals.occurred_at + interval '1 hour'
+           AND (g.subject_id IS DISTINCT FROM thread_arrivals.subject_id)
+       )) AS continued_within_the_hour
+FROM thread_arrivals;

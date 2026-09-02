@@ -157,6 +157,8 @@ onMounted(() => recordView('deal', deal.value.id, attentionSource(window.history
         />
       </div>
 
+      <StreetThreads subject-type="deal" :subject-id="deal.id" :store-name="store.name" />
+
       <NuxtLink to="/home" class="dof-interactive mx-auto rounded-small px-1 text-caption text-foreground/70 underline-offset-4 hover:underline focus-visible:focus-ring">
         More on DOF today →
       </NuxtLink>
