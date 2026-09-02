@@ -195,6 +195,11 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
       </section>
     </main>
 
+    <!-- LS-5: the explainable next doors — voice + nearby (cross-merchant) -->
+    <div class="mx-auto max-w-4xl px-4 py-6">
+      <StreetThreads subject-type="product" :subject-id="product.id" :store-name="store.name" />
+    </div>
+
     <!-- C12-2: the quiet report door -->
     <div class="mx-auto max-w-4xl px-4">
       <ReportDoor subject-type="product" :subject-ref="product.id" />
