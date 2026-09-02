@@ -22,6 +22,9 @@ function activityLabel(shop: Shop): { text: string; live: boolean } | null {
   return null
 }
 
+const { data, pending } = await useFetch<{ items: Shop[] }>('/api/v1/public/shops')
+const shops = computed(() => data.value?.items ?? [])
+
 const origin = useRequestURL().origin
 useHead(() => ({
   title: 'Shops on DOF',
@@ -41,8 +44,6 @@ useSeoMeta({
   twitterCard: 'summary',
 })
 
-const { data, pending } = await useFetch<{ items: Shop[] }>('/api/v1/public/shops')
-const shops = computed(() => data.value?.items ?? [])
 
 // LS-3: the street's lanes — one navigation system with /street and search
 interface LaneDoor { id: string; title: string; count: number }
