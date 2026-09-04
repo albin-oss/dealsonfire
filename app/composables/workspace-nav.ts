@@ -36,7 +36,7 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
   { id: 'returns', label: 'Returns', icon: 'rotate-ccw', to: '/returns', reveal: 's2', promise: 'Fair decisions with the evidence assembled.', why: 'Handled generously, a return keeps the customer.' },
   { id: 'sparks', label: 'Sparks', icon: 'message-circle', to: '/sparks', reveal: 's0', promise: 'The conversations around your store.', why: 'Every launch, drop, and milestone can be a story.' },
   { id: 'marketing', label: 'Marketing', icon: 'send', to: '/marketing', reveal: 's3', promise: 'Reach the people rooting for you.', why: 'Audience first, campaigns second.' },
-  { id: 'analytics', label: 'Analytics', icon: 'trending-up', to: '/analytics', reveal: 's3', promise: 'Sentences before charts.', why: '“Twice your usual Tuesday” beats a wall of KPIs.' },
+  { id: 'analytics', label: 'What people noticed', icon: 'trending-up', to: '/analytics', reveal: 's1', promise: 'The demand the Street brought you — in sentences, never charts.', why: 'A maker should hear whether anyone noticed, without becoming an analyst.' },
   { id: 'settings', label: 'Settings', icon: 'settings', to: '/settings', reveal: 's0', promise: 'Store, business, and account — three doors, clearly split.', why: 'Nothing in here is ever required to start selling.' },
 ]
 

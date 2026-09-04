@@ -148,10 +148,13 @@ const greeting = computed(() =>
       </NuxtLink>
     </section>
 
-    <!-- LS-1: people found you — the street says so in one sentence -->
-    <DofText v-if="attentionSentence" role="body" tone="muted" aria-label="attention this week">
-      {{ attentionSentence }}
-    </DofText>
+    <!-- LS-1 sentence + LS-7 door: the receipt on Home, the fuller read one tap away -->
+    <div v-if="attentionSentence" class="flex flex-col items-start gap-1" aria-label="attention this week">
+      <DofText role="body" tone="muted">{{ attentionSentence }}</DofText>
+      <NuxtLink to="/analytics" class="dof-interactive rounded-small text-caption text-accent underline-offset-4 hover:underline focus-visible:focus-ring">
+        See what people noticed →
+      </NuxtLink>
+    </div>
 
     <DofCard>
       <template #header>

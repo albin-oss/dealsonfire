@@ -63,6 +63,7 @@ import sitemapGet from '../../server/routes/sitemap.xml.get'
 import robotsGet from '../../server/routes/robots.txt.get'
 import threadsGet from '../../server/api/v1/public/threads.get'
 import sinceGet from '../../server/api/v1/public/since.get'
+import demandGet from '../../server/api/v1/workspace/demand.get'
 import attentionPost from '../../server/api/v1/public/attention.post'
 import dealEngagementGet from '../../server/api/v1/public/deals/[dealId]/engagement.get'
 import sparksPost from '../../server/api/v1/sparks/index.post'
@@ -194,6 +195,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/robots.txt', robotsGet)
   router.get('/api/v1/public/threads', threadsGet)
   router.get('/api/v1/public/since', sinceGet)
+  router.get('/api/v1/workspace/demand', demandGet)
   router.post('/api/v1/public/attention', attentionPost)
   router.get('/api/v1/public/deals/:dealId/engagement', dealEngagementGet)
   router.post('/api/v1/sparks', sparksPost)
