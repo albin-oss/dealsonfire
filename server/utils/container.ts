@@ -15,6 +15,7 @@ import { createStoreCommand } from '@domains/merchant/core/application/commands/
 import { updateBrandKitCommand } from '@domains/merchant/core/application/commands/update-brand-kit'
 import { publishStoreCommand } from '@domains/merchant/core/application/commands/publish-store'
 import { pauseStoreCommand, closeStoreCommand, restoreStoreCommand } from '@domains/merchant/core/application/commands/store-lifecycle'
+import { changeHandleCommand } from '@domains/merchant/core/application/commands/change-handle'
 import { workspaceOverviewQuery } from '@domains/merchant/core/application/queries/workspace-overview'
 import { handleAvailabilityQuery } from '@domains/merchant/core/application/queries/handle-availability'
 import { getBrandKitQuery } from '@domains/merchant/core/application/queries/brand-kit'
@@ -245,6 +246,7 @@ export interface Container {
     pauseStore: ReturnType<typeof pauseStoreCommand>
     closeStore: ReturnType<typeof closeStoreCommand>
     restoreStore: ReturnType<typeof restoreStoreCommand>
+    changeHandle: ReturnType<typeof changeHandleCommand>
   }
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
@@ -297,8 +299,20 @@ export function buildContainer(databaseUrl: string): Container {
   const pool = createPool(databaseUrl)
   // Merchant's platform-machinery instances (K1): one implementation, per-domain tables.
   const audit = new PgAuditLog(pool, { auditTable: 'audit_logs' })
+  // Media Port: Blob in production (token present); the sandbox twin otherwise (tests,
+  // local dev) — same contract, so consumers never know the difference (test law).
+  const mediaService = new MediaService(
+    pool,
+    (() => {
+      const token = optionalEnv('BLOB_READ_WRITE_TOKEN')
+      // dev sandbox writes real bytes so uploads render (served by /dev-media)
+      return token ? new VercelBlobStorage(token) : new SandboxMediaStorage('.data/media')
+    })(),
+  )
+
   const deps: KernelDeps = {
     uow: new PgUnitOfWork(pool),
+    media: { belongsToBusiness: async (mediaId, businessId) => (await mediaService.resolve(mediaId, businessId)) !== null },
     merchantAccounts: new PgMerchantAccountRepository(),
     businesses: new PgBusinessRepository(),
     stores: new PgStoreRepository(),
@@ -779,6 +793,7 @@ export function buildContainer(databaseUrl: string): Container {
       pauseStore: pauseStoreCommand(deps, entitlements),
       closeStore: closeStoreCommand(deps, entitlements),
       restoreStore: restoreStoreCommand(deps, entitlements),
+      changeHandle: changeHandleCommand(deps, entitlements),
     },
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),
@@ -939,16 +954,7 @@ export function buildContainer(databaseUrl: string): Container {
         }),
     },
     onboarding: new OnboardingService(deps.uow, new PgOnboardingProfileRepository(), audit),
-    // Media Port: Blob in production (token present); the sandbox twin otherwise (tests,
-    // local dev) — same contract, so consumers never know the difference (test law).
-    media: new MediaService(
-      pool,
-      (() => {
-        const token = optionalEnv('BLOB_READ_WRITE_TOKEN')
-        // dev sandbox writes real bytes so uploads render (served by /dev-media)
-        return token ? new VercelBlobStorage(token) : new SandboxMediaStorage('.data/media')
-      })(),
-    ),
+    media: mediaService,
     shutdown: () => pool.end(),
   }
 }

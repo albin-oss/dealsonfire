@@ -9,7 +9,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import {
   DofText, DofButton, DofInput, DofTextarea, DofChip,
-  DofEmptyState, DofSkeleton, DofProblem, announce, useBrandKit,
+  DofEmptyState, DofSkeleton, DofProblem, DofMediaSlot, type SlotMedia,
+  announce, useBrandKit,
 } from '@ds/index'
 import type { BrandKitResponse } from '@contracts/schemas/merchant/brand-kit.schema'
 import { draftStory, draftPromises } from '../composables/identity-intelligence'
@@ -79,6 +80,20 @@ const draftRestored = ref(false)
 const tagline = ref('')
 const story = ref('')
 const promise = ref('')
+// SV-2: the shaping fields — display name, one brand accent, and a logo. All ride the
+// same whole-value Brand Kit PUT (no new write path); the handle is its own consequential
+// flow below. The accent is constrained to a single hex; DOF owns the rest of the grammar.
+const displayName = ref('')
+const accent = ref('') // the store's brand accent (hex); every store has one from creation
+const logo = ref<SlotMedia | null>(null)
+
+async function uploadMedia(file: File): Promise<{ mediaId: string; url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('business_id', businessId.value ?? '')
+  const res = await $fetch<{ media_id: string; url: string }>('/api/v1/media', { method: 'POST', body: form, headers })
+  return { mediaId: res.media_id, url: res.url }
+}
 
 async function loadKit() {
   if (!store.value) return
@@ -88,6 +103,11 @@ async function loadKit() {
     tagline.value = kit.value.voice.tone ?? ''
     story.value = kit.value.voice.story ?? ''
     promise.value = kit.value.voice.promise ?? ''
+    displayName.value = kit.value.name ?? store.value.name
+    accent.value = kit.value.palette.primary ?? ''
+    logo.value = kit.value.logo_media_id && kit.value.logo_url
+      ? { mediaId: kit.value.logo_media_id, url: kit.value.logo_url, alt: `${kit.value.name} logo` }
+      : null
   } catch { /* the editor teaches from blank */ } finally {
     loadingKit.value = false
     // the workspace promise: nothing you start is ever lost — an unsaved draft
@@ -128,7 +148,10 @@ const dirty = computed(() =>
   kit.value !== null && (
     tagline.value.trim() !== (kit.value.voice.tone ?? '') ||
     story.value.trim() !== (kit.value.voice.story ?? '') ||
-    promise.value.trim() !== (kit.value.voice.promise ?? '')
+    promise.value.trim() !== (kit.value.voice.promise ?? '') ||
+    displayName.value.trim() !== kit.value.name ||
+    accent.value.toLowerCase() !== (kit.value.palette.primary ?? '').toLowerCase() ||
+    (logo.value?.mediaId ?? null) !== (kit.value.logo_media_id ?? null)
   ))
 
 async function save() {
@@ -140,9 +163,9 @@ async function save() {
       method: 'PUT',
       headers: { ...headers, 'idempotency-key': crypto.randomUUID() },
       body: {
-        name: kit.value.name,
-        logo_media_id: kit.value.logo_media_id,
-        palette: kit.value.palette,
+        name: displayName.value.trim() || kit.value.name,
+        logo_media_id: logo.value?.mediaId ?? null,
+        palette: { ...kit.value.palette, ...(accent.value ? { primary: accent.value.toLowerCase() } : {}) },
         typography: kit.value.typography,
         voice: {
           ...(tagline.value.trim() ? { tone: tagline.value.trim() } : {}),
@@ -167,8 +190,8 @@ const { copiedId, copy } = useCopyFeedback()
 // the preview wears the store's real palette — the same brand-kit idiom the live
 // storefront uses, so what the merchant sees here IS what the street sees
 const { scopeAttrs: previewAttrs } = useBrandKit(computed(() => ({
-  accent: kit.value?.palette.primary,
-  accentStrong: kit.value?.palette.primary,
+  accent: accent.value || kit.value?.palette.primary,
+  accentStrong: accent.value || kit.value?.palette.primary,
 })))
 
 // the audience line (same read the sparks page uses)
@@ -187,12 +210,13 @@ const shippingSaved = ref(false)
 watch(store, async (s) => {
   if (!s) return
   try {
-    const terms = await $fetch<{ handling_days: number; flat_rate_minor: number; free_over_minor: number | null; pickup_enabled: boolean }>(
+    const terms = await $fetch<{ handling_days: number; flat_rate_minor: number; free_over_minor: number | null; pickup_enabled: boolean; return_window_days: number }>(
       `/api/v1/public/stores/${s.handle}/shipping`)
     shipHandling.value = String(terms.handling_days)
     shipFlat.value = String(terms.flat_rate_minor / 100)
     shipFreeOver.value = terms.free_over_minor === null ? '' : String(terms.free_over_minor / 100)
     shipPickup.value = terms.pickup_enabled
+    returnWindowDays.value = terms.return_window_days
   } catch { /* defaults stand */ }
 }, { immediate: true })
 async function saveShipping() {
@@ -222,6 +246,57 @@ async function saveShipping() {
 function copyStoreLink() {
   if (storeUrl.value) void copy('store', `${window.location.origin}${storeUrl.value}`)
 }
+
+// ——— SV-2: change your address on DOF. Consequential (owner + step-up): old links keep
+// working (they redirect), the new handle can't be a reserved word or one already taken,
+// and nobody can ever claim your old address. Availability is checked live as they type.
+const handleEdit = reactive({
+  open: false, value: '', checking: false,
+  available: null as boolean | null, reason: '' as string, suggestions: [] as string[],
+  busy: false, error: '',
+})
+let handleCheckTimer: ReturnType<typeof setTimeout> | null = null
+function onHandleInput() {
+  handleEdit.error = ''
+  handleEdit.available = null
+  const candidate = handleEdit.value.trim().toLowerCase()
+  if (handleCheckTimer) clearTimeout(handleCheckTimer)
+  if (!candidate || candidate === store.value?.handle) return
+  handleEdit.checking = true
+  handleCheckTimer = setTimeout(async () => {
+    try {
+      const res = await $fetch<{ available: boolean; reason: string; suggestions: string[] }>(
+        `/api/v1/handles/${encodeURIComponent(candidate)}/availability`, { headers })
+      handleEdit.available = res.available
+      handleEdit.reason = res.reason
+      handleEdit.suggestions = res.suggestions
+    } catch { /* availability is advisory; the claim is authoritative */ } finally {
+      handleEdit.checking = false
+    }
+  }, 350)
+}
+async function submitHandle() {
+  const candidate = handleEdit.value.trim().toLowerCase()
+  if (!store.value || handleEdit.busy || !candidate || candidate === store.value.handle) return
+  handleEdit.busy = true; handleEdit.error = ''
+  try {
+    // dev-identity step-up is the x-dof-step-up header; session mode does the real ceremony.
+    await $fetch<{ handle: string }>(`/api/v1/stores/${store.value.store_id}/handle`, {
+      method: 'POST',
+      headers: { ...headers, 'x-dof-step-up': 'true', 'idempotency-key': crypto.randomUUID() },
+      body: { handle: candidate },
+    })
+    await refreshWorkspace()
+    handleEdit.open = false; handleEdit.value = ''; handleEdit.available = null
+    announce('Your store’s address is updated — your old links still work.')
+  } catch (e) {
+    handleEdit.error = (e as { data?: { detail?: string } }).data?.detail ?? 'That didn’t work — your address is unchanged.'
+  } finally { handleEdit.busy = false }
+}
+
+// ——— SV-2: policies as truth, not theater — the returns promise is DOF's platform
+// standard (never merchant free-text), shown so the merchant knows what buyers are told.
+const returnWindowDays = ref<number | null>(null)
 </script>
 
 <template>
@@ -298,6 +373,36 @@ function copyStoreLink() {
         <!-- ——— the identity editor -->
         <section aria-label="your identity" class="flex flex-col gap-4">
           <DofInput
+            v-model="displayName"
+            label="Store name"
+            hint="How your shop is known — you can change this without changing your web address."
+            placeholder="Rosa Knits"
+            :maxlength="80"
+          />
+
+          <!-- Appearance: one accent + a logo. DOF owns the rest of the look. -->
+          <div class="flex flex-col gap-3 rounded-medium border border-line p-3">
+            <DofText role="emphasis" as="h3">Appearance</DofText>
+            <div class="flex items-center gap-3">
+              <input
+                id="store-accent"
+                v-model="accent"
+                type="color"
+                class="dof-interactive size-10 shrink-0 cursor-pointer rounded-medium border border-line bg-surface p-0.5 focus-visible:focus-ring"
+              />
+              <label for="store-accent" class="flex flex-col">
+                <DofText role="body" class="font-medium">Accent colour</DofText>
+                <DofText role="caption" tone="muted">Used for buttons and highlights on your storefront.</DofText>
+              </label>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <DofText role="body" class="font-medium">Logo</DofText>
+              <DofMediaSlot v-if="businessId" v-model="logo" :upload="uploadMedia" />
+              <DofText role="caption" tone="muted">A square image reads best. JPG, PNG, or WebP.</DofText>
+            </div>
+          </div>
+
+          <DofInput
             v-model="tagline"
             label="Tagline"
             hint="One line under your name — how you’d introduce the shop at a market stall."
@@ -346,7 +451,7 @@ function copyStoreLink() {
           <DofProblem v-if="problem" title="Nothing was lost" :detail="problem" />
           <div class="flex items-center gap-3">
             <DofButton tone="accent" size="lg" icon="check" :disabled="!dirty" :loading="saving" @click="save">
-              Save identity
+              Save changes
             </DofButton>
             <DofText v-if="savedAt && !dirty" role="caption" class="text-positive">Live on your store.</DofText>
             <DofText v-else-if="draftRestored && dirty" role="caption" tone="muted">Restored your unsaved words — kept on this device until you save.</DofText>
@@ -360,9 +465,12 @@ function copyStoreLink() {
           <DofText role="emphasis" as="h2">As customers see it</DofText>
           <div v-bind="previewAttrs" class="overflow-hidden rounded-large border border-line">
             <div class="flex flex-col gap-2 border-b border-foreground/10 bg-surface p-5">
-              <DofText role="title" as="p">{{ store.name }}</DofText>
+              <div class="flex items-center gap-3">
+                <img v-if="logo" :src="logo.url" :alt="`${displayName || store.name} logo`" class="size-10 shrink-0 rounded-medium object-cover" />
+                <DofText role="title" as="p">{{ displayName || store.name }}</DofText>
+              </div>
               <DofText role="emphasis" as="p" :tone="tagline.trim() ? undefined : 'muted'">
-                {{ tagline.trim() || `Welcome to ${store.name}.` }}
+                {{ tagline.trim() || `Welcome to ${displayName || store.name}.` }}
               </DofText>
               <DofText role="caption" class="text-accent">dof.dev/{{ store.handle }}</DofText>
             </div>
@@ -394,6 +502,63 @@ function copyStoreLink() {
         <div class="flex items-center gap-3">
           <DofButton size="sm" tone="accent" icon="check" :loading="savingShipping" @click="saveShipping">Save shipping</DofButton>
           <DofText v-if="shippingSaved" role="caption" class="text-positive">Saved — new orders promise it.</DofText>
+        </div>
+        <DofText v-if="returnWindowDays" role="caption" tone="muted" class="border-t border-line pt-3">
+          Returns: buyers can return within {{ returnWindowDays }} days of delivery — DOF’s standard promise, backing every store.
+        </DofText>
+      </section>
+
+      <!-- ——— SV-2: your address on DOF (handle). Consequential: behind disclosure, needs a
+           deliberate confirm. Old links keep working; nobody can take your old address. -->
+      <section aria-label="store address" class="flex flex-col gap-3 rounded-large border border-line p-4">
+        <div class="flex flex-col gap-0.5">
+          <DofText role="emphasis" as="h2">Your address on DOF</DofText>
+          <DofText role="caption" tone="muted">People find your store at <span class="text-accent">dof.dev/{{ store.handle }}</span></DofText>
+        </div>
+        <button
+          v-if="!handleEdit.open"
+          type="button"
+          class="dof-interactive self-start rounded-small text-caption text-foreground/60 underline-offset-4 hover:underline focus-visible:focus-ring"
+          @click="handleEdit.open = true"
+        >
+          Change your address…
+        </button>
+        <div v-else class="flex flex-col gap-2 rounded-medium border border-line bg-surface-raised p-3">
+          <DofInput
+            v-model="handleEdit.value"
+            label="New address"
+            hint="Lowercase letters, numbers, and hyphens. 3–30 characters."
+            placeholder="rosa-knits"
+            :maxlength="30"
+            @update:model-value="onHandleInput"
+          />
+          <DofText v-if="handleEdit.checking" role="caption" tone="muted">Checking…</DofText>
+          <DofText v-else-if="handleEdit.available === true" role="caption" class="text-positive">dof.dev/{{ handleEdit.value.trim().toLowerCase() }} is available.</DofText>
+          <DofText v-else-if="handleEdit.available === false" role="caption" class="text-caution">
+            {{ handleEdit.reason === 'invalid_format' ? 'That address isn’t allowed — use lowercase letters, numbers, and hyphens.' : 'That address is taken.' }}
+          </DofText>
+          <div v-if="handleEdit.available === false && handleEdit.suggestions.length" class="flex flex-wrap gap-2">
+            <DofChip
+              v-for="s in handleEdit.suggestions" :key="s"
+              :label="s" selectable
+              @toggle="handleEdit.value = s; onHandleInput()"
+            />
+          </div>
+          <ul class="flex list-none flex-col gap-1 p-0 text-caption text-foreground/80">
+            <li>· Your old address keeps working — visitors are sent to the new one automatically.</li>
+            <li>· No one else can ever take your old address.</li>
+            <li>· This asks you to confirm it’s really you.</li>
+          </ul>
+          <DofProblem v-if="handleEdit.error" title="Couldn’t change your address" :detail="handleEdit.error" />
+          <div class="flex items-center gap-2">
+            <DofButton
+              size="sm" tone="accent"
+              :disabled="handleEdit.available !== true || handleEdit.busy"
+              :loading="handleEdit.busy"
+              @click="submitHandle"
+            >Change address</DofButton>
+            <DofButton size="sm" variant="ghost" tone="neutral" @click="handleEdit.open = false; handleEdit.value = ''; handleEdit.available = null">Keep it</DofButton>
+          </div>
         </div>
       </section>
     </template>

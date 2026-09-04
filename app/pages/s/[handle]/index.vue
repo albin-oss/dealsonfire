@@ -88,7 +88,7 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
 
 <template>
   <div v-bind="scopeAttrs">
-    <StoreShell :store-name="store.name" :handle="store.handle" width="wide" current>
+    <StoreShell :store-name="store.name" :handle="store.handle" :logo-url="brand?.logo_url" width="wide" current>
 
     <main class="mx-auto flex max-w-4xl flex-col gap-10 px-4 py-10">
       <section class="flex flex-col gap-2">

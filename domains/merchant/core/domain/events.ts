@@ -38,6 +38,7 @@ export const EVENT = {
   STORE_PAUSED: 'merchant.store.paused',
   STORE_CLOSED: 'merchant.store.closed',
   STORE_BRAND_KIT_UPDATED: 'merchant.store.brand_kit_updated',
+  STORE_HANDLE_CHANGED: 'merchant.store.handle_changed',
   STORE_ENFORCEMENT_HOLD_CHANGED: 'merchant.store.enforcement_hold_changed',
   STAFF_JOINED: 'merchant.staff.joined',
   // Release 0.4 engagement — visitors follow stores ('guest' actors)

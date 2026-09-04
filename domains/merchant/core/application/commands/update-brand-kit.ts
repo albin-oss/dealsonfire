@@ -56,6 +56,21 @@ export function updateBrandKitCommand(deps: KernelDeps, entitlements: Entitlemen
       const kit = createBrandKit(input.brandKit)
       if (!kit.ok) return kit
 
+      // SV-2 cross-tenant guard: a logo must belong to this store's own business — a store
+      // can never adopt (and now render) another business's media by id.
+      if (kit.value.logoMediaId && !(await deps.media.belongsToBusiness(kit.value.logoMediaId, access.value.business.id))) {
+        return err(domainError('VALIDATION_FAILED', 'that logo does not belong to your business'))
+      }
+
+      // Keep the aggregate's display name in step with the public brand name (SV-2): the
+      // street reads brand_kits.name, the merchant's own workspace reads stores.name — they
+      // must never disagree. Same transaction, no separate event (rides brand_kit_updated).
+      if (store.name !== kit.value.name) {
+        const renamed = store.rename(kit.value.name)
+        if (!renamed.ok) return renamed
+        await deps.stores.update(tx, store)
+      }
+
       const previous = await deps.brandKits.findByOwner(tx, 'store', store.id)
       await deps.brandKits.upsert(tx, {
         brandKit: kit.value,

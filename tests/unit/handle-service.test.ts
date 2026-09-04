@@ -5,7 +5,7 @@ import { asStoreId } from '@domains/merchant/shared-kernel/ids'
 import { uuidv7 } from '@domains/merchant/shared-kernel/uuid'
 import type { HandleLedger, Tx } from '@domains/merchant/core/domain/ports'
 
-const alwaysFree: HandleLedger = { claim: async () => true, lookup: async () => ({ taken: false }) }
+const alwaysFree: HandleLedger = { claim: async () => true, lookup: async () => ({ taken: false }), redirectOnRename: async () => {} }
 
 describe('deriveFromName — REVIEW-001 H-3 regression: the Grandma Test does not speak ASCII', () => {
   const service = new HandleService(alwaysFree)
@@ -34,6 +34,7 @@ describe('claimWithFallback — derived handles never surface HANDLE_TAKEN (D-16
         return calls > 10 // preferred + 8 numbered + first random fail; second random succeeds
       },
       lookup: async () => ({ taken: false }),
+      redirectOnRename: async () => {},
     }
     const service = new HandleService(mostlyTaken)
     const result = await service.claimWithFallback({}, 'rosa-knits', asStoreId(uuidv7()), true)
@@ -41,7 +42,7 @@ describe('claimWithFallback — derived handles never surface HANDLE_TAKEN (D-16
   })
 
   it('explicit (merchant-chosen) handles fail loudly with suggestions', async () => {
-    const allTaken: HandleLedger = { claim: async () => false, lookup: async () => ({ taken: true }) }
+    const allTaken: HandleLedger = { claim: async () => false, lookup: async () => ({ taken: true }), redirectOnRename: async () => {} }
     const service = new HandleService(allTaken)
     const result = await service.claimWithFallback({}, 'rosa-knits', asStoreId(uuidv7()), false)
     expect(!result.ok && result.error.code).toBe('HANDLE_TAKEN')

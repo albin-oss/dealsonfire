@@ -20,6 +20,7 @@ export const publicStorefrontResponse = z.object({
     tagline: z.string().nullable(),
     story: z.string().nullable(),
     promise: z.string().nullable(),
+    logo_url: z.string().nullable(),
   }).nullable(),
   products: z.array(z.object({
     id: z.string().uuid(),
@@ -50,6 +51,7 @@ export const publicProductResponse = z.object({
     tagline: z.string().nullable(),
     story: z.string().nullable(),
     promise: z.string().nullable(),
+    logo_url: z.string().nullable(),
   }).nullable(),
   product: z.object({
     id: z.string().uuid(),
@@ -79,6 +81,7 @@ export const publicDealResponse = z.object({
     tagline: z.string().nullable(),
     story: z.string().nullable(),
     promise: z.string().nullable(),
+    logo_url: z.string().nullable(),
   }).nullable(),
   deal: z.object({
     id: z.string().uuid(),
@@ -107,6 +110,7 @@ export const publicSparkResponse = z.object({
     tagline: z.string().nullable(),
     story: z.string().nullable(),
     promise: z.string().nullable(),
+    logo_url: z.string().nullable(),
   }).nullable(),
   spark: z.object({
     id: z.string().uuid(),

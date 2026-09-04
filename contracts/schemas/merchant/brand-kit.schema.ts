@@ -25,6 +25,8 @@ export const brandKitResponse = z.object({
   store_id: z.string().uuid(),
   name: z.string(),
   logo_media_id: z.string().uuid().nullable(),
+  /** Resolved on read so the editor can show the current logo (SV-2). */
+  logo_url: z.string().nullable().optional(),
   palette: z.record(z.string(), z.string()),
   typography: z.record(z.string(), z.string()),
   voice: z.object({ tone: z.string().optional(), keywords: z.array(z.string()).optional(), story: z.string().optional(), promise: z.string().optional() }),
