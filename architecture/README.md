@@ -37,6 +37,8 @@ Status legend: **FROZEN** (constitutional — conflicts resolve in its favor) ·
 | **LS_7_CERTIFICATION** | **CLOSURE** — Demand Receipts (GO, v1.54.0): the merchant hears the Street in sentences (found/brought/caught/cared/came-back), each falsifiable to rows; people vs glances; k-anon search phrases; /analytics placeholder retired; no new table |
 | **C12_3_CERTIFICATION** | **CLOSURE** — A Person, and a Proven Recovery (GO, v1.46.0): scanner-safety law (GET never consumes), the email-change state machine with the 72-hour way back browser-proven against an attacker, guest order keys, consent facts, legal placeholders, and an ACTUAL restore drill that first failed honestly on real schema drift |
 | **PRODUCTION_CUTOVER** | **BINDING** — every launch gate in five classes: PROVEN / CONFIGURED-NOT-PROVEN / FOUNDER-COUNSEL / DEPLOYMENT / PUBLIC-LAUNCH-GATE; the public-launch NO-GO list in one place |
+| **LIVING_STREET_RETROSPECTIVE** | **CLOSURE** — Phase 2 judged as a product: LS-1..LS-8 complete in mechanism, all six behaviors BUILT+UNVALIDATED (no cohort); the five-minute Street verdict; mechanism-vs-content-supply split |
+| **PHASE_2_CLOSURE_AND_ROADMAP** | **CLOSURE + RE-ENTRY** — original roadmap recovered; capability maturity map; Store v1 ~60% (launch spine ~90%, management ~30%); Flicks NOT-READY (no video pipeline/spec); Deals = announcement not price mechanic; next program = Store v1 Completion (SV-1 lifecycle) |
 | **LAUNCH_FOUNDATIONS_RETROSPECTIVE** | **CLOSURE** — C12 program retrospective: ten questions answered from evidence, and the controlled-stranger-cohort GO/NO-GO judgment |
 
 Operational runbooks live in `docs/runbooks/` — `order-reconstruction.md` (support
