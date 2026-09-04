@@ -335,3 +335,22 @@ return_days AS (   -- distinct calendar days each follower performed any engagem
 SELECT (SELECT count(*) FROM followers) AS following_visitors,
        count(*) FILTER (WHERE active_days >= 2) AS returned_on_a_later_day
 FROM return_days;
+
+-- @section LS7a · Demand receipts — can makers hear the Street? (7 days)
+-- The merchant side of the loop: across live stores, how much attention is
+-- there to hear, split people vs glances (never conflated), and how many
+-- shops have enough to warrant a receipt sentence at all. Honest about
+-- thinness: at cohort-zero most stores will show glances or nothing.
+SELECT count(DISTINCT s.id) AS live_stores,
+       count(DISTINCT s.id) FILTER (WHERE ppl.people > 0) AS stores_with_people,
+       coalesce(sum(ppl.people), 0) AS total_people_reached,
+       coalesce(sum(ppl.glances), 0) AS total_glances
+FROM stores s
+LEFT JOIN LATERAL (
+  SELECT count(DISTINCT a.visitor_id) FILTER (WHERE a.visitor_id IS NOT NULL)::int AS people,
+         count(*) FILTER (WHERE a.visitor_id IS NULL)::int AS glances
+  FROM attention_facts a
+  WHERE a.store_id = s.id AND a.occurred_at > now() - interval '7 days'
+    AND a.event_type IN ('store_view', 'product_view', 'deal_view', 'spark_view')
+) ppl ON true
+WHERE s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL;
