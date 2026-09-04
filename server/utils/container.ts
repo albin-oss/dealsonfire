@@ -64,6 +64,7 @@ import { searchStreet, type StreetSearchResults, type SearchScope } from './stre
 import { laneSummaries, laneContents, type LaneSummary, type LaneContents } from './lanes'
 import { streetPulseProjection, readStreet, rebuildStreetPulse, type StreetFeed } from './street-pulse'
 import { threadsFor, type Threads } from './threads'
+import { returnJourney, type ReturnJourney } from './return-journey'
 import { listDealsFeed, listHomeFeed, countNewForFollowing, dealEngagementSnapshot, sparkEngagementSnapshot, isStoreLive, type FeedDeal, type FeedFilter, type HomeFeedItem } from './deals-feed'
 import { domainError as engagementError, type DomainError } from '@shared/errors'
 import type { Result } from '@shared/result'
@@ -273,6 +274,7 @@ export interface Container {
     streetFeed: () => Promise<StreetFeed>
     rebuildStreetPulse: () => Promise<void>
     threadsFor: (subjectType: 'product' | 'deal', subjectId: string) => Promise<Threads>
+    returnJourney: (visitorId: string | null, lastVisit: string | null) => Promise<ReturnJourney>
     /** Release 1.3 — what a visitor's corner holds (the continuity stakes). */
     cornerContents: (visitorId: string) => Promise<{ merchants: number; saved: number }>
     /** Release 1.0 — one store's follower snapshot for the storefront (per-visitor). */
@@ -898,6 +900,7 @@ export function buildContainer(databaseUrl: string): Container {
       streetFeed: () => deps.uow.withTransaction((tx) => readStreet(tx)),
       rebuildStreetPulse: () => rebuildStreetPulse(pool, projections),
       threadsFor: (subjectType, subjectId) => deps.uow.withTransaction((tx) => threadsFor(tx, subjectType, subjectId)),
+      returnJourney: (visitorId, lastVisit) => deps.uow.withTransaction((tx) => returnJourney(tx, visitorId, lastVisit)),
       storeEngagement: (handle, visitorId) =>
         deps.uow.withTransaction(async (tx) => {
           const publicDao = new PgPublicStorefrontDao()

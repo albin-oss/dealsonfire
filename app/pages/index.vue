@@ -38,6 +38,14 @@ const headers = useDevHeaders()
 const { data: workspaceData } = useFetch<{ businesses: Array<{ stores: Array<{ handle: string; status: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })
+// LS-6 buyer-first landing (C12-3 smell): an account that owns NO business is
+// not pushed into merchant setup — it enters the Street. Explicit fact, never
+// an inferred persona; would-be sellers reach onboarding via the Street's
+// "Sell on DOF" door. Anyone with a business (even a draft) is demonstrably a
+// merchant and keeps the workspace.
+watch(workspaceData, (w) => {
+  if (w && w.businesses.length === 0) void navigateTo('/home', { replace: true })
+}, { immediate: true })
 const liveHandle = computed(() => {
   const store = workspaceData.value?.businesses[0]?.stores[0]
   return store && store.status === 'live' ? store.handle : null

@@ -73,6 +73,24 @@ const voice = ref<Voice>('all')
 // LS-3: the street's doors — shared geography above the stream
 interface LaneDoor { id: string; title: string; blurb: string; count: number; preview: string[] }
 const { data: laneDoors } = useFetch<{ lanes: LaneDoor[] }>('/api/v1/public/lanes', { server: false, lazy: true })
+
+// LS-6: the street remembers. "Since you were here" — real changes from shops
+// you follow since your last session (read-only watermark; refresh-safe). Shown
+// only when something genuinely changed; otherwise the Street carries on.
+interface ReturnSpark { id: string; excerpt: string; store_handle: string; store_name: string; published_at: string }
+interface ReturnThing { id: string; title: string; price_minor: number | null; currency: string | null; store_handle: string; store_name: string; image_url: string | null; published_at: string }
+interface ReturnDeal { id: string; headline: string; store_handle: string; store_name: string; published_at: string }
+interface ReturnJourney { since: string | null; has_changes: boolean; voices: ReturnSpark[]; things: ReturnThing[]; deals: ReturnDeal[]; counts: { voices: number; things: number; deals: number; makers: number } }
+const { data: since } = useFetch<ReturnJourney>('/api/v1/public/since', { server: false, lazy: true })
+const returnShown = computed(() => filter.value === 'all' && (since.value?.has_changes ?? false))
+function returnLine(c: ReturnJourney['counts']): string {
+  const parts: string[] = []
+  if (c.voices) parts.push(`${c.voices} new ${c.voices === 1 ? 'update' : 'updates'}`)
+  if (c.things) parts.push(`${c.things} new ${c.things === 1 ? 'thing' : 'things'}`)
+  if (c.deals) parts.push(`${c.deals} ${c.deals === 1 ? 'deal' : 'deals'}`)
+  const from = c.makers === 1 ? 'a shop you follow' : `${c.makers} shops you follow`
+  return `${parts.join(' · ')} from ${from}`
+}
 const doors = computed(() => (laneDoors.value?.lanes ?? []).filter((l) => l.count > 0 || l.id === 'fresh-today'))
 const VOICES: Array<{ value: Voice; label: string }> = [
   { value: 'all', label: 'Everything' },
@@ -294,6 +312,45 @@ function jumpToUnread() {
         />
       </div>
 
+      <!-- LS-6: since you were here — the street moved while you were away -->
+      <section v-if="returnShown && since" aria-label="since you were here" class="flex flex-col gap-4 rounded-large border border-accent/25 bg-accent/[0.04] p-4">
+        <div class="flex flex-col gap-0.5">
+          <DofText role="emphasis" as="h2">While you were away</DofText>
+          <DofText role="caption" tone="muted">{{ returnLine(since.counts) }}</DofText>
+        </div>
+
+        <!-- the voice leads: a maker you follow spoke -->
+        <ul v-if="since.voices.length > 0" class="flex list-none flex-col gap-2 p-0">
+          <li v-for="v in since.voices" :key="v.id">
+            <NuxtLink :to="`/s/${v.store_handle}/sparks/${v.id}`" class="dof-interactive flex flex-col gap-1 rounded-medium border-s-2 border-accent/40 bg-surface/60 p-3 transition-colors hover:border-accent focus-visible:focus-ring">
+              <DofText role="body" class="italic text-foreground/85">“{{ v.excerpt }}…”</DofText>
+              <DofText role="caption" tone="muted">— {{ v.store_name }} · <DofTime :value="v.published_at" mode="relative" /></DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+
+        <!-- new things from followed shops -->
+        <ul v-if="since.things.length > 0" class="grid list-none grid-cols-2 gap-2 p-0 regular:grid-cols-3">
+          <li v-for="t in since.things" :key="t.id">
+            <NuxtLink :to="`/s/${t.store_handle}/p/${t.id}`" class="dof-interactive flex flex-col gap-1 rounded-medium border border-foreground/10 bg-surface/60 p-2 transition-colors hover:border-accent focus-visible:focus-ring">
+              <PublicImg v-if="t.image_url" :src="t.image_url" :alt="t.title" img-class="h-20 w-full rounded-small object-cover" />
+              <DofText role="caption" class="truncate font-medium text-foreground">{{ t.title }}</DofText>
+              <DofText role="caption" tone="muted" class="truncate">{{ t.store_name }}</DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+
+        <!-- deals that started -->
+        <ul v-if="since.deals.length > 0" class="flex list-none flex-col gap-2 p-0">
+          <li v-for="d in since.deals" :key="d.id">
+            <NuxtLink :to="`/s/${d.store_handle}/d/${d.id}`" class="dof-interactive flex items-baseline justify-between gap-2 rounded-medium border border-accent/25 bg-surface/60 p-3 transition-colors hover:border-accent focus-visible:focus-ring">
+              <DofText role="body" class="font-medium">{{ d.headline }}</DofText>
+              <DofText role="caption" tone="muted" class="shrink-0">{{ d.store_name }}</DofText>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
+
       <!-- LS-3: doors into the street — wander without typing -->
       <nav v-if="filter === 'all' && doors.length > 0" aria-label="doors into the street" class="-mx-4 px-4">
         <ul class="flex list-none gap-3 overflow-x-auto p-0 pb-2" style="scrollbar-width: thin">
@@ -504,7 +561,7 @@ function jumpToUnread() {
     <footer class="border-t border-foreground/10">
       <div class="mx-auto flex max-w-2xl items-center justify-between px-4 py-4 text-caption text-foreground/60">
         <span>Deals and updates from independent stores</span>
-        <span>powered by DOF</span>
+        <NuxtLink to="/" class="dof-interactive rounded-small px-1 underline-offset-4 hover:underline focus-visible:focus-ring">Sell on DOF →</NuxtLink>
       </div>
     </footer>
   </div>

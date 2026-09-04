@@ -312,3 +312,26 @@ SELECT count(*) AS thread_arrivals,
            AND (g.subject_id IS DISTINCT FROM thread_arrivals.subject_id)
        )) AS continued_within_the_hour
 FROM thread_arrivals;
+
+-- @section LS6a · The return journey — do follows create return value? (30 days)
+-- The honest return question: of visitors who FOLLOW something, how many came
+-- back on a LATER calendar day and had genuine followed-shop change waiting?
+-- Modest language: engaged pseudonymous visitors, not "users". Cookies are not
+-- humans — this counts distinct visitor identities, stated as such.
+WITH followers AS (
+  SELECT DISTINCT visitor_id FROM store_follows WHERE visitor_id IS NOT NULL
+),
+return_days AS (   -- distinct calendar days each follower performed any engagement write
+  SELECT visitor_id, count(DISTINCT d) AS active_days FROM (
+    SELECT visitor_id, date_trunc('day', created_at) AS d FROM store_follows WHERE visitor_id IS NOT NULL
+    UNION
+    SELECT visitor_id, date_trunc('day', created_at) FROM deal_reactions WHERE visitor_id IS NOT NULL
+    UNION
+    SELECT visitor_id, date_trunc('day', created_at) FROM deal_saves WHERE visitor_id IS NOT NULL
+    UNION
+    SELECT visitor_id, date_trunc('day', created_at) FROM spark_reactions WHERE visitor_id IS NOT NULL
+  ) acts WHERE visitor_id IN (SELECT visitor_id FROM followers) GROUP BY visitor_id
+)
+SELECT (SELECT count(*) FROM followers) AS following_visitors,
+       count(*) FILTER (WHERE active_days >= 2) AS returned_on_a_later_day
+FROM return_days;
