@@ -15,7 +15,9 @@ const props = withDefaults(defineProps<{
   width?: 'wide' | 'narrow'
   /** true on the storefront itself: the name is the page's h1, nav anchors to the shelf */
   current?: boolean
-}>(), { width: 'narrow', current: false })
+  /** SV-2: the store's logo, shown beside the name in the chrome when present */
+  logoUrl?: string | null
+}>(), { width: 'narrow', current: false, logoUrl: null })
 
 const widthClass = computed(() => (props.width === 'wide' ? 'max-w-4xl' : 'max-w-2xl'))
 </script>
@@ -24,10 +26,19 @@ const widthClass = computed(() => (props.width === 'wide' ? 'max-w-4xl' : 'max-w
   <div class="flex min-h-dvh flex-col bg-surface font-ui text-foreground">
     <header class="border-b border-foreground/10">
       <div :class="widthClass" class="mx-auto flex w-full items-center justify-between gap-3 px-4 py-4">
-        <DofText v-if="current" role="title" as="h1">{{ storeName }}</DofText>
-        <NuxtLink v-else :to="`/s/${handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">
-          <DofText role="title" as="span">{{ storeName }}</DofText>
-        </NuxtLink>
+        <div class="flex min-w-0 items-center gap-2.5">
+          <img
+            v-if="logoUrl"
+            :src="logoUrl"
+            :alt="`${storeName} logo`"
+            class="size-8 shrink-0 rounded-medium object-cover"
+            width="32" height="32"
+          />
+          <DofText v-if="current" role="title" as="h1" class="truncate">{{ storeName }}</DofText>
+          <NuxtLink v-else :to="`/s/${handle}`" class="dof-interactive min-w-0 rounded-small px-1 focus-visible:focus-ring">
+            <DofText role="title" as="span" class="truncate">{{ storeName }}</DofText>
+          </NuxtLink>
+        </div>
         <nav aria-label="store" class="flex gap-4 text-caption text-foreground/80">
           <a v-if="current" href="#shelf" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">Shop</a>
           <NuxtLink v-else :to="`/s/${handle}`" class="dof-interactive rounded-small px-1 focus-visible:focus-ring">Shop</NuxtLink>

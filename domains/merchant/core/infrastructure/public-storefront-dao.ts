@@ -14,7 +14,7 @@ export interface PublicStorefront {
   handle: string
   name: string
   publishedAt: string | null
-  brand: { name: string; palette: Record<string, string>; tagline: string | null; story: string | null; promise: string | null } | null
+  brand: { name: string; palette: Record<string, string>; tagline: string | null; story: string | null; promise: string | null; logo_url: string | null } | null
 }
 
 export class PgPublicStorefrontDao {
@@ -22,12 +22,13 @@ export class PgPublicStorefrontDao {
     const { rows } = await asClient(tx).query<{
       store_id: string; business_id: string; handle: string; name: string
       published_at: Date | null; brand_name: string | null; palette: Record<string, string> | null
-      voice: { tone?: string; story?: string; promise?: string } | null
+      voice: { tone?: string; story?: string; promise?: string } | null; logo_url: string | null
     }>(
       `SELECT s.id AS store_id, s.business_id, s.handle, s.name, s.published_at,
-              b.name AS brand_name, b.palette, b.voice
+              b.name AS brand_name, b.palette, b.voice, m.url AS logo_url
        FROM stores s
        LEFT JOIN brand_kits b ON b.owner_type = 'store' AND b.owner_id = s.id
+       LEFT JOIN media_assets m ON m.id = b.logo_media_id
        WHERE s.handle = (
                -- follow one redirect hop in the handle ledger; plain handles pass through
                SELECT COALESCE(h.redirect_to_handle, h.handle)
@@ -50,6 +51,7 @@ export class PgPublicStorefrontDao {
         tagline: r.voice?.tone ?? null,
         story: r.voice?.story ?? null,
         promise: r.voice?.promise ?? null,
+        logo_url: r.logo_url ?? null,
       },
     }
   }

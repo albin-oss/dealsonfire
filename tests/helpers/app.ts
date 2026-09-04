@@ -97,6 +97,8 @@ import publishPost from '../../server/api/v1/stores/[storeId]/publish.post'
 import storePausePost from '../../server/api/v1/stores/[storeId]/pause.post'
 import storeClosePost from '../../server/api/v1/stores/[storeId]/close.post'
 import storeRestorePost from '../../server/api/v1/stores/[storeId]/restore.post'
+import storeHandlePost from '../../server/api/v1/stores/[storeId]/handle.post'
+import publicStoreShippingGet from '../../server/api/v1/public/stores/[handle]/shipping.get'
 import productsPost from '../../server/api/v1/products/index.post'
 import productsGet from '../../server/api/v1/products/index.get'
 import productGet from '../../server/api/v1/products/[productId]/index.get'
@@ -187,6 +189,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.get('/api/v1/businesses/:businessId/payments', paymentsStatusGet)
   router.post('/api/v1/ops/businesses/:businessId/risk-resume', opsRiskResumePost)
   router.put('/api/v1/stores/:storeId/shipping', shippingPut)
+  router.get('/api/v1/public/stores/:handle/shipping', publicStoreShippingGet)
   router.get('/api/v1/public/orders', ordersGet)
   router.get('/api/v1/public/orders/:orderId', orderGet)
   router.get('/api/v1/public/shops', shopsGet)
@@ -223,6 +226,7 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/stores/:storeId/pause', storePausePost)
   router.post('/api/v1/stores/:storeId/close', storeClosePost)
   router.post('/api/v1/stores/:storeId/restore', storeRestorePost)
+  router.post('/api/v1/stores/:storeId/handle', storeHandlePost)
   router.post('/api/v1/products', productsPost)
   router.get('/api/v1/products', productsGet)
   router.get('/api/v1/products/:productId', productGet)

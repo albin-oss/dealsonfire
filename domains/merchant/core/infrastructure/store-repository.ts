@@ -75,10 +75,12 @@ export class PgStoreRepository implements StoreRepository {
   async update(tx: Tx, store: Store): Promise<void> {
     await asClient(tx).query(
       `UPDATE stores SET name = $2, status = $3, enforcement_hold = $4, pause_context = $5,
-         policies = $6, completion_score = $7, settings = $8, published_at = $9, closed_at = $10
+         policies = $6, completion_score = $7, settings = $8, published_at = $9, closed_at = $10,
+         handle = $11
        WHERE id = $1`,
       [store.id, store.name, store.status, store.enforcementHold, store.pauseContext,
-       store.policies, store.completionScore, store.settings, store.publishedAt, store.closedAt],
+       store.policies, store.completionScore, store.settings, store.publishedAt, store.closedAt,
+       store.handle],
     )
   }
 }

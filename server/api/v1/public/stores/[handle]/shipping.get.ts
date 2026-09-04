@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getRouterParam, setResponseHeader } from 'h3'
 import { definePublicEndpoint } from '../../../../../utils/define-public-endpoint'
 import { getContainer } from '../../../../../utils/container'
+import { RETURN_WINDOW_DAYS } from '@domains/operations/returns/application/returns'
 import { ok, err, type Result } from '@shared/result'
 import { domainError, type DomainError } from '@shared/errors'
 
@@ -16,6 +17,7 @@ export default definePublicEndpoint({
   rateLimit: { limit: 120, windowSeconds: 60 },
   async handler({ event }): Promise<Result<{
     handling_days: number; flat_rate_minor: number; free_over_minor: number | null; pickup_enabled: boolean
+    return_window_days: number
   }, DomainError>> {
     const handle = (getRouterParam(event, 'handle') ?? '').toLowerCase()
     const c = getContainer()
@@ -32,6 +34,9 @@ export default definePublicEndpoint({
       flat_rate_minor: result.flat_rate_minor,
       free_over_minor: result.free_over_minor,
       pickup_enabled: result.pickup_enabled,
+      // Returns is a platform promise, not a per-store field — derived from the one
+      // authoritative constant so merchant-facing copy can never contradict enforcement.
+      return_window_days: RETURN_WINDOW_DAYS,
     })
   },
 })

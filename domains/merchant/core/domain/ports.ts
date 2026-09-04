@@ -68,6 +68,23 @@ export interface HandleLedger {
   claim(tx: Tx, handle: string, storeId: StoreId): Promise<boolean>
   /** Advisory read for real-time availability UX. Authoritative claim remains `claim()`. */
   lookup(tx: Tx, handle: string): Promise<{ taken: boolean }>
+  /**
+   * Redirect an old handle to a new one on a store rename (SV-2, ADR §11 immutable-with-
+   * redirect). Flips the old row to status='redirect' → new, and flattens any existing
+   * redirect chain (rows already pointing at the old handle are re-pointed at the new one)
+   * so every historical handle resolves to the live store in the DAO's single hop. The new
+   * handle must already be claimed active by the same store.
+   */
+  redirectOnRename(tx: Tx, fromHandle: string, toHandle: string): Promise<void>
+}
+
+/**
+ * A thin read into platform Media, wired by the composition root (the merchant kernel never
+ * touches media_assets directly). Used to prove a store logo actually belongs to the store's
+ * business before it is adopted and rendered (SV-2 cross-tenant guard).
+ */
+export interface MediaOwnershipPort {
+  belongsToBusiness(mediaId: string, businessId: string): Promise<boolean>
 }
 
 export interface CapabilityDefinition {

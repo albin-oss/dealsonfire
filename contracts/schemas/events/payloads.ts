@@ -29,6 +29,7 @@ export const KERNEL_EVENT_PAYLOADS: Record<string, z.ZodTypeAny> = {
   'merchant.store.paused': z.object({ store_id: uuid, business_id: uuid, handle: z.string(), reason: z.string(), back_on: z.string().nullable() }).passthrough(),
   'merchant.store.closed': z.object({ store_id: uuid, business_id: uuid, handle: z.string(), closed_at: z.string() }).passthrough(),
   'merchant.store.brand_kit_updated': z.object({ store_id: uuid, business_id: uuid, name: z.string() }).passthrough(),
+  'merchant.store.handle_changed': z.object({ store_id: uuid, business_id: uuid, from_handle: z.string(), to_handle: z.string() }).passthrough(),
   'merchant.store.enforcement_hold_changed': z.object({ store_id: uuid, business_id: uuid, from: z.string(), to: z.string(), reason_code: z.string() }).passthrough(),
   'merchant.staff.joined': z.object({ membership_id: uuid, business_id: uuid, principal_type: z.string(), principal_id: uuid, roles: z.array(z.string()) }).passthrough(),
 }

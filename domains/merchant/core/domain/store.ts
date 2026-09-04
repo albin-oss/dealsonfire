@@ -223,6 +223,52 @@ export class Store {
     return ok(undefined)
   }
 
+  /**
+   * Rename (SV-2) — the display name kept on the aggregate. The public-facing name lives
+   * on the BrandKit; this keeps `stores.name` in step so the merchant's own workspace and
+   * the street never disagree. No event of its own — it rides the brand-kit update that
+   * carries the customer-facing name. Idempotent.
+   */
+  rename(name: string): Result<void, DomainError> {
+    const trimmed = name.trim()
+    if (!trimmed || trimmed.length > 80) {
+      return err(domainError('VALIDATION_FAILED', 'store name must be 1–80 characters'))
+    }
+    this.props.name = trimmed
+    return ok(undefined)
+  }
+
+  /**
+   * Change handle (SV-2) — the store's address on DOF. ADR §11: handle is
+   * "immutable-with-redirect-on-change" — the old handle is never reused, it redirects
+   * (the ledger flip + redirect-aware public read live in the command/DAO). Consequential:
+   * owner-only + step-up + audit at the command. Refused under an enforcement hold (the
+   * address must not churn while the platform is holding the store) and only from a store
+   * the merchant still actively holds (draft/live/paused) — never a closed/archived store
+   * on its way out. The aggregate owns the invariant; the ledger owns identity integrity.
+   */
+  changeHandle(next: Handle, actor: Actor): Result<void, DomainError> {
+    if (this.props.enforcementHold !== 'none') {
+      return err(domainError('ENFORCEMENT_HOLD', 'store is under a platform enforcement hold'))
+    }
+    if (this.props.status !== 'draft' && this.props.status !== 'live' && this.props.status !== 'paused') {
+      return err(domainError('INVALID_TRANSITION', `cannot change the handle of a ${this.props.status} store`))
+    }
+    if ((this.props.handle as string) === (next as string)) {
+      return err(domainError('CONFLICT', 'that is already your handle'))
+    }
+    const from = this.props.handle
+    this.props.handle = next
+    this.pending.push(makeEvent(
+      EVENT.STORE_HANDLE_CHANGED,
+      { type: 'store', id: this.props.id },
+      this.props.businessId,
+      actor,
+      { store_id: this.props.id, business_id: this.props.businessId, from_handle: from as string, to_handle: next as string },
+    ))
+    return ok(undefined)
+  }
+
   pullPendingEvents(): NewDomainEvent[] {
     const events = this.pending
     this.pending = []

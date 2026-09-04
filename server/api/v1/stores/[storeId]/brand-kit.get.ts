@@ -15,10 +15,13 @@ export default defineQueryEndpoint({
       actor: { type: 'user', id: auth.userId }, userId: auth.userId, storeId,
     })
     if (!result.ok) return sendProblem(event, result.error)
+    const logoId = result.value.logoMediaId
+    const logoUrl = logoId ? (await getContainer().media.urlsFor([logoId]))[logoId] ?? null : null
     const kit: BrandKitResponse = {
       store_id: result.value.storeId,
       name: result.value.name,
-      logo_media_id: result.value.logoMediaId,
+      logo_media_id: logoId,
+      logo_url: logoUrl,
       palette: result.value.palette,
       typography: result.value.typography,
       voice: result.value.voice as BrandKitResponse['voice'],

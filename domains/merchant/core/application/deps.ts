@@ -6,6 +6,7 @@ import type {
   UnitOfWork, MerchantAccountRepository, BusinessRepository, StoreRepository,
   StaffMembershipRepository, BrandKitRepository, StorefrontConfigRepository,
   HandleLedger, CapabilityRepository, EventStore, AuditLog, ListingReadinessPort,
+  MediaOwnershipPort,
 } from '../domain/ports'
 
 export interface KernelDeps {
@@ -21,4 +22,5 @@ export interface KernelDeps {
   eventStore: EventStore
   audit: AuditLog
   listingReadiness: ListingReadinessPort
+  media: MediaOwnershipPort
 }

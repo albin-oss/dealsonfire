@@ -35,4 +35,21 @@ export class PgHandleLedger implements HandleLedger {
     )
     return { taken: rows.length > 0 }
   }
+
+  async redirectOnRename(tx: Tx, fromHandle: string, toHandle: string): Promise<void> {
+    const c = asClient(tx)
+    // 1) Flatten the chain: any handle already redirecting to the old one now points to the
+    //    new one, so a visitor to the oldest link still resolves in the DAO's single hop.
+    await c.query(
+      `UPDATE store_handles SET redirect_to_handle = $2 WHERE redirect_to_handle = $1 AND status = 'redirect'`,
+      [fromHandle, toHandle],
+    )
+    // 2) Flip the old handle itself into a redirect to the new one. It stays owned by the
+    //    store (never released, never reusable) — no hijack window.
+    await c.query(
+      `UPDATE store_handles SET status = 'redirect', redirect_to_handle = $2, reserved_until = NULL, quarantined_until = NULL
+       WHERE handle = $1`,
+      [fromHandle, toHandle],
+    )
+  }
 }
