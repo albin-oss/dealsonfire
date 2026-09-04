@@ -99,6 +99,9 @@ import storeClosePost from '../../server/api/v1/stores/[storeId]/close.post'
 import storeRestorePost from '../../server/api/v1/stores/[storeId]/restore.post'
 import storeHandlePost from '../../server/api/v1/stores/[storeId]/handle.post'
 import publicStoreShippingGet from '../../server/api/v1/public/stores/[handle]/shipping.get'
+import inventoryGet from '../../server/api/v1/inventory/index.get'
+import inventoryAdjustPost from '../../server/api/v1/inventory/[variantId].post'
+import returnsListGet from '../../server/api/v1/returns/index.get'
 import productsPost from '../../server/api/v1/products/index.post'
 import productsGet from '../../server/api/v1/products/index.get'
 import productGet from '../../server/api/v1/products/[productId]/index.get'
@@ -190,6 +193,9 @@ export async function startTestApp(): Promise<TestHttp> {
   router.post('/api/v1/ops/businesses/:businessId/risk-resume', opsRiskResumePost)
   router.put('/api/v1/stores/:storeId/shipping', shippingPut)
   router.get('/api/v1/public/stores/:handle/shipping', publicStoreShippingGet)
+  router.get('/api/v1/inventory', inventoryGet)
+  router.post('/api/v1/inventory/:variantId', inventoryAdjustPost)
+  router.get('/api/v1/returns', returnsListGet)
   router.get('/api/v1/public/orders', ordersGet)
   router.get('/api/v1/public/orders/:orderId', orderGet)
   router.get('/api/v1/public/shops', shopsGet)
