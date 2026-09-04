@@ -110,6 +110,9 @@ const { scopeAttrs } = useBrandKit(computed(() => ({
           <DofText v-if="(engagement?.followers ?? 0) > 0" role="caption" class="text-foreground/70">
             {{ engagement!.followers === 1 ? '1 person follows' : `${engagement!.followers} people follow` }} this store
           </DofText>
+          <DofText v-if="!(engagement?.viewer_follows ?? false)" role="caption" tone="muted">
+            Follow to see what's new here when you come back.
+          </DofText>
         </div>
         <a
           v-if="brand?.story"

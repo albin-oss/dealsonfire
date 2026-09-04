@@ -55,6 +55,17 @@ const SESSION_GAP_SECONDS = 30 * 60
  * (a 30-minute gap), so the unread marker stays stable while the visitor browses.
  * Returns the watermark to compare items against (null on a first visit).
  */
+/**
+ * Read the last-visit watermark WITHOUT advancing it (LS-6). The return
+ * journey derives from this; because it never writes, a refresh or a second
+ * tab cannot erase the visitor's own "since you were here" state. Only
+ * observeHomeVisit (the Home stream) advances the watermark, once per session.
+ */
+export function readLastVisit(event: H3Event): string | null {
+  const raw = getCookie(event, LAST_VISIT_COOKIE)
+  return raw && !Number.isNaN(new Date(raw).getTime()) ? raw : null
+}
+
 export function observeHomeVisit(event: H3Event): { lastVisit: string | null } {
   const now = new Date()
   const seenRaw = getCookie(event, SEEN_COOKIE)
