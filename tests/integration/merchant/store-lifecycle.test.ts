@@ -38,8 +38,11 @@ async function liveStore(handle: string) {
 const life = (cookie: string, storeId: string, verb: string, body: Record<string, unknown> = {}) =>
   http.request('POST', `/api/v1/stores/${storeId}/${verb}`, { headers: { cookie }, body })
 const storefront = (handle: string) => http.request('GET', `/api/v1/public/stores/${handle}`)
-const status = async (storeId: string) =>
-  (await container.pool.query<{ status: string; closed_at: Date | null }>(`SELECT status, closed_at FROM stores WHERE id = $1`, [storeId])).rows[0]
+const status = async (storeId: string) => {
+  const { rows } = await container.pool.query<{ status: string; closed_at: Date | null }>(`SELECT status, closed_at FROM stores WHERE id = $1`, [storeId])
+  if (!rows[0]) throw new Error(`store ${storeId} not found`)
+  return rows[0]
+}
 
 beforeAll(async () => { container = newTestContainer(); setContainer(container); http = await startTestApp() })
 afterAll(async () => { await http.close(); setContainer(null); await container.shutdown() })
