@@ -35,6 +35,8 @@ export const EVENT = {
   STORE_CREATED: 'merchant.store.created',
   STORE_PUBLISHED: 'merchant.store.published',
   STORE_RESUMED: 'merchant.store.resumed',
+  STORE_PAUSED: 'merchant.store.paused',
+  STORE_CLOSED: 'merchant.store.closed',
   STORE_BRAND_KIT_UPDATED: 'merchant.store.brand_kit_updated',
   STORE_ENFORCEMENT_HOLD_CHANGED: 'merchant.store.enforcement_hold_changed',
   STAFF_JOINED: 'merchant.staff.joined',

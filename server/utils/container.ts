@@ -14,6 +14,7 @@ import { createBusinessCommand } from '@domains/merchant/core/application/comman
 import { createStoreCommand } from '@domains/merchant/core/application/commands/create-store'
 import { updateBrandKitCommand } from '@domains/merchant/core/application/commands/update-brand-kit'
 import { publishStoreCommand } from '@domains/merchant/core/application/commands/publish-store'
+import { pauseStoreCommand, closeStoreCommand, restoreStoreCommand } from '@domains/merchant/core/application/commands/store-lifecycle'
 import { workspaceOverviewQuery } from '@domains/merchant/core/application/queries/workspace-overview'
 import { handleAvailabilityQuery } from '@domains/merchant/core/application/queries/handle-availability'
 import { getBrandKitQuery } from '@domains/merchant/core/application/queries/brand-kit'
@@ -241,6 +242,9 @@ export interface Container {
     createStore: ReturnType<typeof createStoreCommand>
     updateBrandKit: ReturnType<typeof updateBrandKitCommand>
     publishStore: ReturnType<typeof publishStoreCommand>
+    pauseStore: ReturnType<typeof pauseStoreCommand>
+    closeStore: ReturnType<typeof closeStoreCommand>
+    restoreStore: ReturnType<typeof restoreStoreCommand>
   }
   queries: {
     workspaceOverview: ReturnType<typeof workspaceOverviewQuery>
@@ -772,6 +776,9 @@ export function buildContainer(databaseUrl: string): Container {
       createStore: createStoreCommand(deps, entitlements, handleService),
       updateBrandKit: updateBrandKitCommand(deps, entitlements),
       publishStore: publishStoreCommand(deps, entitlements),
+      pauseStore: pauseStoreCommand(deps, entitlements),
+      closeStore: closeStoreCommand(deps, entitlements),
+      restoreStore: restoreStoreCommand(deps, entitlements),
     },
     queries: {
       workspaceOverview: workspaceOverviewQuery(deps, entitlements),

@@ -6,7 +6,7 @@
  * (the authoring-intelligence idiom): AI suggests, the merchant decides. Saving is the
  * existing whole-value Brand Kit PUT — no new write paths.
  */
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   DofText, DofButton, DofInput, DofTextarea, DofChip,
   DofEmptyState, DofSkeleton, DofProblem, announce, useBrandKit,
@@ -21,12 +21,48 @@ useHead({ title: 'Your store — DOF' })
 
 // ——— workspace context (the same spine as Products and Deals)
 const headers = useDevHeaders()
-const { data: workspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string; name: string; status: string }> }> }>('/api/v1/workspace', {
+const { data: workspace, refresh: refreshWorkspace } = useFetch<{ businesses: Array<{ business_id: string; stores: Array<{ store_id: string; handle: string; name: string; status: string }> }> }>('/api/v1/workspace', {
   lazy: true, server: false, headers,
 })
 const businessId = computed(() => workspace.value?.businesses[0]?.business_id ?? null)
 const store = computed(() => workspace.value?.businesses[0]?.stores[0] ?? null)
 const storeUrl = computed(() => (store.value ? `/s/${store.value.handle}` : null))
+
+// SV-1: the maker controls whether the store is open. The status header reads the
+// public state in plain words and offers ONE primary action; Close is behind a
+// deliberate confirmation (progressive disclosure), never a bare button.
+type StoreStatus = 'draft' | 'live' | 'paused' | 'closed' | 'archived' | 'deleted'
+const lifecycle = reactive({ busy: false, confirmClose: false, restoreDaysLeft: null as number | null, error: '' })
+const statusView = computed<{ label: string; tone: string; meaning: string } | null>(() => {
+  switch (store.value?.status as StoreStatus | undefined) {
+    case 'live': return { label: 'Open', tone: 'positive', meaning: 'People can find and buy from your store.' }
+    case 'paused': return { label: 'Paused', tone: 'caution', meaning: 'Your store is hidden from buyers for now. You can reopen it anytime.' }
+    case 'closed': return { label: 'Closed', tone: 'neutral', meaning: lifecycle.restoreDaysLeft != null
+      ? `You closed your store. You can still restore it for ${lifecycle.restoreDaysLeft} more ${lifecycle.restoreDaysLeft === 1 ? 'day' : 'days'}.`
+      : 'You closed your store.' }
+    case 'draft': return { label: 'Not open yet', tone: 'neutral', meaning: 'Your store isn’t open to buyers yet.' }
+    default: return null
+  }
+})
+
+async function lifecycleAction(path: string, body: Record<string, unknown> = {}) {
+  if (!store.value || lifecycle.busy) return
+  lifecycle.busy = true; lifecycle.error = ''
+  try {
+    const res = await $fetch<{ status: string; restore_days_left?: number | null }>(
+      `/api/v1/stores/${store.value.store_id}/${path}`, { method: "POST", body, headers })
+    if (typeof res.restore_days_left !== 'undefined') lifecycle.restoreDaysLeft = res.restore_days_left
+    lifecycle.confirmClose = false
+    await refreshWorkspace()
+    announce(`Your store is now ${res.status === 'live' ? 'open' : res.status}.`)
+  } catch (e) {
+    lifecycle.error = (e as { data?: { detail?: string } }).data?.detail ?? 'That didn’t work — please try again.'
+  } finally { lifecycle.busy = false }
+}
+const pauseStore = () => lifecycleAction('pause', { reason: 'other' })
+const reopenStore = () => lifecycleAction('publish')
+const closeStore = () => lifecycleAction('close')
+const restoreStore = () => lifecycleAction('restore')
 
 // ——— the shelf (context for honest drafts)
 interface GridRow { id: string; title: string; on_store: boolean }
@@ -209,6 +245,51 @@ function copyStoreLink() {
     </DofEmptyState>
 
     <template v-else-if="store">
+      <!-- SV-1: the maker controls whether the store is open -->
+      <section v-if="statusView" aria-label="store status" class="flex flex-col gap-3 rounded-large border border-line p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex flex-col gap-0.5">
+            <div class="flex items-center gap-2">
+              <span class="size-2 rounded-full" :class="{ 'bg-positive': statusView.tone === 'positive', 'bg-caution': statusView.tone === 'caution', 'bg-foreground/40': statusView.tone === 'neutral' }" aria-hidden="true" />
+              <DofText role="emphasis" as="h2">Your store is {{ statusView.label.toLowerCase() }}</DofText>
+            </div>
+            <DofText role="caption" tone="muted">{{ statusView.meaning }}</DofText>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <DofButton v-if="store.status === 'live'" size="sm" variant="soft" tone="neutral" :loading="lifecycle.busy" @click="pauseStore">Pause store</DofButton>
+            <DofButton v-else-if="store.status === 'paused'" size="sm" tone="accent" :loading="lifecycle.busy" @click="reopenStore">Reopen store</DofButton>
+            <DofButton v-else-if="store.status === 'closed'" size="sm" tone="accent" :loading="lifecycle.busy" @click="restoreStore">Restore store</DofButton>
+          </div>
+        </div>
+
+        <DofProblem v-if="lifecycle.error" title="Couldn’t update your store" :detail="lifecycle.error" />
+
+        <!-- close lives behind progressive disclosure; never a bare destructive button -->
+        <div v-if="store.status === 'live' || store.status === 'paused'" class="flex flex-col gap-2 border-t border-line pt-3">
+          <button
+            v-if="!lifecycle.confirmClose"
+            type="button"
+            class="dof-interactive self-start rounded-small text-caption text-foreground/60 underline-offset-4 hover:underline focus-visible:focus-ring"
+            @click="lifecycle.confirmClose = true"
+          >
+            Close this store…
+          </button>
+          <div v-else class="flex flex-col gap-2 rounded-medium border border-caution/40 bg-caution/5 p-3">
+            <DofText role="emphasis" as="h3">Close your store?</DofText>
+            <ul class="flex list-none flex-col gap-1 p-0 text-caption text-foreground/80">
+              <li>· Your store leaves DOF’s public discovery and buyers can’t start new orders.</li>
+              <li>· Existing orders, refunds, and payouts are unaffected — obligations stay intact.</li>
+              <li>· Your products, story, and followers are kept.</li>
+              <li>· You can restore your store for 90 days; after that it becomes permanent.</li>
+            </ul>
+            <div class="flex items-center gap-2">
+              <DofButton size="sm" tone="critical" :loading="lifecycle.busy" @click="closeStore">Close store</DofButton>
+              <DofButton size="sm" variant="ghost" tone="neutral" @click="lifecycle.confirmClose = false">Keep it open</DofButton>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div v-if="loadingKit" class="flex flex-col gap-3" aria-hidden="true">
         <DofSkeleton v-for="n in 3" :key="n" class="h-16 rounded-large" />
       </div>
