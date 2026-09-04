@@ -50,6 +50,7 @@ export function createStore(input: {
     completionScore: 0,
     settings: {},
     publishedAt: null,
+    closedAt: null,
   })
   const events = [makeEvent(
     EVENT.STORE_CREATED,

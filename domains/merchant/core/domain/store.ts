@@ -14,13 +14,27 @@ import { type PublishReadiness, checkPublishable } from './specifications/publis
 
 export type StoreStatus = 'draft' | 'live' | 'paused' | 'archived' | 'closed' | 'deleted'
 export type EnforcementHold = 'none' | 'under_review' | 'suspended'
+export type PauseReason = 'vacation' | 'restocking' | 'personal' | 'other'
 
+/** ADR §7.2: Closed is reversible for 90 days ("grief-proofing"). */
+export const CLOSE_RECOVERY_DAYS = 90
+
+/**
+ * SV-1 activates the merchant-owned edges of the ADR §7.1 machine. The frozen §7.2
+ * decisions are preserved intact (status ⊥ enforcement_hold; paused carries a reason;
+ * Closed ≠ Deleted, reversible 90 days). The merchant mental model is OPEN / PAUSED /
+ * CLOSED, so `close` is a single verb reaching CLOSED directly from live or paused
+ * (ARCHIVED stays the ADR's reserved off-platform waypoint — same public behavior as
+ * closed but without the deletion clock — and is not an SV-1 merchant verb). Restore
+ * returns CLOSED → LIVE within the recovery window. The §7.1 ASCII diagram's illustrative
+ * path is refined, not any §7.2 frozen decision.
+ */
 const STATUS_TRANSITIONS: Record<StoreStatus, StoreStatus[]> = {
   draft: ['live', 'archived'],
-  live: ['paused', 'archived'],
-  paused: ['live', 'archived'],
+  live: ['paused', 'archived', 'closed'],
+  paused: ['live', 'archived', 'closed'],
   archived: ['closed', 'draft'],
-  closed: ['deleted', 'draft'], // reopen within retention window (ADR §7.2)
+  closed: ['live', 'deleted', 'draft'], // restore within the recovery window (ADR §7.2)
   deleted: [],
 }
 
@@ -36,6 +50,7 @@ export interface StoreProps {
   completionScore: number
   settings: Record<string, unknown>
   publishedAt: Date | null
+  closedAt: Date | null
 }
 
 export class Store {
@@ -61,6 +76,14 @@ export class Store {
   get completionScore() { return this.props.completionScore }
   get settings() { return this.props.settings }
   get publishedAt() { return this.props.publishedAt }
+  get closedAt() { return this.props.closedAt }
+  /** Days left in the 90-day restore window, or null when not closed / already expired. */
+  get restoreDaysLeft(): number | null {
+    if (this.props.status !== 'closed' || !this.props.closedAt) return null
+    const elapsedMs = Date.now() - this.props.closedAt.getTime()
+    const left = CLOSE_RECOVERY_DAYS - Math.floor(elapsedMs / 86_400_000)
+    return left > 0 ? left : 0
+  }
 
   private canTransition(to: StoreStatus): boolean {
     return STATUS_TRANSITIONS[this.props.status].includes(to)
@@ -124,6 +147,78 @@ export class Store {
       this.props.businessId,
       actor,
       { store_id: this.props.id, business_id: this.props.businessId, from, to, reason_code: reasonCode },
+    ))
+    return ok(undefined)
+  }
+
+  /**
+   * Pause (Live → Paused) — a reversible vacation, not a limbo (ADR §7.2). Carries a
+   * reason and an optional "back on" note that keeps followers warm. Never touches
+   * enforcement or money; a paused store is simply invisible to buyers (status ≠ 'live').
+   * Idempotent: pausing an already-paused store is a no-op.
+   */
+  pause(reason: PauseReason, backOn: string | null, actor: Actor): Result<void, DomainError> {
+    if (this.props.status === 'paused') return ok(undefined)
+    if (!this.canTransition('paused')) {
+      return err(domainError('INVALID_TRANSITION', `cannot pause a ${this.props.status} store`))
+    }
+    this.props.status = 'paused'
+    this.props.pauseContext = { reason, ...(backOn ? { back_on: backOn } : {}) }
+    this.pending.push(makeEvent(
+      EVENT.STORE_PAUSED,
+      { type: 'store', id: this.props.id },
+      this.props.businessId,
+      actor,
+      { store_id: this.props.id, business_id: this.props.businessId, handle: this.props.handle as string, reason, back_on: backOn },
+    ))
+    return ok(undefined)
+  }
+
+  /**
+   * Close (Live/Paused → Closed) — a deliberate, confirmed shutdown. The store leaves
+   * public discovery immediately (status ≠ 'live'); existing orders, obligations, ledger
+   * truth and payouts are UNTOUCHED (that is risk/enforcement machinery, not lifecycle).
+   * Closed ≠ Deleted: reversible for CLOSE_RECOVERY_DAYS (ADR §7.2). Idempotent.
+   */
+  close(actor: Actor): Result<void, DomainError> {
+    if (this.props.status === 'closed') return ok(undefined)
+    if (!this.canTransition('closed')) {
+      return err(domainError('INVALID_TRANSITION', `cannot close a ${this.props.status} store`))
+    }
+    this.props.status = 'closed'
+    this.props.closedAt = new Date()
+    this.pending.push(makeEvent(
+      EVENT.STORE_CLOSED,
+      { type: 'store', id: this.props.id },
+      this.props.businessId,
+      actor,
+      { store_id: this.props.id, business_id: this.props.businessId, handle: this.props.handle as string, closed_at: this.props.closedAt.toISOString() },
+    ))
+    return ok(undefined)
+  }
+
+  /**
+   * Restore (Closed → Live) within the recovery window (ADR §7.2 "reopen possible").
+   * Past the window the close is final and restore refuses (the store is then eligible
+   * for the deletion tombstone — a later, separate concern). A restored store returns
+   * live with its history intact; emits STORE_RESUMED (a restore is not a fresh launch).
+   */
+  restore(actor: Actor): Result<void, DomainError> {
+    if (this.props.status !== 'closed') {
+      return err(domainError('INVALID_TRANSITION', `only a closed store can be restored`))
+    }
+    if ((this.restoreDaysLeft ?? 0) <= 0) {
+      return err(domainError('CONFLICT', 'the 90-day restore window has passed'))
+    }
+    this.props.status = 'live'
+    this.props.closedAt = null
+    this.props.pauseContext = null
+    this.pending.push(makeEvent(
+      EVENT.STORE_RESUMED,
+      { type: 'store', id: this.props.id },
+      this.props.businessId,
+      actor,
+      { store_id: this.props.id, business_id: this.props.businessId, handle: this.props.handle as string, name: this.props.name },
     ))
     return ok(undefined)
   }

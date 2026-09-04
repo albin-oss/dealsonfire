@@ -16,9 +16,10 @@ interface Row {
   completion_score: number
   settings: Record<string, unknown>
   published_at: Date | null
+  closed_at: Date | null
 }
 
-const COLUMNS = 'id, business_id, handle, name, status, enforcement_hold, pause_context, policies, completion_score, settings, published_at'
+const COLUMNS = 'id, business_id, handle, name, status, enforcement_hold, pause_context, policies, completion_score, settings, published_at, closed_at'
 
 const rehydrate = (row: Row): Store =>
   Store.rehydrate({
@@ -33,6 +34,7 @@ const rehydrate = (row: Row): Store =>
     completionScore: row.completion_score,
     settings: row.settings,
     publishedAt: row.published_at,
+    closedAt: row.closed_at,
   })
 
 export class PgStoreRepository implements StoreRepository {
@@ -63,20 +65,20 @@ export class PgStoreRepository implements StoreRepository {
 
   async insert(tx: Tx, store: Store): Promise<void> {
     await asClient(tx).query(
-      `INSERT INTO stores (id, business_id, handle, name, status, enforcement_hold, pause_context, policies, completion_score, settings, published_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO stores (id, business_id, handle, name, status, enforcement_hold, pause_context, policies, completion_score, settings, published_at, closed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [store.id, store.businessId, store.handle, store.name, store.status, store.enforcementHold,
-       store.pauseContext, store.policies, store.completionScore, store.settings, store.publishedAt],
+       store.pauseContext, store.policies, store.completionScore, store.settings, store.publishedAt, store.closedAt],
     )
   }
 
   async update(tx: Tx, store: Store): Promise<void> {
     await asClient(tx).query(
       `UPDATE stores SET name = $2, status = $3, enforcement_hold = $4, pause_context = $5,
-         policies = $6, completion_score = $7, settings = $8, published_at = $9
+         policies = $6, completion_score = $7, settings = $8, published_at = $9, closed_at = $10
        WHERE id = $1`,
       [store.id, store.name, store.status, store.enforcementHold, store.pauseContext,
-       store.policies, store.completionScore, store.settings, store.publishedAt],
+       store.policies, store.completionScore, store.settings, store.publishedAt, store.closedAt],
     )
   }
 }

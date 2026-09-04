@@ -10,6 +10,7 @@ export const PERMISSIONS = [
   'store.create',
   'store.publish',
   'store.pause_resume',
+  'store.close',
   'storefront.write',
   'storefront.brand.write',
   'storefront.domain.write',

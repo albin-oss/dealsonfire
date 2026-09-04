@@ -75,6 +75,7 @@ describe('Store — status ⊥ enforcement hold (ADR §7.2)', () => {
       completionScore: 40,
       settings: {},
       publishedAt: new Date('2026-01-01'),
+      closedAt: null,
     })
     expect(paused.publish(readiness, user, null).ok).toBe(true)
     expect(paused.status).toBe('live')
