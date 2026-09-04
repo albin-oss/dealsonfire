@@ -85,7 +85,7 @@ test('compact posture: bottom tab bar with the 5-slot budget and More sheet', as
   await tabBar.getByRole('button', { name: 'More' }).click()
   const sheet = page.getByRole('dialog')
   await expect(sheet).toBeVisible()
-  await sheet.getByRole('button', { name: 'Analytics' }).click()
+  await sheet.getByRole('button', { name: 'What people noticed' }).click()
   await expect(page).toHaveURL(/\/analytics$/)
 })
 
