@@ -17,6 +17,7 @@ import { COMMERCE_EVENT, makeDealEvent } from '../domain/events'
 import { withAuthorizedProduct } from './access'
 import type { CommerceDeps } from './ports'
 
+import { effectivePriceSql } from '../../pricing/effective-price'
 const SPEC = { permission: 'catalog.listing.write', capability: 'catalog.products' } as const
 
 export interface DealRow {
@@ -71,7 +72,7 @@ export class PgDealRepository {
     }>(
       `SELECT d.id, d.headline, d.story, d.published_at::text AS published_at,
               p.id AS product_id, p.title, p.description,
-              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
+              (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency,
               img.url AS image_url, img.alt_text AS image_alt
        FROM deals d

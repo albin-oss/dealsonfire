@@ -13,6 +13,7 @@
 import { uuidv7 } from '../../../../platform/uuid'
 import type { Tx, EventStore } from '../../../../platform/types'
 import { asClient } from '../../../../platform/db'
+import { effectivePriceSql } from '../../../commerce/pricing/effective-price'
 
 /** Max distinct lines per cart — a working document, not a warehouse order. */
 const MAX_LINES = 50
@@ -62,7 +63,7 @@ export class PgCartRepository {
       title: string; option_values: Record<string, string>
     }>(
       `SELECT v.product_id, v.business_id, l.channel_id AS store_id,
-              COALESCE(v.sale_amount, v.price_amount)::bigint::text AS price, v.price_currency AS currency,
+              ${effectivePriceSql('v')}::bigint::text AS price, v.price_currency AS currency,
               p.title, v.option_values
        FROM product_variants v
        JOIN products p ON p.id = v.product_id AND p.status <> 'archived' AND p.deleted_at IS NULL
@@ -118,7 +119,7 @@ export class PgCartRepository {
               COALESCE(p.title, cl.title_seen) AS product_title,
               COALESCE(v.option_values, '{}'::jsonb) AS option_values, cl.option_label_seen,
               cl.quantity, cl.price_seen_minor::text AS price_seen_minor, cl.currency_seen,
-              COALESCE(v.sale_amount, v.price_amount)::text AS live_price, v.price_currency AS live_currency,
+              ${effectivePriceSql('v')}::text AS live_price, v.price_currency AS live_currency,
               (v.id IS NOT NULL AND p.id IS NOT NULL
                AND p.status <> 'archived' AND p.deleted_at IS NULL
                AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL

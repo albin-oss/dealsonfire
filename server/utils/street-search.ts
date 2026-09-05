@@ -20,6 +20,7 @@
 import type { Tx } from '@platform/types'
 import { asClient } from '@platform/db'
 
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 export type SearchScope = 'all' | 'shops' | 'products' | 'deals' | 'sparks'
 
 export interface ShopHit {
@@ -98,7 +99,7 @@ export async function searchStreet(
        hits AS (
          SELECT p.id, p.title, coalesce(p.description->>'content', '') AS content,
                 s.handle AS store_handle, s.name AS store_name,
-                (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+                (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
                 (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
                 img.url AS image_url,
                 ts_rank_cd(${V_PRODUCT}, query.ts) AS rank, l.published_at
@@ -187,7 +188,7 @@ export async function searchStreet(
     want('products')
       ? client.query<ProductHit>(
         `SELECT p.id, p.title,
-                (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+                (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
                 (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
                 s.handle AS store_handle, s.name AS store_name, img.url AS image_url, NULL AS excerpt
          FROM listings l

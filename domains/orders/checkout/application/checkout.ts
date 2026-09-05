@@ -22,6 +22,7 @@ import { uuidv7 } from '../../../../platform/uuid'
 import type { Tx, EventStore } from '../../../../platform/types'
 import { asClient } from '../../../../platform/db'
 import type { PgStockRepository } from '../../../operations/inventory/application/stock'
+import { resolveEffectivePrice } from '../../../commerce/pricing/effective-price'
 
 // ————————————————————————————————————————————— the PaymentPort (ADR-007 §6)
 
@@ -259,13 +260,15 @@ export class PgCheckoutService {
     const { rows } = await client.query<{
       business_id: string; store_id: string; variant_id: string; product_id: string
       title: string; option_values: Record<string, string> | null; quantity: number
-      price: string | null; currency: string | null; available: boolean
+      base_price: string | null; sale_amount: string | null; sale_starts_at: Date | null; sale_ends_at: Date | null
+      currency: string | null; available: boolean
       fulfillment_kind: 'physical' | 'digital' | 'service' | null
     }>(
       `SELECT c.business_id, c.store_id, cl.variant_id, cl.product_id,
               COALESCE(p.title, cl.title_seen) AS title, v.option_values, cl.quantity,
               p.fulfillment_kind,
-              COALESCE(v.sale_amount, v.price_amount)::text AS price, v.price_currency AS currency,
+              v.price_amount::text AS base_price, v.sale_amount::text AS sale_amount,
+              v.sale_starts_at, v.sale_ends_at, v.price_currency AS currency,
               (v.id IS NOT NULL AND p.id IS NOT NULL AND p.status <> 'archived' AND p.deleted_at IS NULL
                AND s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL
                AND EXISTS (SELECT 1 FROM listings l WHERE l.product_id = cl.product_id
@@ -285,11 +288,26 @@ export class PgCheckoutService {
       return { ok: false, error: { ok: false, code: 'CART_CHANGED',
         detail: `“${gone[0]!.title}” is no longer available from this shop — remove it from your cart to continue. Nothing was charged.` } }
     }
+    // EP-1: one authoritative price. Charge re-resolves through the SAME service the
+    // storefront uses — window-checked sale, offer socket — at ONE quote instant. This is
+    // the fix for the old window-blind COALESCE that could charge an expired/future sale.
+    const at = new Date()
+    // Single-currency-per-order law (ADR-002 multi-currency deferred): a cart may not mix.
+    if (new Set(rows.map((r) => r.currency ?? 'EUR')).size > 1) {
+      return { ok: false, error: { ok: false, code: 'CART_CHANGED',
+        detail: 'This cart mixes currencies, which a single order can’t carry — nothing was charged.' } }
+    }
     const lines: QuoteLine[] = rows.map((r, i) => ({
       order_line_id: uuidv7(), line_no: i + 1,
       variant_id: r.variant_id, product_id: r.product_id, title: r.title,
       option_label: Object.values(r.option_values ?? {}).filter(Boolean).join(' · ') || null,
-      unit_price_minor: Number(r.price), quantity: r.quantity,
+      unit_price_minor: resolveEffectivePrice({
+        baseUnitAmount: Number(r.base_price), currency: r.currency ?? 'EUR',
+        sale: r.sale_amount != null && r.sale_starts_at && r.sale_ends_at
+          ? { amount: Number(r.sale_amount), startsAt: r.sale_starts_at, endsAt: r.sale_ends_at } : null,
+        at,
+      }).effectiveUnitAmount,
+      quantity: r.quantity,
       fulfillment_kind: r.fulfillment_kind ?? 'physical',
     }))
     const subtotal = lines.reduce((sum, l) => sum + l.unit_price_minor * l.quantity, 0)

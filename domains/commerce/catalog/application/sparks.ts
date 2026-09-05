@@ -18,6 +18,7 @@ import type { EngagementSubject } from './engagement'
 import { withAuthorizedBusiness } from './access'
 import type { CommerceDeps } from './ports'
 
+import { effectivePriceSql } from '../../pricing/effective-price'
 const SPEC = { permission: 'catalog.listing.write', capability: 'catalog.products' } as const
 
 export interface SparkRow {
@@ -95,7 +96,7 @@ export class PgSparkRepository {
        LEFT JOIN media_assets ma ON ma.id = sp.media_id
        LEFT JOIN LATERAL (
          SELECT p.id, p.title,
-                (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
+                (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
                 (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency,
                 pimg.url AS image_url, pimg.alt_text AS image_alt
          FROM products p
