@@ -12,6 +12,7 @@ import { asClient } from '@platform/db'
 import { LANES, laneById, type Lane } from '@contracts/discovery/lanes'
 import { searchStreet, type StreetSearchResults } from './street-search'
 
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 const LIVE = `s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL`
 const RULE_LIMIT = 24
 /** 'new on the street' = opened within 30 days; 'fresh today' = 24h rolling. */
@@ -38,7 +39,7 @@ async function ruleContents(tx: Tx, rule: NonNullable<Lane['rule']>): Promise<St
 
   const productSelect = `
     SELECT p.id, p.title,
-           (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+           (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
            (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
            s.handle AS store_handle, s.name AS store_name, img.url AS image_url, NULL AS excerpt,
            count(*) OVER ()::int AS total
@@ -54,7 +55,7 @@ async function ruleContents(tx: Tx, rule: NonNullable<Lane['rule']>): Promise<St
   if (rule === 'services' || rule === 'under_25' || rule === 'fresh_today') {
     const predicate =
       rule === 'services' ? `AND p.fulfillment_kind = 'service'`
-      : rule === 'under_25' ? `AND (SELECT min(v.price_amount) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) < ${UNDER_25_MINOR}`
+      : rule === 'under_25' ? `AND (SELECT min(${effectivePriceSql('v')}) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) < ${UNDER_25_MINOR}`
       : `AND l.published_at > now() - interval '${FRESH_HOURS} hours'`
     const { rows } = await client.query(
       `${productSelect} ${predicate} ORDER BY l.published_at DESC, p.id DESC LIMIT ${RULE_LIMIT}`)

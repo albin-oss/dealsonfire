@@ -21,6 +21,7 @@
 import type { Tx } from '@platform/types'
 import { asClient } from '@platform/db'
 
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 const LIVE = `s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL`
 const FOLLOWS = `EXISTS (SELECT 1 FROM store_follows f WHERE f.store_id = s.id AND f.visitor_id = $1)`
 const PER_GROUP = 6
@@ -57,7 +58,7 @@ export async function returnJourney(tx: Tx, visitorId: string | null, lastVisit:
        ORDER BY sp.published_at DESC LIMIT ${PER_GROUP}`, [visitorId, lastVisit]),
     client.query<ReturnThing>(
       `SELECT p.id, p.title,
-              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+              (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
               s.handle AS store_handle, s.name AS store_name, img.url AS image_url, l.published_at::text AS published_at
        FROM listings l

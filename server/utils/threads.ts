@@ -22,6 +22,7 @@ import type { Tx } from '@platform/types'
 import { asClient } from '@platform/db'
 import { LANES } from '@contracts/discovery/lanes'
 
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 const LIVE = `s.status = 'live' AND s.enforcement_hold = 'none' AND s.deleted_at IS NULL`
 // verbatim twin of the 0032 product index expression (street-search.ts)
 const V_PRODUCT = `(setweight(to_tsvector('english', p.title), 'A') ||
@@ -91,7 +92,7 @@ export async function threadsFor(tx: Tx, subjectType: 'product' | 'deal', subjec
     const { rows: items } = await client.query<ThreadNeighbor & { published_at: string }>(
       `SELECT DISTINCT ON (s.id)
               p.id AS product_id, p.title,
-              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+              (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
               s.handle AS store_handle, s.name AS store_name, img.url AS image_url,
               l.published_at

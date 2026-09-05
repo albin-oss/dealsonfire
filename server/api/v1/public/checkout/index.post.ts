@@ -12,6 +12,7 @@ import { getContainer } from '../../../../utils/container'
 import { getServerConfig } from '../../../../utils/config'
 import { getOrCreateVisitorId } from '../../../../utils/visitor'
 import { checkoutRequest, type CheckoutResponse } from '@contracts/schemas/orders/checkout.schema'
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 import { ok, err, type Result } from '@shared/result'
 import { domainError, type DomainError } from '@shared/errors'
 
@@ -54,7 +55,7 @@ export default definePublicEndpoint({
     const maxOrderMinor = Number(process.env.NUXT_RISK_MAX_ORDER_MINOR ?? '0') || 0
     if (maxOrderMinor > 0) {
       const { rows: sub } = await c.pool.query<{ subtotal: string }>(
-        `SELECT COALESCE(sum(COALESCE(v.sale_amount, v.price_amount) * cl.quantity), 0)::text AS subtotal
+        `SELECT COALESCE(sum(${effectivePriceSql('v')} * cl.quantity), 0)::text AS subtotal
          FROM cart_lines cl JOIN product_variants v ON v.id = cl.variant_id WHERE cl.cart_id = $1`, [body.cart_id])
       if (Number(sub[0]?.subtotal ?? 0) > maxOrderMinor) {
         return ok({

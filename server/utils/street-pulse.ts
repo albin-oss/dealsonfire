@@ -50,6 +50,7 @@ import type { Tx } from '@platform/types'
 import { asClient } from '@platform/db'
 import type { ProjectionDefinition } from '@platform/projection-registry'
 
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 /** Every ranking constant, named, in one place. Change = reviewed diff. */
 export const PULSE = {
   /** Freshness half-life-ish: at 72h an item's freshness term has fallen to ~1/e·. */
@@ -226,7 +227,7 @@ const CANDIDATE_SQL = `
            WHEN 'deal' THEN left(coalesce(d.story, ''), 140)
            ELSE NULL END AS text,
          CASE WHEN sc.subject_type = 'product' THEN
-           (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = sc.subject_id) END AS price_minor,
+           (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = sc.subject_id) END AS price_minor,
          CASE WHEN sc.subject_type = 'product' THEN
            (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = sc.subject_id) END AS currency,
          img.url AS image_url

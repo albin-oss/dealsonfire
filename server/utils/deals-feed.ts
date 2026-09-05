@@ -11,6 +11,7 @@
 import { asClient } from '@platform/db'
 import type { Tx } from '@platform/types'
 
+import { effectivePriceSql } from '@domains/commerce/pricing/effective-price'
 export interface FeedDeal {
   id: string
   headline: string
@@ -60,7 +61,7 @@ export async function listDealsFeed(
     `SELECT d.id, d.headline, d.story, d.published_at::text AS published_at,
             s.handle AS store_handle, s.name AS store_name,
             p.id AS product_id, p.title AS product_title,
-            (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
+            (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_minor,
             (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS currency,
             img.url AS image_url, img.alt_text AS image_alt,
             (SELECT count(*)::int FROM deal_reactions r2 WHERE r2.deal_id = d.id) AS fires,
@@ -225,7 +226,7 @@ export async function listHomeFeed(
        SELECT 'deal'::text AS type, d.id, d.headline AS text, d.story,
               d.published_at::text AS published_at, s.handle AS store_handle, s.name AS store_name,
               p.id AS product_id, p.title AS product_title,
-              (SELECT min(vr.price_amount)::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id) AS price_minor,
+              (SELECT min(${effectivePriceSql('vr')})::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id) AS price_minor,
               (SELECT min(vr.price_currency) FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id) AS currency,
               img.url AS image_url, img.alt_text AS image_alt,
               NULL AS promise,
@@ -307,7 +308,7 @@ export async function listHomeFeed(
        SELECT 'product'::text, p.id, p.title, NULL,
               l.published_at::text, s.handle, s.name,
               p.id, p.title,
-              (SELECT min(vr.price_amount)::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
+              (SELECT min(${effectivePriceSql('vr')})::int FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
               (SELECT min(vr.price_currency) FROM product_variants vr WHERE vr.price_amount > 0 AND vr.product_id = p.id),
               img.url, img.alt_text,
               NULL,

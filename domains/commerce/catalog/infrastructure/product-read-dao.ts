@@ -11,6 +11,7 @@ import { type Result, ok } from '../../../../shared/result'
 import type { DomainError } from '../../../../shared/errors'
 import type { BusinessId } from '../../../merchant/shared-kernel/ids'
 import type { ProductStatus } from '../domain/value-objects'
+import { effectivePriceSql } from '../../pricing/effective-price'
 
 export interface ProductGridRow {
   id: string
@@ -76,7 +77,7 @@ export class PgProductReadDao extends PgRepositoryBase {
               img.url AS image_url, img.alt_text AS image_alt,
               (SELECT count(*)::int FROM product_variants v WHERE v.product_id = p.id) AS variant_count,
               (SELECT count(*)::int FROM product_media m WHERE m.product_id = p.id) AS media_count,
-              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.product_id = p.id) AS min_price_amount,
+              (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.product_id = p.id) AS min_price_amount,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.product_id = p.id) AS price_currency
        FROM products p
        LEFT JOIN LATERAL (
@@ -110,7 +111,7 @@ export class PgProductReadDao extends PgRepositoryBase {
       tx,
       `SELECT p.id, p.title, img.url AS image_url, img.alt_text AS image_alt,
               l.published_at::text AS published_at,
-              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
+              (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency
        FROM listings l
        JOIN products p ON p.id = l.product_id
@@ -146,7 +147,7 @@ export class PgProductReadDao extends PgRepositoryBase {
     }>(
       tx,
       `SELECT p.id, p.title, p.description, p.fulfillment_kind, img.url AS image_url, img.alt_text AS image_alt,
-              (SELECT min(v.price_amount)::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
+              (SELECT min(${effectivePriceSql('v')})::int FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS min_price_amount,
               (SELECT min(v.price_currency) FROM product_variants v WHERE v.price_amount > 0 AND v.product_id = p.id) AS price_currency
        FROM listings l
        JOIN products p ON p.id = l.product_id
@@ -175,12 +176,7 @@ export class PgProductReadDao extends PgRepositoryBase {
     return this.many(
       tx,
       `SELECT v.id, v.option_values,
-              COALESCE(
-                CASE WHEN v.sale_amount IS NOT NULL
-                      AND (v.sale_starts_at IS NULL OR v.sale_starts_at <= now())
-                      AND (v.sale_ends_at IS NULL OR v.sale_ends_at > now())
-                     THEN v.sale_amount END,
-                v.price_amount)::int AS price_minor,
+              ${effectivePriceSql('v')}::int AS price_minor,
               v.price_currency AS currency
        FROM product_variants v
        WHERE v.product_id = $1 AND v.price_amount > 0
