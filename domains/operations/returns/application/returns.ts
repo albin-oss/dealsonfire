@@ -60,6 +60,27 @@ export class PgReturnsRepository {
     return out
   }
 
+  /**
+   * Merchant returns queue (SV-3) — every case across all four states, newest first, a
+   * projection of the return state machine. Minimum disclosure: order id, state, reason,
+   * tracking, refund, line count — no buyer name/address/email (a list needs none).
+   */
+  async listByBusiness(tx: Tx, businessId: string, limit = 100): Promise<Array<{
+    id: string; order_id: string; state: string; reason_code: string | null; tracking_ref: string | null
+    refund_minor: number; resolved_without_return: boolean; line_count: number; created_at: string
+  }>> {
+    const { rows } = await asClient(tx).query<{
+      id: string; order_id: string; state: string; reason_code: string | null; tracking_ref: string | null
+      refund_minor: number; resolved_without_return: boolean; line_count: number; created_at: string
+    }>(
+      `SELECT c.id, c.order_id, c.state, c.reason_code, c.tracking_ref,
+              COALESCE(c.refund_minor, 0)::int AS refund_minor, c.resolved_without_return, c.created_at::text AS created_at,
+              (SELECT count(*)::int FROM return_case_lines l WHERE l.case_id = c.id) AS line_count
+       FROM return_cases c WHERE c.business_id = $1
+       ORDER BY c.created_at DESC LIMIT $2`, [businessId, limit])
+    return rows
+  }
+
   /** The buyer's ask. One open case per order at a time (simple, honest v1). */
   async request(tx: Tx, input: {
     businessId: string; orderId: string; storeId: string

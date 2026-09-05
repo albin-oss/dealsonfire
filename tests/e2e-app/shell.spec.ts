@@ -67,9 +67,11 @@ test('ask bar: mod+k opens, narrows, Enter navigates; recents recorded', async (
 })
 
 test('coming-soon pages teach the opportunity and pass axe', async ({ page }) => {
-  await gotoFresh(page, '/inventory')
-  await expect(page.getByText('Counts where your products are', { exact: false })).toBeVisible()
-  await expect(page.getByText('Inventory is on its way')).toBeVisible()
+  // Inventory/Shipping/Returns are now real operational destinations (SV-3); Customers
+  // remains a coming-soon surface and stands in for the shell's empty-state contract.
+  await gotoFresh(page, '/customers')
+  await expect(page.getByText('The people who came back', { exact: false })).toBeVisible()
+  await expect(page.getByText('Customers is on its way')).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()
   expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([])
 })
